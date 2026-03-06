@@ -48,7 +48,6 @@ function(turbot_enable_coverage target)
         )
         target_link_options(${target} PRIVATE
             -fprofile-instr-generate
-            -fprofile-instr-generate
         )
     endif()
 
