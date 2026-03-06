@@ -218,4 +218,156 @@ TEST_CASE("string::wildcard_match", "[utils][string]") {
         REQUIRE(wildcard_match("", "") == true);
         REQUIRE(wildcard_match("", "anything") == false);
     }
+
+    SECTION("question mark wildcard") {
+        REQUIRE(wildcard_match("h?llo", "hello") == true);
+        REQUIRE(wildcard_match("h?llo", "hallo") == true);
+        REQUIRE(wildcard_match("h?llo", "hllo") == false);
+        REQUIRE(wildcard_match("??", "ab") == true);
+    }
+
+    SECTION("special regex characters") {
+        REQUIRE(wildcard_match("file.txt", "file.txt") == true);
+        REQUIRE(wildcard_match("test[1]", "test[1]") == true);
+        REQUIRE(wildcard_match("(a|b)", "(a|b)") == true);
+    }
+
+    SECTION("case insensitive") {
+        REQUIRE(wildcard_match("HELLO", "hello") == true);
+        REQUIRE(wildcard_match("Hello*", "hello world") == true);
+    }
+}
+
+TEST_CASE("string::to_lower", "[utils][string]") {
+    SECTION("basic conversion") {
+        REQUIRE(to_lower("HELLO") == "hello");
+        REQUIRE(to_lower("Hello World") == "hello world");
+    }
+
+    SECTION("already lowercase") {
+        REQUIRE(to_lower("hello") == "hello");
+    }
+
+    SECTION("empty string") {
+        REQUIRE(to_lower("") == "");
+    }
+
+    SECTION("numbers and special chars") {
+        REQUIRE(to_lower("ABC123!@#") == "abc123!@#");
+    }
+}
+
+TEST_CASE("string::to_upper", "[utils][string]") {
+    SECTION("basic conversion") {
+        REQUIRE(to_upper("hello") == "HELLO");
+        REQUIRE(to_upper("Hello World") == "HELLO WORLD");
+    }
+
+    SECTION("already uppercase") {
+        REQUIRE(to_upper("HELLO") == "HELLO");
+    }
+
+    SECTION("empty string") {
+        REQUIRE(to_upper("") == "");
+    }
+
+    SECTION("numbers and special chars") {
+        REQUIRE(to_upper("abc123!@#") == "ABC123!@#");
+    }
+}
+
+TEST_CASE("string::starts_with", "[utils][string]") {
+    SECTION("basic starts with") {
+        REQUIRE(starts_with("hello world", "hello") == true);
+        REQUIRE(starts_with("hello world", "world") == false);
+    }
+
+    SECTION("empty prefix") {
+        REQUIRE(starts_with("hello", "") == true);
+    }
+
+    SECTION("prefix longer than string") {
+        REQUIRE(starts_with("hi", "hello") == false);
+    }
+
+    SECTION("exact match") {
+        REQUIRE(starts_with("hello", "hello") == true);
+    }
+
+    SECTION("empty string") {
+        REQUIRE(starts_with("", "") == true);
+        REQUIRE(starts_with("", "a") == false);
+    }
+}
+
+TEST_CASE("string::ends_with", "[utils][string]") {
+    SECTION("basic ends with") {
+        REQUIRE(ends_with("hello world", "world") == true);
+        REQUIRE(ends_with("hello world", "hello") == false);
+    }
+
+    SECTION("empty suffix") {
+        REQUIRE(ends_with("hello", "") == true);
+    }
+
+    SECTION("suffix longer than string") {
+        REQUIRE(ends_with("hi", "hello") == false);
+    }
+
+    SECTION("exact match") {
+        REQUIRE(ends_with("hello", "hello") == true);
+    }
+
+    SECTION("empty string") {
+        REQUIRE(ends_with("", "") == true);
+        REQUIRE(ends_with("", "a") == false);
+    }
+}
+
+TEST_CASE("string::split with char delimiter", "[utils][string]") {
+    SECTION("basic split") {
+        auto result = split("a,b,c", ',');
+
+        REQUIRE(result.size() == 3);
+        REQUIRE(result[0] == "a");
+        REQUIRE(result[1] == "b");
+        REQUIRE(result[2] == "c");
+    }
+
+    SECTION("empty string") {
+        auto result = split("", ',');
+
+        REQUIRE(result.size() == 1);
+        REQUIRE(result[0] == "");
+    }
+
+    SECTION("delimiter not found") {
+        auto result = split("abc", ',');
+
+        REQUIRE(result.size() == 1);
+        REQUIRE(result[0] == "abc");
+    }
+}
+
+TEST_CASE("string::join with char delimiter", "[utils][string]") {
+    SECTION("basic join") {
+        std::vector<std::string> parts = {"a", "b", "c"};
+        auto result = join(parts, ',');
+
+        REQUIRE(result == "a,b,c");
+    }
+
+    SECTION("empty vector") {
+        std::vector<std::string> parts;
+        auto result = join(parts, ',');
+
+        REQUIRE(result == "");
+    }
+
+    SECTION("single element") {
+        std::vector<std::string> parts = {"a"};
+        auto result = join(parts, ',');
+
+        REQUIRE(result == "a");
+    }
 }

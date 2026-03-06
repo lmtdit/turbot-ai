@@ -177,7 +177,7 @@ TEST_CASE("Config::watch", "[core][config]") {
         bool callback_called = false;
         std::string new_value;
 
-        auto callback = [&callback_called, &new_value](const std::string& key,
+        auto callback = [&callback_called, &new_value]([[maybe_unused]] const std::string& key,
                                                        const nlohmann::json& value) {
             callback_called = true;
             new_value = value.get<std::string>();
@@ -209,5 +209,74 @@ TEST_CASE("Config::watch", "[core][config]") {
         config.set("test.unwatch", "should not trigger");
 
         REQUIRE_FALSE(callback_called);
+    }
+}
+
+TEST_CASE("Config::has", "[core][config]") {
+    auto& config = Config::instance();
+
+    SECTION("existing key") {
+        config.set("test.has.key", "value");
+
+        REQUIRE(config.has("test.has.key") == true);
+    }
+
+    SECTION("non-existing key") {
+        REQUIRE(config.has("non.existing.key") == false);
+    }
+
+    SECTION("nested existing key") {
+        config.set("test.nested.deep.key", "value");
+
+        REQUIRE(config.has("test.nested.deep.key") == true);
+        REQUIRE(config.has("test.nested.deep") == true);
+    }
+}
+
+TEST_CASE("Config::remove", "[core][config]") {
+    auto& config = Config::instance();
+
+    SECTION("remove existing key") {
+        config.set("test.remove.key", "value");
+
+        REQUIRE(config.remove("test.remove.key") == true);
+        REQUIRE_FALSE(config.has("test.remove.key"));
+    }
+
+    SECTION("remove non-existing key") {
+        REQUIRE(config.remove("non.existing.key") == false);
+    }
+
+    SECTION("remove nested key") {
+        config.set("test.remove.nested.key", "value");
+
+        REQUIRE(config.remove("test.remove.nested.key") == true);
+        REQUIRE_FALSE(config.has("test.remove.nested.key"));
+    }
+}
+
+TEST_CASE("Config::get_all", "[core][config]") {
+    auto& config = Config::instance();
+
+    SECTION("get all config") {
+        config.set("test.getall.key1", "value1");
+        config.set("test.getall.key2", 42);
+
+        auto all = config.get_all();
+
+        REQUIRE(all.is_object());
+        REQUIRE(all.contains("test"));
+    }
+}
+
+TEST_CASE("Config::clear", "[core][config]") {
+    auto& config = Config::instance();
+
+    SECTION("clear all config") {
+        config.set("test.clear.key", "value");
+
+        config.clear();
+
+        REQUIRE_FALSE(config.has("test.clear.key"));
     }
 }

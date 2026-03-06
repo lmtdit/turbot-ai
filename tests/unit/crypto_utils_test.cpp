@@ -89,10 +89,9 @@ TEST_CASE("crypto::aes_256_gcm", "[utils][crypto]") {
         std::string wrong_key = "11111111111111111111111111111111";
 
         auto encrypted = aes_256_gcm_encrypt(plaintext, correct_key);
-        std::string decrypted = aes_256_gcm_decrypt(encrypted, wrong_key);
 
-        // Decryption should fail or produce different result
-        REQUIRE(decrypted != plaintext);
+        // Decryption should throw exception with wrong key
+        REQUIRE_THROWS_AS(aes_256_gcm_decrypt(encrypted, wrong_key), std::runtime_error);
     }
 
     SECTION("decrypt with wrong tag fails") {
@@ -102,10 +101,8 @@ TEST_CASE("crypto::aes_256_gcm", "[utils][crypto]") {
         auto encrypted = aes_256_gcm_encrypt(plaintext, key);
         encrypted.tag = "wrongtag";  // Tamper with the tag
 
-        std::string decrypted = aes_256_gcm_decrypt(encrypted, key);
-
-        // Decryption should fail or produce different result
-        REQUIRE(decrypted != plaintext);
+        // Decryption should throw exception with wrong tag
+        REQUIRE_THROWS_AS(aes_256_gcm_decrypt(encrypted, key), std::runtime_error);
     }
 
     SECTION("encrypt empty string") {

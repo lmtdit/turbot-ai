@@ -175,3 +175,259 @@ TEST_CASE("json::get_safe", "[utils][json]") {
         REQUIRE(default_age == 0);
     }
 }
+
+TEST_CASE("json::has_path", "[utils][json]") {
+    SECTION("existing path") {
+        nlohmann::json data = {
+            {"a", {
+                {"b", {
+                    {"c", 42}
+                }}
+            }}
+        };
+
+        REQUIRE(has_path(data, "a.b.c") == true);
+        REQUIRE(has_path(data, "a.b") == true);
+        REQUIRE(has_path(data, "a") == true);
+    }
+
+    SECTION("non-existing path") {
+        nlohmann::json data = {{"a", 1}};
+
+        REQUIRE(has_path(data, "a.b.c") == false);
+        REQUIRE(has_path(data, "x") == false);
+    }
+
+    SECTION("empty path") {
+        nlohmann::json data = {{"a", 1}};
+
+        REQUIRE(has_path(data, "") == true);
+    }
+}
+
+TEST_CASE("json::clone", "[utils][json]") {
+    SECTION("clone object") {
+        nlohmann::json original = {
+            {"name", "John"},
+            {"age", 30}
+        };
+
+        auto cloned = clone(original);
+
+        REQUIRE(cloned == original);
+
+        // Modify clone, original should be unchanged
+        cloned["name"] = "Jane";
+        REQUIRE(original["name"] == "John");
+        REQUIRE(cloned["name"] == "Jane");
+    }
+
+    SECTION("clone array") {
+        nlohmann::json original = {1, 2, 3, 4, 5};
+        auto cloned = clone(original);
+
+        REQUIRE(cloned == original);
+    }
+}
+
+TEST_CASE("json::equals", "[utils][json]") {
+    SECTION("equal objects") {
+        nlohmann::json a = {{"key", "value"}};
+        nlohmann::json b = {{"key", "value"}};
+
+        REQUIRE(equals(a, b) == true);
+    }
+
+    SECTION("different objects") {
+        nlohmann::json a = {{"key", "value1"}};
+        nlohmann::json b = {{"key", "value2"}};
+
+        REQUIRE(equals(a, b) == false);
+    }
+
+    SECTION("different types") {
+        nlohmann::json a = {{"key", "value"}};
+        nlohmann::json b = {1, 2, 3};
+
+        REQUIRE(equals(a, b) == false);
+    }
+}
+
+TEST_CASE("json::remove_path", "[utils][json]") {
+    SECTION("remove nested key") {
+        nlohmann::json data = {
+            {"a", {
+                {"b", {
+                    {"c", 42}
+                }}
+            }}
+        };
+
+        REQUIRE(remove_path(data, "a.b.c") == true);
+        REQUIRE_FALSE(data["a"]["b"].contains("c"));
+    }
+
+    SECTION("remove non-existing path") {
+        nlohmann::json data = {{"a", 1}};
+
+        REQUIRE(remove_path(data, "x.y.z") == false);
+    }
+
+    SECTION("remove from array") {
+        nlohmann::json data = {
+            {"items", {1, 2, 3, 4, 5}}
+        };
+
+        REQUIRE(remove_path(data, "items[2]") == true);
+        REQUIRE(data["items"].size() == 4);
+        REQUIRE(data["items"][2] == 4);
+    }
+
+    SECTION("empty path") {
+        nlohmann::json data = {{"a", 1}};
+        REQUIRE(remove_path(data, "") == false);
+    }
+}
+
+TEST_CASE("json::pretty_print", "[utils][json]") {
+    SECTION("print with indent") {
+        nlohmann::json data = {{"name", "John"}, {"age", 30}};
+        std::string result = pretty_print(data, 2);
+
+        REQUIRE(result.find("\n") != std::string::npos);
+        REQUIRE(result.find("  ") != std::string::npos);  // 2-space indent
+    }
+
+    SECTION("print with default indent") {
+        nlohmann::json data = {{"key", "value"}};
+        std::string result = pretty_print(data);
+
+        REQUIRE(result.find("\n") != std::string::npos);
+    }
+}
+
+TEST_CASE("json::split_path", "[utils][json]") {
+    SECTION("simple path") {
+        auto parts = split_path("a.b.c");
+
+        REQUIRE(parts.size() == 3);
+        REQUIRE(parts[0] == "a");
+        REQUIRE(parts[1] == "b");
+        REQUIRE(parts[2] == "c");
+    }
+
+    SECTION("path with array index") {
+        auto parts = split_path("arr[0].field");
+
+        REQUIRE(parts.size() == 3);
+        REQUIRE(parts[0] == "arr");
+        REQUIRE(parts[1] == "[0]");
+        REQUIRE(parts[2] == "field");
+    }
+
+    SECTION("empty path") {
+        auto parts = split_path("");
+        REQUIRE(parts.empty());
+    }
+}
+
+TEST_CASE("json::get_or", "[utils][json]") {
+    SECTION("existing key returns value") {
+        nlohmann::json data = {{"name", "John"}, {"age", 30}};
+
+        REQUIRE(get_or<std::string>(data, "name", "default") == "John");
+        REQUIRE(get_or<int>(data, "age", 0) == 30);
+    }
+
+    SECTION("non-existing key returns default") {
+        nlohmann::json data = {{"name", "John"}};
+
+        REQUIRE(get_or<std::string>(data, "missing", "default") == "default");
+        REQUIRE(get_or<int>(data, "age", 99) == 99);
+    }
+}
+
+TEST_CASE("json::validate_schema advanced", "[utils][json]") {
+    SECTION("integer type") {
+        nlohmann::json schema = R"({"type": "integer"})"_json;
+
+        REQUIRE(validate_schema(42, schema) == true);
+        REQUIRE(validate_schema(3.14, schema) == false);  // float is not integer
+        REQUIRE(validate_schema("42", schema) == false);
+    }
+
+    SECTION("boolean type") {
+        nlohmann::json schema = R"({"type": "boolean"})"_json;
+
+        REQUIRE(validate_schema(true, schema) == true);
+        REQUIRE(validate_schema(false, schema) == true);
+        REQUIRE(validate_schema("true", schema) == false);
+    }
+
+    SECTION("null type") {
+        nlohmann::json schema = R"({"type": "null"})"_json;
+
+        REQUIRE(validate_schema(nullptr, schema) == true);
+        REQUIRE(validate_schema(0, schema) == false);
+    }
+
+    SECTION("enum validation") {
+        nlohmann::json schema = R"({
+            "enum": ["red", "green", "blue"]
+        })"_json;
+
+        REQUIRE(validate_schema("red", schema) == true);
+        REQUIRE(validate_schema("yellow", schema) == false);
+        REQUIRE(validate_schema(42, schema) == false);
+    }
+
+    SECTION("array type") {
+        nlohmann::json schema = R"({"type": "array"})"_json;
+
+        REQUIRE(validate_schema({1, 2, 3}, schema) == true);
+        REQUIRE(validate_schema("not array", schema) == false);
+    }
+
+    SECTION("invalid schema type") {
+        nlohmann::json schema = "invalid";  // Not an object
+        nlohmann::json data = {{"key", "value"}};
+
+        REQUIRE(validate_schema(data, schema) == false);
+    }
+}
+
+TEST_CASE("json::query advanced", "[utils][json]") {
+    SECTION("nested array index") {
+        nlohmann::json data = {
+            {"matrix", {
+                {1, 2, 3},
+                {4, 5, 6}
+            }}
+        };
+
+        auto result = query(data, "matrix[0][1]");
+        REQUIRE(result.has_value());
+        REQUIRE(result.value() == 2);
+    }
+
+    SECTION("out of range index") {
+        nlohmann::json data = {{"arr", {1, 2, 3}}};
+
+        auto result = query(data, "arr[10]");
+        REQUIRE_FALSE(result.has_value());
+    }
+
+    SECTION("invalid index format") {
+        nlohmann::json data = {{"arr", {1, 2, 3}}};
+
+        auto result = query(data, "arr[abc]");
+        REQUIRE_FALSE(result.has_value());
+    }
+
+    SECTION("index on non-array") {
+        nlohmann::json data = {{"obj", {{"key", "value"}}}};
+
+        auto result = query(data, "obj[0]");
+        REQUIRE_FALSE(result.has_value());
+    }
+}
