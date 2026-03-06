@@ -8,6 +8,14 @@
 #include <cctype>
 #include <sstream>
 
+// macOS environ workaround
+#if defined(__APPLE__)
+#include <crt_externs.h>
+#define environ (*_NSGetEnviron())
+#else
+extern char** environ;
+#endif
+
 using namespace turbot::utils;
 
 namespace turbot::core {
@@ -74,7 +82,6 @@ void Config::load_from_string(const std::string& content) {
 }
 
 void Config::load_from_env(const std::string& prefix) {
-    extern char** environ;
     int count = 0;
 
     // 计算环境变量数量
