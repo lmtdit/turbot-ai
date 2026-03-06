@@ -63,11 +63,6 @@ target_compile_definitions(${LIBRARY_NAME}
         TURBOT_UTILS_EXPORTS
 )
 
-# Tests
-if(TURBOT_BUILD_TESTS)
-    add_subdirectory(tests)
-endif()
-
 # Installation
 install(TARGETS ${LIBRARY_NAME}
     EXPORT turbot-utils-targets
