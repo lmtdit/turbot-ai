@@ -137,7 +137,7 @@ TEST_CASE("Config::save", "[core][config]") {
         REQUIRE(std::filesystem::exists(temp_file));
 
         // Load and verify
-        Config new_config;
+        auto& new_config = Config::instance();
         new_config.load(temp_file);
         auto result = new_config.get<std::string>("save.test");
         REQUIRE(result.has_value());

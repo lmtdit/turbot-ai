@@ -1,7 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <turbot/utils/string_utils.hpp>
 
-using namespace turbot::utils::string;
+using namespace turbot::utils;
 
 TEST_CASE("string::split", "[utils][string]") {
     SECTION("basic split") {
