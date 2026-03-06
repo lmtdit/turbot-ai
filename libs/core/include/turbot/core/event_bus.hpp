@@ -159,6 +159,21 @@ public:
     }
 
     /**
+     * @brief 订阅事件（同步处理器 - 任意可调用对象）
+     * @tparam T 事件数据类型
+     * @tparam F 可调用对象类型
+     * @param name 事件名称
+     * @param handler 事件处理器（lambda、函数指针等）
+     * @param filter 过滤器（可选）
+     * @return 订阅ID
+     */
+    template<typename T, typename F>
+    std::string subscribe(const std::string& name, F&& handler,
+                           const std::string& filter = "") {
+        return subscribe<T>(name, EventHandler<T>(std::forward<F>(handler)), filter);
+    }
+
+    /**
      * @brief 订阅事件（异步处理器）
      * @tparam T 事件数据类型
      * @param name 事件名称

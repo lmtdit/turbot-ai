@@ -26,7 +26,7 @@ TEST_CASE("EventBus::publish and subscribe", "[core][event]") {
             received_data = event.data;
         };
 
-        bus.subscribe("test.event", handler);
+        bus.subscribe<std::string>("test.event", handler);
         bus.publish("test.event", std::string("test data"));
 
         REQUIRE(called);
@@ -40,8 +40,8 @@ TEST_CASE("EventBus::publish and subscribe", "[core][event]") {
             call_count += event.data;
         };
 
-        bus.subscribe("test.multi", handler);
-        bus.subscribe("test.multi", handler);
+        bus.subscribe<int>("test.multi", handler);
+        bus.subscribe<int>("test.multi", handler);
 
         bus.publish("test.multi", 5);
 
@@ -64,7 +64,7 @@ TEST_CASE("EventBus::unsubscribe", "[core][event]") {
             call_count += event.data;
         };
 
-        std::string handler_id = bus.subscribe("test.unsubscribe", handler);
+        std::string handler_id = bus.subscribe<int>("test.unsubscribe", handler);
 
         // First publish
         bus.publish("test.unsubscribe", 5);
@@ -93,11 +93,11 @@ TEST_CASE("EventBus::subscriber_count", "[core][event]") {
         REQUIRE(bus.subscriber_count(event_name) == 0);
 
         auto handler = [](const Event<int>&) {};
-        bus.subscribe(event_name, handler);
+        bus.subscribe<int>(event_name, handler);
 
         REQUIRE(bus.subscriber_count(event_name) == 1);
 
-        bus.subscribe(event_name, handler);
+        bus.subscribe<int>(event_name, handler);
 
         REQUIRE(bus.subscriber_count(event_name) == 2);
     }
@@ -115,9 +115,9 @@ TEST_CASE("EventBus::list_events", "[core][event]") {
 
         auto handler = [](const Event<int>&) {};
 
-        bus.subscribe("event1", handler);
-        bus.subscribe("event2", handler);
-        bus.subscribe("event3", handler);
+        bus.subscribe<int>("event1", handler);
+        bus.subscribe<int>("event2", handler);
+        bus.subscribe<int>("event3", handler);
 
         auto events = bus.list_events();
 
