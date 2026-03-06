@@ -36,5 +36,7 @@
 ### 调研分析
 
 - [1.0-opencode-project-architecture-analysis.md](./researchs/1.0-opencode-project-architecture-analysis.md) - OpenCode 项目架构设计/核心概念/核心流程技术分析报告
+- [1.1-opencode-core-concepts-multi-agent-design-analysis.md](./researchs/1.1-opencode-core-concepts-multi-agent-design-analysis.md) - OpenCode 核心概念/多代理协作架构深度分析
+- [2.0-turbot-ai-multi-agent-architecture-implementation-plan.md](./researchs/2.0-turbot-ai-multi-agent-architecture-implementation-plan.md) - Turbot-AI 多Agent协作架构技术实现方案
 
 <!-- ToDo -->
