@@ -22,6 +22,7 @@ class TurbotAIRecipe(ConanFile):
         "nlohmann_json/3.11.3",
         "catch2/3.5.3",
         "boost/1.84.0",
+        "openssl/3.2.1",
     ]
 
     test_requires = [
