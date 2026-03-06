@@ -33,4 +33,8 @@
 
 ## 快速导航
 
+### 调研分析
+
+- [1.0-opencode-project-architecture-analysis.md](./researchs/1.0-opencode-project-architecture-analysis.md) - OpenCode 项目架构设计/核心概念/核心流程技术分析报告
+
 <!-- ToDo -->
