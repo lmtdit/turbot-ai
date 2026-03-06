@@ -23,6 +23,7 @@ class TurbotAIRecipe(ConanFile):
         "catch2/3.5.3",
         "boost/1.84.0",
         "openssl/3.2.1",
+        "sqlite3/3.45.0",
     ]
 
     test_requires = [
@@ -51,4 +52,4 @@ class TurbotAIRecipe(ConanFile):
 
     # Package info
     def package_info(self):
-        self.cpp_info.libs = ["turbot-core", "turbot-network", "turbot-utils"]
+        self.cpp_info.libs = ["turbot-core", "turbot-network", "turbot-utils", "turbot-storage"]
