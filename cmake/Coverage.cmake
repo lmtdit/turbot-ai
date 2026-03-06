@@ -9,6 +9,7 @@ find_program(LCOV_PATH lcov)
 find_program(GENHTML_PATH genhtml)
 find_program(LLVM_COV_PATH llvm-cov)
 find_program(LLVM_PROFDATA_PATH llvm-profdata)
+find_program(XCODEBUILD_PATH xcodebuild)
 
 # Enable coverage for a target
 function(turbot_enable_coverage target)
@@ -27,15 +28,27 @@ function(turbot_enable_coverage target)
         target_link_options(${target} PRIVATE --coverage)
     endif()
 
-    # Clang coverage
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Clang coverage (non-Apple)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT APPLE)
         target_compile_options(${target} PRIVATE
             -fprofile-instr-generate
             -fcoverage-mapping
         )
         target_link_options(${target} PRIVATE
             -fprofile-instr-generate
+            -fprofile-rt
+        )
+    endif()
+
+    # Apple Clang coverage (Xcode)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE)
+        target_compile_options(${target} PRIVATE
+            -fprofile-instr-generate
             -fcoverage-mapping
+        )
+        target_link_options(${target} PRIVATE
+            -fprofile-instr-generate
+            -fprofile-instr-generate
         )
     endif()
 
@@ -63,12 +76,24 @@ function(turbot_generate_coverage_report)
         )
     endif()
 
-    # Clang coverage
-    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND LLVM_COV_PATH AND LLVM_PROFDATA_PATH)
+    # Clang coverage (non-Apple)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND NOT APPLE AND LLVM_COV_PATH AND LLVM_PROFDATA_PATH)
         add_custom_target(coverage
             COMMAND ${LLVM_PROFDATA_PATH} merge -sparse default.profraw -o default.profdata
             COMMAND ${LLVM_COV_PATH} report ./bin/${PROJECT_NAME} -instr-profile=default.profdata
             COMMAND ${LLVM_COV_PATH} show ./bin/${PROJECT_NAME} -instr-profile=default.profdata -format=html -output-dir=${OUTPUT_DIR}
+            COMMAND ${CMAKE_COMMAND} -E echo "Coverage report generated in ${OUTPUT_DIR}/index.html"
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+            COMMENT "Generating coverage report..."
+        )
+    endif()
+
+    # Apple Clang coverage (Xcode)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" AND APPLE AND LLVM_COV_PATH AND LLVM_PROFDATA_PATH)
+        add_custom_target(coverage
+            COMMAND ${LLVM_PROFDATA_PATH} merge -sparse default.profraw -o default.profdata
+            COMMAND ${LLVM_COV_PATH} report ./tests/turbot-unit-tests -instr-profile=default.profdata
+            COMMAND ${LLVM_COV_PATH} show ./tests/turbot-unit-tests -instr-profile=default.profdata -format=html -output-dir=${OUTPUT_DIR}
             COMMAND ${CMAKE_COMMAND} -E echo "Coverage report generated in ${OUTPUT_DIR}/index.html"
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
             COMMENT "Generating coverage report..."

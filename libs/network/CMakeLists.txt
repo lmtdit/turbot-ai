@@ -40,11 +40,12 @@ target_link_libraries(${LIBRARY_NAME}
         turbot::utils
 )
 
-find_package(Boost REQUIRED COMPONENTS system)
-target_link_libraries(${LIBRARY_NAME}
-    PUBLIC
-        Boost::system
-)
+# Boost dependency removed - not currently needed for placeholder implementation
+# find_package(Boost REQUIRED COMPONENTS system)
+# target_link_libraries(${LIBRARY_NAME}
+#     PUBLIC
+#         Boost::system
+# )
 
 # Export macros
 target_compile_definitions(${LIBRARY_NAME}

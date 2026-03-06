@@ -25,14 +25,19 @@ target_link_libraries(${APP_NAME}
 
 find_package(fmt REQUIRED)
 find_package(nlohmann_json REQUIRED)
-find_package(Boost REQUIRED COMPONENTS system)
 
 target_link_libraries(${APP_NAME}
     PRIVATE
         fmt::fmt
         nlohmann_json::nlohmann_json
-        Boost::system
 )
+
+# Boost dependency removed - not currently needed
+# find_package(Boost REQUIRED COMPONENTS system)
+# target_link_libraries(${APP_NAME}
+#     PRIVATE
+#         Boost::system
+# )
 
 # Set output directory
 set_target_properties(${APP_NAME} PROPERTIES
