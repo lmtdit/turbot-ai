@@ -1,0 +1,92 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Default Config",
+      "description": "Default build configuration",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TURBOT_BUILD_TESTS": "ON",
+        "TURBOT_ENABLE_SANITIZERS": "OFF",
+        "TURBOT_ENABLE_COVERAGE": "OFF"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug Config",
+      "description": "Debug build with sanitizers",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TURBOT_BUILD_TESTS": "ON",
+        "TURBOT_ENABLE_SANITIZERS": "ON",
+        "TURBOT_ENABLE_COVERAGE": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release Config",
+      "description": "Release build with optimizations",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "TURBOT_BUILD_TESTS": "OFF",
+        "TURBOT_ENABLE_SANITIZERS": "OFF",
+        "TURBOT_ENABLE_COVERAGE": "OFF"
+      }
+    },
+    {
+      "name": "conan",
+      "displayName": "Conan Config",
+      "description": "Configuration for Conan dependencies",
+      "hidden": true,
+      "toolchainFile": "${sourceDir}/build/conan/conan_toolchain.cmake"
+    },
+    {
+      "name": "debug-conan",
+      "displayName": "Debug with Conan",
+      "inherits": ["debug", "conan"],
+      "binaryDir": "${sourceDir}/build/debug"
+    },
+    {
+      "name": "release-conan",
+      "displayName": "Release with Conan",
+      "inherits": ["release", "conan"],
+      "binaryDir": "${sourceDir}/build/release"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default"
+    },
+    {
+      "name": "debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "default",
+      "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": true
+      }
+    }
+  ]
+}
