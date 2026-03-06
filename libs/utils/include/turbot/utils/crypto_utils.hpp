@@ -13,14 +13,14 @@ namespace turbot::utils::crypto {
  * @param data 输入数据
  * @return SHA256哈希值（十六进制字符串）
  */
-TURBOT_UTILS_EXPORT std::string sha256(const std::string& data);
+TURBOT_UTILS_API std::string sha256(const std::string& data);
 
 /**
  * @brief SHA256哈希（字节数组）
  * @param data 输入数据
  * @return SHA256哈希值（32字节）
  */
-TURBOT_UTILS_EXPORT std::vector<uint8_t> sha256(const std::vector<uint8_t>& data);
+TURBOT_UTILS_API std::vector<uint8_t> sha256(const std::vector<uint8_t>& data);
 
 /**
  * @brief HMAC-SHA256签名
@@ -28,7 +28,7 @@ TURBOT_UTILS_EXPORT std::vector<uint8_t> sha256(const std::vector<uint8_t>& data
  * @param data 数据
  * @return HMAC-SHA256签名（十六进制字符串）
  */
-TURBOT_UTILS_EXPORT std::string hmac_sha256(const std::string& key,
+TURBOT_UTILS_API std::string hmac_sha256(const std::string& key,
                                              const std::string& data);
 
 /**
@@ -47,7 +47,7 @@ struct AesGcmResult {
  * @return 加密结果
  * @throws std::runtime_error 如果加密失败
  */
-TURBOT_UTILS_EXPORT AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext,
+TURBOT_UTILS_API AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext,
                                                       const std::string& key);
 
 /**
@@ -57,7 +57,7 @@ TURBOT_UTILS_EXPORT AesGcmResult aes_256_gcm_encrypt(const std::string& plaintex
  * @return 明文
  * @throws std::runtime_error 如果解密失败或验证失败
  */
-TURBOT_UTILS_EXPORT std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted,
+TURBOT_UTILS_API std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted,
                                                      const std::string& key);
 
 /**
@@ -66,7 +66,7 @@ TURBOT_UTILS_EXPORT std::string aes_256_gcm_decrypt(const AesGcmResult& encrypte
  * @return 随机字节
  * @throws std::runtime_error 如果生成失败
  */
-TURBOT_UTILS_EXPORT std::vector<uint8_t> random_bytes(size_t length);
+TURBOT_UTILS_API std::vector<uint8_t> random_bytes(size_t length);
 
 /**
  * @brief 生成随机字符串（十六进制）
@@ -74,7 +74,7 @@ TURBOT_UTILS_EXPORT std::vector<uint8_t> random_bytes(size_t length);
  * @return 随机字符串
  * @throws std::runtime_error 如果生成失败
  */
-TURBOT_UTILS_EXPORT std::string random_string(size_t length);
+TURBOT_UTILS_API std::string random_string(size_t length);
 
 /**
  * @brief 生成随机字符串（字母数字）
@@ -82,21 +82,21 @@ TURBOT_UTILS_EXPORT std::string random_string(size_t length);
  * @return 随机字符串
  * @throws std::runtime_error 如果生成失败
  */
-TURBOT_UTILS_EXPORT std::string random_alphanumeric(size_t length);
+TURBOT_UTILS_API std::string random_alphanumeric(size_t length);
 
 /**
  * @brief Base64编码
  * @param data 输入数据
  * @return Base64编码字符串
  */
-TURBOT_UTILS_EXPORT std::string base64_encode(const std::string& data);
+TURBOT_UTILS_API std::string base64_encode(const std::string& data);
 
 /**
  * @brief Base64编码（字节数组）
  * @param data 输入数据
  * @return Base64编码字符串
  */
-TURBOT_UTILS_EXPORT std::string base64_encode(const std::vector<uint8_t>& data);
+TURBOT_UTILS_API std::string base64_encode(const std::vector<uint8_t>& data);
 
 /**
  * @brief Base64解码
@@ -104,7 +104,7 @@ TURBOT_UTILS_EXPORT std::string base64_encode(const std::vector<uint8_t>& data);
  * @return 解码后的数据
  * @throws std::runtime_error 如果解码失败
  */
-TURBOT_UTILS_EXPORT std::string base64_decode(const std::string& encoded);
+TURBOT_UTILS_API std::string base64_decode(const std::string& encoded);
 
 /**
  * @brief Base64解码（返回字节数组）
@@ -112,19 +112,19 @@ TURBOT_UTILS_EXPORT std::string base64_decode(const std::string& encoded);
  * @return 解码后的数据
  * @throws std::runtime_error 如果解码失败
  */
-TURBOT_UTILS_EXPORT std::vector<uint8_t> base64_decode_bytes(const std::string& encoded);
+TURBOT_UTILS_API std::vector<uint8_t> base64_decode_bytes(const std::string& encoded);
 
 /**
  * @brief 生成UUID v4
  * @return UUID字符串（格式：xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx）
  */
-TURBOT_UTILS_EXPORT std::string generate_uuid();
+TURBOT_UTILS_API std::string generate_uuid();
 
 /**
  * @brief 验证UUID格式
  * @param uuid UUID字符串
  * @return 是否为有效的UUID
  */
-TURBOT_UTILS_EXPORT bool is_valid_uuid(const std::string& uuid);
+TURBOT_UTILS_API bool is_valid_uuid(const std::string& uuid);
 
 } // namespace turbot::utils::crypto

@@ -6,16 +6,22 @@
 #include <openssl/sha.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <iomanip>
+#include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
-#include <random>
-#include <array>
+#include <vector>
 
 namespace turbot::utils::crypto {
 
 namespace {
+
+    // 函数声明
+    bool is_base64(uint8_t c);
+
     // 十六进制编码
     std::string to_hex(const std::vector<uint8_t>& data) {
         std::ostringstream oss;
@@ -40,7 +46,7 @@ namespace {
     }
 
     // Base64编码表
-    constexpr char base64_chars[] =
+    constexpr std::string_view base64_chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "abcdefghijklmnopqrstuvwxyz"
         "0123456789+/";
@@ -48,8 +54,7 @@ namespace {
     // Base64编码
     std::string base64_encode_impl(const uint8_t* data, size_t length) {
         std::string result;
-        int i = 0;
-        int j = 0;
+        size_t i = 0;
         uint8_t char_array_3[3];
         uint8_t char_array_4[4];
 
@@ -61,15 +66,15 @@ namespace {
                 char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
                 char_array_4[3] = char_array_3[2] & 0x3f;
 
-                for (i = 0; i < 4; i++) {
-                    result += base64_chars[char_array_4[i]];
+                for (size_t j = 0; j < 4; j++) {
+                    result += base64_chars[char_array_4[j]];
                 }
                 i = 0;
             }
         }
 
         if (i) {
-            for (j = i; j < 3; j++) {
+            for (size_t j = i; j < 3; j++) {
                 char_array_3[j] = '\0';
             }
 
@@ -78,7 +83,7 @@ namespace {
             char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
             char_array_4[3] = char_array_3[2] & 0x3f;
 
-            for (j = 0; j < i + 1; j++) {
+            for (size_t j = 0; j < i + 1; j++) {
                 result += base64_chars[char_array_4[j]];
             }
 
