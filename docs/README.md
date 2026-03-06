@@ -40,6 +40,19 @@
 
 ### 项目计划
 
-- [2.0-turbot-ai-multi-agent-architecture-implementation-plan.md](./plans/2.0-turbot-ai-multi-agent-architecture-implementation-plan.md) - Turbot-AI 多Agent协作架构技术实现方案
+**总体规划**
+- [2.0-turbot-ai-multi-agent-architecture-implementation-plan.md](./plans/2.0-turbot-ai-multi-agent-architecture-implementation-plan.md) - Turbot-AI 多Agent协作架构技术实现方案（原始总体规划）
+
+**分阶段实现计划**
+- [1.1-turbot-ai-foundation-infra-plan.md](./plans/1.1-turbot-ai-foundation-infra-plan.md) - 基础架构实现计划（15-25天）
+- [1.2-turbot-ai-storage-layer-plan.md](./plans/1.2-turbot-ai-storage-layer-plan.md) - 存储层实现计划（13-20天）
+- [1.3-turbot-ai-network-layer-plan.md](./plans/1.3-turbot-ai-network-layer-plan.md) - 网络层实现计划（12-18天）
+- [1.4-turbot-ai-core-data-models-plan.md](./plans/1.4-turbot-ai-core-data-models-plan.md) - 核心数据模型实现计划（12-18天）
+- [1.5-turbot-ai-provider-system-plan.md](./plans/1.5-turbot-ai-provider-system-plan.md) - Provider系统实现计划（8-12天）
+- [1.6-turbot-ai-permission-tool-system-plan.md](./plans/1.6-turbot-ai-permission-tool-system-plan.md) - 权限和工具系统实现计划（9-14天）
+- [1.7-turbot-ai-agent-session-system-plan.md](./plans/1.7-turbot-ai-agent-session-system-plan.md) - Agent和会话系统实现计划（14-19天）
+- [1.8-turbot-ai-multiagent-app-plan.md](./plans/1.8-turbot-ai-multiagent-app-plan.md) - 多Agent协作和应用层实现计划（21-28天）
+
+**总体估算**: 104-154天（约3.5-5个月）
 
 <!-- ToDo -->
