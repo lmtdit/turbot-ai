@@ -144,8 +144,8 @@ TEST_CASE("EventBus::clear", "[core][event]") {
     SECTION("clear all subscriptions") {
         auto handler = [](const Event<int>&) {};
 
-        bus.subscribe("event1", handler);
-        bus.subscribe("event2", handler);
+        bus.subscribe<int>("event1", handler);
+        bus.subscribe<int>("event2", handler);
 
         REQUIRE(bus.subscriber_count("event1") == 1);
         REQUIRE(bus.subscriber_count("event2") == 1);
