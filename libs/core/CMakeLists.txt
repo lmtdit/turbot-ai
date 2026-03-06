@@ -6,12 +6,16 @@ set(LIBRARY_NAME turbot-core)
 set(CORE_SOURCES
     src/version.cpp
     src/logger.cpp
+    src/config.cpp
+    src/event_bus.cpp
 )
 
 # Header files
 set(CORE_HEADERS
     include/turbot/core/version.hpp
     include/turbot/core/logger.hpp
+    include/turbot/core/config.hpp
+    include/turbot/core/event_bus.hpp
     include/turbot/core/export.hpp
 )
 
@@ -36,11 +40,15 @@ turbot_configure_coverage(${LIBRARY_NAME})
 # Dependencies
 find_package(fmt REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(nlohmann_json REQUIRED)
 
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
         fmt::fmt
         spdlog::spdlog
+        nlohmann_json::nlohmann_json
+    PRIVATE
+        turbot::utils
 )
 
 # Export macros
