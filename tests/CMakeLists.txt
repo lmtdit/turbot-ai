@@ -12,6 +12,8 @@ set(UNIT_TEST_SOURCES
     unit/file_utils_test.cpp
     unit/url_test.cpp
     unit/http_client_test.cpp
+    unit/logger_test.cpp
+    unit/version_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
