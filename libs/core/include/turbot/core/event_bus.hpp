@@ -7,6 +7,7 @@
 #include <future>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -87,21 +88,17 @@ public:
         if (it != handlers_.end()) {
             for (auto& entry : it->second) {
                 try {
-                    // 检查过滤器
                     if (!entry.filter.empty()) {
                         // TODO: 实现过滤器逻辑
                     }
 
-                    // 执行处理器
-                    if (std::holds_alternative<SyncHandlerAny>(entry.handler)) {
-                        auto& handler = std::get<SyncHandlerAny>(entry.handler);
-                        if (handler.type() == typeid(EventHandler<T>)) {
-                            std::any_cast<EventHandler<T>>(handler)(event);
-                        }
+                    // 执行处理器 - 使用简化的类型检查
+                    auto* handler = std::any_cast<EventHandler<T>>(&entry.handler);
+                    if (handler) {
+                        (*handler)(event);
                     }
                 } catch (const std::exception& e) {
                     // 记录错误但不中断其他处理器
-                    // TODO: 添加日志
                 }
             }
         }
@@ -125,11 +122,9 @@ public:
             if (it != handlers_.end()) {
                 for (auto& entry : it->second) {
                     try {
-                        if (std::holds_alternative<AsyncHandlerAny>(entry.handler)) {
-                            auto& handler = std::get<AsyncHandlerAny>(entry.handler);
-                            if (handler.type() == typeid(AsyncEventHandler<T>)) {
-                                std::any_cast<AsyncEventHandler<T>>(handler)(event).wait();
-                            }
+                        auto* handler = std::any_cast<AsyncEventHandler<T>>(&entry.handler);
+                        if (handler) {
+                            (*handler)(event).wait();
                         }
                     } catch (const std::exception& e) {
                         // 记录错误
@@ -152,7 +147,7 @@ public:
                            const std::string& filter = "") {
         std::unique_lock<std::shared_mutex> lock(mutex_);
 
-        std::string id = generate_uuid();
+        std::string id = turbot::utils::generate_uuid();
         HandlerEntry entry;
         entry.id = id;
         entry.filter = filter;
@@ -176,7 +171,7 @@ public:
                                  const std::string& filter = "") {
         std::unique_lock<std::shared_mutex> lock(mutex_);
 
-        std::string id = generate_uuid();
+        std::string id = turbot::utils::generate_uuid();
         HandlerEntry entry;
         entry.id = id;
         entry.filter = filter;
@@ -230,12 +225,6 @@ private:
         std::string filter;
         std::any handler;
     };
-
-    // 同步处理器的any类型
-    using SyncHandlerAny = std::function<void(const std::any&)>;
-
-    // 异步处理器的any类型
-    using AsyncHandlerAny = std::function<std::future<void>(const std::any&)>;
 
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, std::vector<HandlerEntry>> handlers_;

@@ -1,7 +1,9 @@
 #include <turbot/core/event_bus.hpp>
-#include <turbot/utils/crypto_utils.hpp>
+#include <turbot/utils/string_utils.hpp>
 #include <algorithm>
 #include <set>
+
+using namespace turbot::utils;
 
 namespace turbot::core {
 
