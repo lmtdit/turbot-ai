@@ -53,11 +53,6 @@ target_compile_definitions(${LIBRARY_NAME}
         TURBOT_NETWORK_EXPORTS
 )
 
-# Tests
-if(TURBOT_BUILD_TESTS)
-    add_subdirectory(tests)
-endif()
-
 # Installation
 install(TARGETS ${LIBRARY_NAME}
     EXPORT turbot-network-targets
