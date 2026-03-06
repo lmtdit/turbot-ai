@@ -6,12 +6,16 @@ set(LIBRARY_NAME turbot-utils)
 set(UTILS_SOURCES
     src/string_utils.cpp
     src/file_utils.cpp
+    src/json_utils.cpp
+    src/crypto_utils.cpp
 )
 
 # Header files
 set(UTILS_HEADERS
     include/turbot/utils/string_utils.hpp
     include/turbot/utils/file_utils.hpp
+    include/turbot/utils/json_utils.hpp
+    include/turbot/utils/crypto_utils.hpp
     include/turbot/utils/export.hpp
 )
 
@@ -43,6 +47,14 @@ find_package(fmt REQUIRED)
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
         fmt::fmt
+)
+
+# OpenSSL for crypto utilities
+find_package(OpenSSL REQUIRED)
+target_link_libraries(${LIBRARY_NAME}
+    PUBLIC
+        OpenSSL::Crypto
+        OpenSSL::SSL
 )
 
 # Export macros
