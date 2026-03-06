@@ -168,7 +168,7 @@ TEST_CASE("EventBus::event data", "[core][event]") {
             received_timestamp = event.timestamp;
         };
 
-        bus.subscribe("test.timestamp", handler);
+        bus.subscribe<int>("test.timestamp", handler);
         bus.publish("test.timestamp", 42);
 
         REQUIRE(received_timestamp > 0);
@@ -181,7 +181,7 @@ TEST_CASE("EventBus::event data", "[core][event]") {
             received_source = event.source;
         };
 
-        bus.subscribe("test.source", handler);
+        bus.subscribe<int>("test.source", handler);
         bus.publish("test.source", 42, "test_source");
 
         REQUIRE(received_source == "test_source");
@@ -194,7 +194,7 @@ TEST_CASE("EventBus::event data", "[core][event]") {
             received_source = event.source;
         };
 
-        bus.subscribe("test.default_source", handler);
+        bus.subscribe<int>("test.default_source", handler);
         bus.publish("test.default_source", 42);
 
         REQUIRE(received_source == "turbot");
@@ -217,7 +217,7 @@ TEST_CASE("EventBus::complex data types", "[core][event]") {
         };
 
         TestData data{42, "test"};
-        bus.subscribe("test.struct", handler);
+        bus.subscribe<TestData>("test.struct", handler);
         bus.publish("test.struct", data);
 
         REQUIRE(received.value == 42);
@@ -236,7 +236,7 @@ TEST_CASE("EventBus::complex data types", "[core][event]") {
             {"key2", 42}
         };
 
-        bus.subscribe("test.json", handler);
+        bus.subscribe<nlohmann::json>("test.json", handler);
         bus.publish("test.json", data);
 
         REQUIRE(received["key1"] == "value1");
