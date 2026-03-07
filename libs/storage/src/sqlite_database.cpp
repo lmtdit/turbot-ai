@@ -1,0 +1,452 @@
+#include <turbot/storage/sqlite_database.hpp>
+#include <turbot/core/logger.hpp>
+
+#include <chrono>
+#include <cstring>
+#include <stdexcept>
+
+namespace turbot::storage::sqlite {
+
+// ============================================================================
+// SQLiteDatabase Implementation
+// ============================================================================
+
+SQLiteDatabase::SQLiteDatabase(const DatabaseConfig& config)
+    : config_(config) {
+    int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+    if (config.read_only) {
+        flags = SQLITE_OPEN_READONLY;
+    }
+
+    int result = sqlite3_open_v2(config.path.c_str(), &db_, flags, nullptr);
+    if (result != SQLITE_OK) {
+        std::string err = sqlite3_errmsg(db_);
+        sqlite3_close(db_);
+        db_ = nullptr;
+        throw std::runtime_error("Failed to open database: " + err);
+    }
+
+    // Set busy timeout
+    sqlite3_busy_timeout(db_, config.timeout * 1000);
+
+    setup_pragmas();
+    ensure_migrations_table();
+
+    TURBOT_LOG_INFO("Opened SQLite database: {}", config.path);
+}
+
+SQLiteDatabase::~SQLiteDatabase() {
+    close();
+}
+
+SQLiteDatabase::SQLiteDatabase(SQLiteDatabase&& other) noexcept
+    : config_(std::move(other.config_))
+    , db_(other.db_) {
+    other.db_ = nullptr;
+}
+
+SQLiteDatabase& SQLiteDatabase::operator=(SQLiteDatabase&& other) noexcept {
+    if (this != &other) {
+        close();
+        config_ = std::move(other.config_);
+        db_ = other.db_;
+        other.db_ = nullptr;
+    }
+    return *this;
+}
+
+void SQLiteDatabase::setup_pragmas() {
+    // Enable WAL mode for better concurrency
+    if (config_.journal_wal) {
+        execute("PRAGMA journal_mode=WAL;");
+    }
+
+    // Enable foreign key constraints
+    if (config_.foreign_keys) {
+        execute("PRAGMA foreign_keys=ON;");
+    }
+
+    // Set cache size
+    execute("PRAGMA cache_size=" + std::to_string(config_.cache_size) + ";");
+
+    // Normal synchronous mode (balance between safety and performance)
+    execute("PRAGMA synchronous=NORMAL;");
+
+    // Temp storage in memory
+    execute("PRAGMA temp_store=MEMORY;");
+}
+
+void SQLiteDatabase::ensure_migrations_table() {
+    execute(R"(
+        CREATE TABLE IF NOT EXISTS _migrations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            version INTEGER NOT NULL,
+            executed_at INTEGER NOT NULL
+        )
+    )");
+}
+
+void SQLiteDatabase::bind_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {
+    if (value.is_null()) {
+        sqlite3_bind_null(stmt, index);
+    } else if (value.is_string()) {
+        auto str = value.get<std::string>();
+        sqlite3_bind_text(stmt, index, str.c_str(), static_cast<int>(str.size()),
+                          SQLITE_TRANSIENT);
+    } else if (value.is_number_integer()) {
+        sqlite3_bind_int64(stmt, index, value.get<int64_t>());
+    } else if (value.is_number_unsigned()) {
+        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(value.get<uint64_t>()));
+    } else if (value.is_number_float()) {
+        sqlite3_bind_double(stmt, index, value.get<double>());
+    } else if (value.is_boolean()) {
+        sqlite3_bind_int(stmt, index, value.get<bool>() ? 1 : 0);
+    } else {
+        // Complex types: serialize to JSON string
+        std::string json_str = value.dump();
+        sqlite3_bind_text(stmt, index, json_str.c_str(),
+                          static_cast<int>(json_str.size()), SQLITE_TRANSIENT);
+    }
+}
+
+nlohmann::json SQLiteDatabase::row_to_json(sqlite3_stmt* stmt) {
+    nlohmann::json row;
+    int count = sqlite3_column_count(stmt);
+
+    for (int i = 0; i < count; i++) {
+        const char* name = sqlite3_column_name(stmt, i);
+
+        switch (sqlite3_column_type(stmt, i)) {
+            case SQLITE_INTEGER:
+                row[name] = sqlite3_column_int64(stmt, i);
+                break;
+            case SQLITE_FLOAT:
+                row[name] = sqlite3_column_double(stmt, i);
+                break;
+            case SQLITE_TEXT: {
+                const char* text = reinterpret_cast<const char*>(
+                    sqlite3_column_text(stmt, i));
+                if (text) {
+                    row[name] = std::string(text, sqlite3_column_bytes(stmt, i));
+                } else {
+                    row[name] = "";
+                }
+                break;
+            }
+            case SQLITE_BLOB: {
+                int size = sqlite3_column_bytes(stmt, i);
+                const void* blob = sqlite3_column_blob(stmt, i);
+                row[name] = nlohmann::json::binary(
+                    std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
+                                         static_cast<const uint8_t*>(blob) + size));
+                break;
+            }
+            case SQLITE_NULL:
+            default:
+                row[name] = nullptr;
+                break;
+        }
+    }
+
+    return row;
+}
+
+QueryResult SQLiteDatabase::execute(
+    const std::string& sql,
+    const std::vector<nlohmann::json>& params) {
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!db_) {
+        throw std::runtime_error("Database is not open");
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (result != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement: " +
+                                 std::string(sqlite3_errmsg(db_)));
+    }
+
+    // Bind parameters
+    for (size_t i = 0; i < params.size(); i++) {
+        bind_param(stmt, static_cast<int>(i + 1), params[i]);
+    }
+
+    QueryResult query_result;
+    query_result.affected_rows = 0;
+
+    // Execute and collect results
+    while ((result = sqlite3_step(stmt)) == SQLITE_ROW) {
+        query_result.rows.push_back(row_to_json(stmt));
+    }
+
+    if (result != SQLITE_DONE && result != SQLITE_ROW) {
+        std::string err = sqlite3_errmsg(db_);
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Query execution failed: " + err);
+    }
+
+    query_result.affected_rows = sqlite3_changes(db_);
+    sqlite3_finalize(stmt);
+
+    return query_result;
+}
+
+std::optional<nlohmann::json> SQLiteDatabase::execute_one(
+    const std::string& sql,
+    const std::vector<nlohmann::json>& params) {
+
+    auto result = execute(sql, params);
+    if (result.rows.empty()) {
+        return std::nullopt;
+    }
+    return result.rows[0];
+}
+
+std::shared_ptr<Transaction> SQLiteDatabase::begin_transaction() {
+    if (!db_) {
+        throw std::runtime_error("Database is not open");
+    }
+    execute("BEGIN IMMEDIATE TRANSACTION;");
+    return std::make_shared<SQLiteTransaction>(db_);
+}
+
+QueryResult SQLiteDatabase::execute_batch(
+    const std::string& sql,
+    const std::vector<std::vector<nlohmann::json>>& params_list) {
+
+    QueryResult total_result;
+    total_result.affected_rows = 0;
+
+    for (const auto& params : params_list) {
+        auto result = execute(sql, params);
+        total_result.affected_rows += result.affected_rows;
+        total_result.rows.insert(total_result.rows.end(),
+                                  result.rows.begin(), result.rows.end());
+    }
+
+    return total_result;
+}
+
+void SQLiteDatabase::migrate(const std::string& name, const std::string& sql) {
+    // Check if migration already applied
+    auto existing = execute_one(
+        "SELECT id FROM _migrations WHERE name = ?",
+        {nlohmann::json(name)});
+
+    if (existing.has_value()) {
+        TURBOT_LOG_DEBUG("Migration '{}' already applied", name);
+        return;
+    }
+
+    // Execute migration
+    execute(sql);
+
+    // Record migration
+    auto now = std::chrono::system_clock::now().time_since_epoch().count();
+    execute(
+        "INSERT INTO _migrations (name, version, executed_at) VALUES (?, 1, ?)",
+        {nlohmann::json(name), nlohmann::json(now)});
+
+    TURBOT_LOG_INFO("Applied migration: {}", name);
+}
+
+bool SQLiteDatabase::health_check() {
+    try {
+        auto result = execute_one("SELECT 1 as ok");
+        return result.has_value() && (*result)["ok"] == 1;
+    } catch (...) {
+        return false;
+    }
+}
+
+void SQLiteDatabase::close() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (db_) {
+        sqlite3_close(db_);
+        db_ = nullptr;
+        TURBOT_LOG_INFO("Closed SQLite database: {}", config_.path);
+    }
+}
+
+bool SQLiteDatabase::is_open() const {
+    return db_ != nullptr;
+}
+
+// ============================================================================
+// SQLiteTransaction Implementation
+// ============================================================================
+
+SQLiteTransaction::SQLiteTransaction(sqlite3* db)
+    : db_(db) {
+    if (!db_) {
+        throw std::runtime_error("Cannot create transaction without database");
+    }
+}
+
+SQLiteTransaction::~SQLiteTransaction() {
+    if (active_ && db_) {
+        try {
+            rollback();
+        } catch (...) {
+            // Ignore errors in destructor
+        }
+    }
+}
+
+void SQLiteTransaction::commit() {
+    if (!active_) {
+        throw std::runtime_error("Transaction is not active");
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    char* err_msg = nullptr;
+    int result = sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &err_msg);
+
+    if (result != SQLITE_OK) {
+        std::string err = err_msg ? err_msg : "unknown error";
+        sqlite3_free(err_msg);
+        throw std::runtime_error("Failed to commit transaction: " + err);
+    }
+
+    active_ = false;
+    TURBOT_LOG_DEBUG("Transaction committed");
+}
+
+void SQLiteTransaction::rollback() {
+    if (!active_) {
+        return;  // Already rolled back
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    char* err_msg = nullptr;
+    int result = sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, &err_msg);
+
+    if (result != SQLITE_OK) {
+        std::string err = err_msg ? err_msg : "unknown error";
+        sqlite3_free(err_msg);
+        throw std::runtime_error("Failed to rollback transaction: " + err);
+    }
+
+    active_ = false;
+    TURBOT_LOG_DEBUG("Transaction rolled back");
+}
+
+void SQLiteTransaction::bind_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {
+    if (value.is_null()) {
+        sqlite3_bind_null(stmt, index);
+    } else if (value.is_string()) {
+        auto str = value.get<std::string>();
+        sqlite3_bind_text(stmt, index, str.c_str(), static_cast<int>(str.size()),
+                          SQLITE_TRANSIENT);
+    } else if (value.is_number_integer()) {
+        sqlite3_bind_int64(stmt, index, value.get<int64_t>());
+    } else if (value.is_number_unsigned()) {
+        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(value.get<uint64_t>()));
+    } else if (value.is_number_float()) {
+        sqlite3_bind_double(stmt, index, value.get<double>());
+    } else if (value.is_boolean()) {
+        sqlite3_bind_int(stmt, index, value.get<bool>() ? 1 : 0);
+    } else {
+        std::string json_str = value.dump();
+        sqlite3_bind_text(stmt, index, json_str.c_str(),
+                          static_cast<int>(json_str.size()), SQLITE_TRANSIENT);
+    }
+}
+
+nlohmann::json SQLiteTransaction::row_to_json(sqlite3_stmt* stmt) {
+    nlohmann::json row;
+    int count = sqlite3_column_count(stmt);
+
+    for (int i = 0; i < count; i++) {
+        const char* name = sqlite3_column_name(stmt, i);
+
+        switch (sqlite3_column_type(stmt, i)) {
+            case SQLITE_INTEGER:
+                row[name] = sqlite3_column_int64(stmt, i);
+                break;
+            case SQLITE_FLOAT:
+                row[name] = sqlite3_column_double(stmt, i);
+                break;
+            case SQLITE_TEXT: {
+                const char* text = reinterpret_cast<const char*>(
+                    sqlite3_column_text(stmt, i));
+                if (text) {
+                    row[name] = std::string(text, sqlite3_column_bytes(stmt, i));
+                } else {
+                    row[name] = "";
+                }
+                break;
+            }
+            case SQLITE_BLOB: {
+                int size = sqlite3_column_bytes(stmt, i);
+                const void* blob = sqlite3_column_blob(stmt, i);
+                row[name] = nlohmann::json::binary(
+                    std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
+                                         static_cast<const uint8_t*>(blob) + size));
+                break;
+            }
+            case SQLITE_NULL:
+            default:
+                row[name] = nullptr;
+                break;
+        }
+    }
+
+    return row;
+}
+
+QueryResult SQLiteTransaction::execute(
+    const std::string& sql,
+    const std::vector<nlohmann::json>& params) {
+
+    if (!active_) {
+        throw std::runtime_error("Transaction is not active");
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    sqlite3_stmt* stmt = nullptr;
+    int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    if (result != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare statement: " +
+                                 std::string(sqlite3_errmsg(db_)));
+    }
+
+    for (size_t i = 0; i < params.size(); i++) {
+        bind_param(stmt, static_cast<int>(i + 1), params[i]);
+    }
+
+    QueryResult query_result;
+    query_result.affected_rows = 0;
+
+    while ((result = sqlite3_step(stmt)) == SQLITE_ROW) {
+        query_result.rows.push_back(row_to_json(stmt));
+    }
+
+    if (result != SQLITE_DONE && result != SQLITE_ROW) {
+        std::string err = sqlite3_errmsg(db_);
+        sqlite3_finalize(stmt);
+        throw std::runtime_error("Query execution failed: " + err);
+    }
+
+    query_result.affected_rows = sqlite3_changes(db_);
+    sqlite3_finalize(stmt);
+
+    return query_result;
+}
+
+std::optional<nlohmann::json> SQLiteTransaction::execute_one(
+    const std::string& sql,
+    const std::vector<nlohmann::json>& params) {
+
+    auto result = execute(sql, params);
+    if (result.rows.empty()) {
+        return std::nullopt;
+    }
+    return result.rows[0];
+}
+
+} // namespace turbot::storage::sqlite
