@@ -14,6 +14,7 @@ set(UNIT_TEST_SOURCES
     unit/http_client_test.cpp
     unit/logger_test.cpp
     unit/version_test.cpp
+    unit/storage_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
@@ -23,6 +24,7 @@ target_link_libraries(turbot-unit-tests
         turbot::core
         turbot::utils
         turbot::network
+        turbot::storage
         Catch2::Catch2WithMain
 )
 
