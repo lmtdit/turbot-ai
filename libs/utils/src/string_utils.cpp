@@ -1,7 +1,7 @@
 #include <turbot/utils/string_utils.hpp>
+#include <turbot/utils/crypto_utils.hpp>
 #include <algorithm>
 #include <cctype>
-#include <random>
 #include <sstream>
 #include <iomanip>
 #include <regex>
@@ -112,86 +112,18 @@ std::string replace_all(std::string str, std::string_view from, std::string_view
 }
 
 std::string generate_uuid() {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint8_t> dis(0, 255);
-
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-
-    // 8-4-4-4-12格式
-    for (int i = 0; i < 16; i++) {
-        uint8_t byte = dis(gen);
-        oss << std::setw(2) << static_cast<int>(byte);
-        if (i == 3 || i == 5 || i == 7 || i == 9) {
-            oss << '-';
-        }
-    }
-
-    return oss.str();
+    // 使用 crypto::generate_uuid() 确保线程安全和 RFC 4122 兼容
+    return crypto::generate_uuid();
 }
 
 std::string base64_encode(const std::string& data) {
-    // 这里使用一个简单的实现
-    // 注意：完整的base64实现在crypto_utils.cpp中
-    constexpr std::string_view chars =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "abcdefghijklmnopqrstuvwxyz"
-        "0123456789+/";
-
-    std::string result;
-    int val = 0;
-    int valb = -6;
-
-    for (unsigned char c : data) {
-        val = (val << 8) + c;
-        valb += 8;
-        while (valb >= 0) {
-            result.push_back(chars[(val >> valb) & 0x3F]);
-            valb -= 6;
-        }
-    }
-
-    if (valb > -6) {
-        result.push_back(chars[((val << 8) >> (valb + 8)) & 0x3F]);
-    }
-
-    while (result.size() % 4) {
-        result.push_back('=');
-    }
-
-    return result;
+    // 委托给 crypto_utils 的实现
+    return crypto::base64_encode(data);
 }
 
 std::string base64_decode(const std::string& encoded) {
-    // 这里使用一个简单的实现
-    // 注意：完整的base64实现在crypto_utils.cpp中
-    constexpr std::string_view chars =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-        "abcdefghijklmnopqrstuvwxyz"
-        "0123456789+/";
-
-    std::string result;
-    std::vector<int> T(256, -1);
-
-    for (size_t i = 0; i < 64; i++) {
-        T[chars[i]] = static_cast<int>(i);
-    }
-
-    int val = 0;
-    int valb = -8;
-
-    for (unsigned char c : encoded) {
-        if (T[c] == -1) break;
-        val = (val << 6) + T[c];
-        valb += 6;
-        if (valb >= 0) {
-            result.push_back(static_cast<char>((val >> valb) & 0xFF));
-            valb -= 8;
-        }
-    }
-
-    return result;
+    // 委托给 crypto_utils 的实现
+    return crypto::base64_decode(encoded);
 }
 
 bool wildcard_match(const std::string& pattern, const std::string& text) {
