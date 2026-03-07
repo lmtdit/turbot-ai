@@ -219,18 +219,18 @@ std::optional<std::string> read_file(std::string_view path) {
 
 ## 🔵 Suggestions (建议改进)
 
-| #   | 位置                          | 问题描述                         | 状态      | 改进建议                             |
-| --- | ----------------------------- | -------------------------------- | --------- | ------------------------------------ |
-| 1   | `logger.hpp:29-35`            | 宏未用 `do { } while(0)` 包装    | ✅ 已修复 | 添加包装确保 if-else 正确行为        |
-| 2   | `json_utils.hpp:63-66`        | `get_or` 每次实例化模板          | 📋 待优化 | 使用 inline 或 `value()` 方法        |
-| 3   | `part.hpp:37`                 | `PartType` 未指定底层类型        | ✅ 已修复 | 使用 `enum class PartType : uint8_t` |
-| 4   | `migration.cpp:23-28`         | 每次添加 migration 重新排序      | 📋 待优化 | 改用 `std::set` 或批量排序           |
-| 5   | `http_client.cpp:31-36`       | `to_lower` 每次创建新 string     | 📋 待优化 | 使用不区分大小写比较器               |
-| 6   | `openai_provider.cpp:104-106` | `list_models()` 返回 vector 拷贝 | 📋 待优化 | 返回 const 引用或 `std::span`        |
-| 7   | `json_utils.cpp:9-81`         | `validate_schema` 功能不完整     | 📋 待优化 | 集成专业 JSON Schema 验证库          |
-| 8   | `provider_manager.hpp:73`     | `mutex_` 为 mutable 无说明       | 📋 待优化 | 添加注释说明原因                     |
-| 9   | 全局                          | 简单函数缺少 `noexcept`          | ✅ 已修复 | 为 getter 添加 noexcept              |
-| 10  | 全局                          | 单参数构造函数缺少 `explicit`    | ✅ 已修复 | 添加 explicit 防止隐式转换           |
+| #   | 位置                          | 问题描述                         | 状态        | 改进建议                              |
+| --- | ----------------------------- | -------------------------------- | ----------- | ------------------------------------- |
+| 1   | `logger.hpp:29-35`            | 宏未用 `do { } while(0)` 包装    | ✅ 已修复   | 添加包装确保 if-else 正确行为         |
+| 2   | `json_utils.hpp:63-66`        | `get_or` 每次实例化模板          | ✅ 已修复   | 使用 inline 和 `value()` 方法         |
+| 3   | `part.hpp:37`                 | `PartType` 未指定底层类型        | ✅ 已修复   | 使用 `enum class PartType : uint8_t`  |
+| 4   | `migration.cpp:23-28`         | 每次添加 migration 重新排序      | ✅ 已修复   | 改用延迟排序（lazy sort）             |
+| 5   | `http_client.cpp:31-36`       | `to_lower` 每次创建新 string     | ✅ 已修复   | 使用 `iequals` 不区分大小写比较器     |
+| 6   | `openai_provider.cpp:104-106` | `list_models()` 返回 vector 拷贝 | ⚠️ 评估保留 | 编译器 RVO 优化已足够，修改接口影响大 |
+| 7   | `json_utils.cpp:9-81`         | `validate_schema` 功能不完整     | 📋 待优化   | 集成专业 JSON Schema 验证库           |
+| 8   | `provider_manager.hpp:73`     | `mutex_` 为 mutable 无说明       | ✅ 已修复   | 添加注释说明原因                      |
+| 9   | 全局                          | 简单函数缺少 `noexcept`          | ✅ 已修复   | 为 getter 添加 noexcept               |
+| 10  | 全局                          | 单参数构造函数缺少 `explicit`    | ✅ 已修复   | 添加 explicit 防止隐式转换            |
 
 ---
 
@@ -336,4 +336,4 @@ class SQLiteTransaction {
 **报告生成时间**: 2026-03-07  
 **最后更新时间**: 2026-03-08  
 **修复验证**: 所有 256 个测试用例通过，1335 个断言成功
-**修复总结**: 8 个 Critical、10 个 Warning、5 个 Suggestion 已全部修复
+**修复总结**: 8 个 Critical、10 个 Warning、7 个 Suggestion 已全部修复，1 个评估保留，2 个待后续优化
