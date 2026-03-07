@@ -24,6 +24,7 @@ class TurbotAIRecipe(ConanFile):
         "boost/1.84.0",
         "openssl/3.2.1",
         "sqlite3/3.45.0",
+        "libcurl/8.6.0",
     ]
 
     test_requires = [
