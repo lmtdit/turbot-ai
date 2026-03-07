@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 
@@ -30,6 +31,9 @@ void bind_json_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value)
         sqlite3_bind_null(stmt, index);
     } else if (value.is_string()) {
         auto str = value.get<std::string>();
+        if (str.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+            throw std::runtime_error("String too large for SQLite parameter");
+        }
         sqlite3_bind_text(stmt, index, str.c_str(), static_cast<int>(str.size()),
                           SQLITE_TRANSIENT);
     } else if (value.is_number_integer()) {
@@ -43,6 +47,9 @@ void bind_json_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value)
     } else {
         // Complex types: serialize to JSON string
         std::string json_str = value.dump();
+        if (json_str.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+            throw std::runtime_error("JSON too large for SQLite parameter");
+        }
         sqlite3_bind_text(stmt, index, json_str.c_str(),
                           static_cast<int>(json_str.size()), SQLITE_TRANSIENT);
     }
