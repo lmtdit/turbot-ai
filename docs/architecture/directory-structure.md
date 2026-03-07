@@ -59,38 +59,46 @@ libs/<library>/
 libs/core/
 ├── CMakeLists.txt
 ├── include/turbot/core/
-│   ├── export.hpp           # 导出宏
-│   ├── config.hpp           # 配置管理 ✓ 已实现
-│   ├── event_bus.hpp        # 事件总线 ✓ 已实现
-│   ├── logger.hpp           # 日志系统 ✓ 已实现
-│   ├── version.hpp          # 版本信息 ✓ 已实现
-│   ├── message/             # 消息系统 (计划中)
+│   ├── common/              # 通用模块 ✓ 已实现
+│   │   ├── export.hpp       # 导出宏
+│   │   ├── logger.hpp       # 日志系统
+│   │   └── version.hpp      # 版本信息
+│   ├── config/              # 配置模块 ✓ 已实现
+│   │   └── config.hpp       # 配置管理
+│   ├── event/               # 事件模块 ✓ 已实现
+│   │   └── event_bus.hpp    # 事件总线
+│   ├── message/             # 消息系统 ✓ 已实现
 │   │   ├── message.hpp      # Message模型
 │   │   ├── part.hpp         # Part系统
-│   │   ├── token_usage.hpp  # Token统计
-│   │   └── dao/             # 数据访问层
-│   ├── provider/            # AI提供商系统 (计划中)
-│   │   ├── provider.hpp     # Provider接口
-│   │   ├── provider_manager.hpp
-│   │   └── openai/          # OpenAI实现
-│   ├── permission/          # 权限系统 (计划中)
-│   │   ├── permission.hpp   # 权限评估
-│   │   └── ruleset.hpp      # 规则集
-│   ├── tool/                # 工具系统 (计划中)
-│   │   ├── tool.hpp         # 工具接口
-│   │   └── tool_registry.hpp # 工具注册表
-│   ├── agent/               # Agent系统 (计划中)
-│   │   ├── agent.hpp        # Agent接口
-│   │   ├── agent_registry.hpp
-│   │   └── builtin/         # 内置Agent
-│   └── session/             # 会话系统 (计划中)
-│       ├── session.hpp      # Session模型
-│       └── session_loop.hpp # 会话主循环
+│   │   └── token_usage.hpp  # Token统计
+│   └── provider/            # AI提供商系统 ✓ 已实现
+│       ├── provider.hpp     # Provider接口
+│       ├── provider_manager.hpp
+│       └── impl/            # Provider实现
+│           ├── openai_provider.hpp
+│           ├── bailian_provider.hpp
+│           ├── zhipu_provider.hpp
+│           ├── kimi_provider.hpp
+│           └── iflow_provider.hpp
 └── src/
-    ├── config.cpp           ✓ 已实现
-    ├── event_bus.cpp        ✓ 已实现
-    ├── logger.cpp           ✓ 已实现
-    └── ...
+    ├── common/
+    │   ├── logger.cpp
+    │   └── version.cpp
+    ├── config/
+    │   └── config.cpp
+    ├── event/
+    │   └── event_bus.cpp
+    ├── message/
+    │   ├── message.cpp
+    │   └── part.cpp
+    └── provider/
+        ├── provider.cpp
+        └── impl/
+            ├── openai_provider.cpp
+            ├── bailian_provider.cpp
+            ├── zhipu_provider.cpp
+            ├── kimi_provider.cpp
+            └── iflow_provider.cpp
 ```
 
 ### 3.2 storage - 存储层
@@ -99,21 +107,16 @@ libs/core/
 libs/storage/
 ├── CMakeLists.txt
 ├── include/turbot/storage/
-│   ├── export.hpp
-│   ├── database/            # 数据库抽象层
-│   │   ├── database.hpp     # Database接口
-│   │   └── transaction.hpp  # 事务接口
-│   ├── sqlite/              # SQLite实现
-│   │   └── sqlite_database.hpp
-│   ├── pool/                # 连接池
-│   │   └── connection_pool.hpp
-│   └── migration/           # 迁移系统
-│       ├── migration.hpp
-│       └── migration_runner.hpp
+│   ├── export.hpp           ✓ 已实现
+│   ├── database.hpp         # Database接口 ✓ 已实现
+│   ├── sqlite_database.hpp  # SQLite实现 ✓ 已实现
+│   ├── transaction.hpp      # 事务接口 ✓ 已实现
+│   └── migration.hpp        # 迁移系统 ✓ 已实现
 └── src/
-    ├── sqlite_database.cpp
-    ├── connection_pool.cpp
-    └── ...
+    ├── database.cpp         ✓ 已实现
+    ├── sqlite_database.cpp  ✓ 已实现
+    ├── transaction.cpp      ✓ 已实现
+    └── migration.cpp        ✓ 已实现
 ```
 
 ### 3.3 network - 网络层
@@ -123,20 +126,20 @@ libs/network/
 ├── CMakeLists.txt
 ├── include/turbot/network/
 │   ├── export.hpp           ✓ 已实现
-│   ├── http/                # HTTP模块
-│   │   ├── http_client.hpp  ✓ 部分实现
-│   │   ├── http_request.hpp
-│   │   ├── http_response.hpp
-│   │   └── http_headers.hpp
-│   ├── websocket/           # WebSocket模块 (计划中)
-│   │   └── websocket_client.hpp
-│   ├── async/               # 异步IO (计划中)
-│   │   └── async_io.hpp
-│   └── url.hpp              ✓ 已实现
+│   ├── http_client.hpp      # HTTP客户端 ✓ 已实现
+│   └── url.hpp              # URL解析 ✓ 已实现
 └── src/
-    ├── http_client.cpp      ✓ 部分实现
-    └── ...
+    ├── http_client.cpp      ✓ 已实现
+    └── url.cpp              ✓ 已实现
 ```
+
+**计划中扩展**：
+
+- `websocket/` - WebSocket 模块
+- `async/` - 异步 IO
+- `http_request.hpp` - HTTP 请求模型
+- `http_response.hpp` - HTTP 响应模型
+- `http_headers.hpp` - HTTP 头部
 
 ### 3.4 utils - 工具库
 
@@ -177,16 +180,19 @@ apps/
 tests/
 ├── CMakeLists.txt
 ├── unit/                    # 单元测试
-│   ├── config_test.cpp
-│   ├── event_bus_test.cpp
-│   ├── crypto_utils_test.cpp
-│   ├── json_utils_test.cpp
-│   ├── string_utils_test.cpp
-│   ├── file_utils_test.cpp
-│   ├── url_test.cpp
-│   ├── http_client_test.cpp
-│   ├── logger_test.cpp
-│   └── version_test.cpp
+│   ├── config_test.cpp      ✓ config模块测试
+│   ├── event_bus_test.cpp   ✓ event_bus模块测试
+│   ├── logger_test.cpp      ✓ logger模块测试
+│   ├── version_test.cpp     ✓ version模块测试
+│   ├── message_test.cpp     ✓ message模块测试
+│   ├── provider_test.cpp    ✓ provider模块测试
+│   ├── crypto_utils_test.cpp ✓ crypto_utils模块测试
+│   ├── json_utils_test.cpp  ✓ json_utils模块测试
+│   ├── string_utils_test.cpp ✓ string_utils模块测试
+│   ├── file_utils_test.cpp  ✓ file_utils模块测试
+│   ├── url_test.cpp         ✓ url模块测试
+│   ├── http_client_test.cpp ✓ http_client模块测试
+│   └── storage_test.cpp     ✓ storage模块测试
 ├── integration/             # 集成测试 (计划中)
 │   └── ...
 └── test_integration.cpp     # 测试入口
@@ -230,17 +236,19 @@ docs/
 ### 7.2 Plan 与模块映射
 
 ```
-Plan 1.1 - 基础架构
+Plan 1.1 - 基础架构 ✅ 完成
 ├── libs/utils/           # 独立模块，无外部依赖
 │   ├── crypto_utils      # 加密工具
 │   ├── file_utils        # 文件工具
 │   ├── json_utils        # JSON工具
 │   └── string_utils      # 字符串工具
 ├── libs/core/            # 核心基础
-│   ├── config            # 配置管理
-│   ├── event_bus         # 事件总线
-│   ├── logger            # 日志系统
-│   └── version           # 版本信息
+│   ├── common/           # 通用模块
+│   │   ├── export        # 导出宏
+│   │   ├── logger        # 日志系统
+│   │   └── version       # 版本信息
+│   ├── config/           # 配置管理
+│   └── event/            # 事件总线
 └── tests/unit/           # 配套单元测试
     ├── crypto_utils_test.cpp
     ├── file_utils_test.cpp
@@ -251,47 +259,43 @@ Plan 1.1 - 基础架构
     ├── logger_test.cpp
     └── version_test.cpp
 
-Plan 1.2 - 存储层
+Plan 1.2 - 存储层 ✅ 完成
 ├── libs/storage/         # 独立存储模块
-│   ├── database/         # 数据库抽象接口
-│   ├── sqlite/           # SQLite实现
-│   ├── pool/             # 连接池
-│   └── migration/        # 迁移系统
+│   ├── database.hpp      # 数据库抽象接口
+│   ├── sqlite_database.hpp # SQLite实现
+│   ├── transaction.hpp   # 事务接口
+│   └── migration.hpp     # 迁移系统
 └── tests/unit/
-    ├── database_test.cpp
-    ├── sqlite_test.cpp
-    ├── connection_pool_test.cpp
-    └── migration_test.cpp
+    └── storage_test.cpp
 
-Plan 1.3 - 网络层
+Plan 1.3 - 网络层 ✅ 完成
 ├── libs/network/
-│   ├── http/             # HTTP客户端
-│   ├── websocket/        # WebSocket客户端
-│   └── async/            # 异步IO
+│   ├── http_client.hpp   # HTTP客户端
+│   └── url.hpp           # URL解析
 └── tests/unit/
     ├── http_client_test.cpp
-    ├── websocket_test.cpp
-    └── async_io_test.cpp
+    └── url_test.cpp
 
-Plan 1.4 - 核心数据模型
+Plan 1.4 - 核心数据模型 ✅ 完成
 ├── libs/core/message/    # 消息系统（独立子模块）
 │   ├── message.hpp
 │   ├── part.hpp
-│   ├── token_usage.hpp
-│   └── dao/
+│   └── token_usage.hpp
 └── tests/unit/
-    ├── message_test.cpp
-    ├── part_test.cpp
-    └── token_usage_test.cpp
+    └── message_test.cpp
 
-Plan 1.5 - Provider系统
+Plan 1.5 - Provider系统 ✅ 完成
 ├── libs/core/provider/   # AI提供商（依赖 network）
 │   ├── provider.hpp      # 抽象接口
 │   ├── provider_manager.hpp
-│   └── openai/
+│   └── impl/             # Provider实现
+│       ├── openai_provider.hpp
+│       ├── bailian_provider.hpp
+│       ├── zhipu_provider.hpp
+│       ├── kimi_provider.hpp
+│       └── iflow_provider.hpp
 └── tests/unit/
-    ├── provider_test.cpp
-    └── openai_provider_test.cpp
+    └── provider_test.cpp
 
 Plan 1.6 - 权限和工具系统
 ├── libs/core/permission/ # 权限系统（独立）
@@ -436,20 +440,23 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 
 ## 11. 实现状态
 
-| 模块              | 状态      | 说明                               |
-| ----------------- | --------- | ---------------------------------- |
-| utils             | ✅ 完成   | 基础工具库                         |
-| core (基础)       | ✅ 完成   | config, event_bus, logger, version |
-| network (基础)    | 🔄 进行中 | http_client, url 部分实现          |
-| storage           | 📋 计划中 | 待实现                             |
-| core/message      | 📋 计划中 | 待实现                             |
-| core/provider     | 📋 计划中 | 待实现                             |
-| core/permission   | 📋 计划中 | 待实现                             |
-| core/tool         | 📋 计划中 | 待实现                             |
-| core/agent        | 📋 计划中 | 待实现                             |
-| core/session      | 📋 计划中 | 待实现                             |
-| network/websocket | 📋 计划中 | 待实现                             |
-| network/async     | 📋 计划中 | 待实现                             |
+| 模块              | 状态      | 说明                                               |
+| ----------------- | --------- | -------------------------------------------------- |
+| utils             | ✅ 完成   | crypto_utils, file_utils, json_utils, string_utils |
+| core/common       | ✅ 完成   | export, logger, version                            |
+| core/config       | ✅ 完成   | 配置管理                                           |
+| core/event        | ✅ 完成   | 事件总线                                           |
+| core/message      | ✅ 完成   | message, part, token_usage                         |
+| core/provider     | ✅ 完成   | provider, provider_manager, 5 个 provider 实现     |
+| storage           | ✅ 完成   | database, sqlite_database, transaction, migration  |
+| network           | ✅ 完成   | http_client, url                                   |
+| core/permission   | 📋 计划中 | 权限系统                                           |
+| core/tool         | 📋 计划中 | 工具系统                                           |
+| core/agent        | 📋 计划中 | Agent 系统                                         |
+| core/session      | 📋 计划中 | 会话系统                                           |
+| network/websocket | 📋 计划中 | WebSocket 客户端                                   |
+| network/async     | 📋 计划中 | 异步 IO                                            |
+| storage/pool      | 📋 计划中 | 连接池                                             |
 
 **状态图例**：
 
