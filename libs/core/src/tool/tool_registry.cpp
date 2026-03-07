@@ -1,7 +1,11 @@
 #include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/core/tool/builtin/bash_tool.hpp>
+#include <turbot/core/tool/builtin/edit_tool.hpp>
+#include <turbot/core/tool/builtin/glob_tool.hpp>
+#include <turbot/core/tool/builtin/grep_tool.hpp>
+#include <turbot/core/tool/builtin/list_tool.hpp>
 #include <turbot/core/tool/builtin/read_file_tool.hpp>
 #include <turbot/core/tool/builtin/write_file_tool.hpp>
-#include <turbot/core/tool/builtin/bash_tool.hpp>
 #include <turbot/core/tool/builtin/task_tool.hpp>
 #include <stdexcept>
 
@@ -99,9 +103,20 @@ nlohmann::json ToolRegistry::to_tool_definitions() const {
 }
 
 void ToolRegistry::register_builtin_tools() {
+    // Core file operations
     register_tool(std::make_unique<builtin::ReadFileTool>());
     register_tool(std::make_unique<builtin::WriteFileTool>());
+    register_tool(std::make_unique<builtin::EditTool>());
+    
+    // Shell execution
     register_tool(std::make_unique<builtin::BashTool>());
+    
+    // Search and discovery
+    register_tool(std::make_unique<builtin::GlobTool>());
+    register_tool(std::make_unique<builtin::GrepTool>());
+    register_tool(std::make_unique<builtin::ListTool>());
+    
+    // Task management
     register_tool(std::make_unique<TaskTool>());
 }
 

@@ -4,97 +4,213 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <sstream>
+#include <algorithm>
 
 namespace turbot::core::tool::builtin {
 
 namespace fs = std::filesystem;
 
+namespace {
+
+/// Split string by lines
+std::vector<std::string> split_lines(const std::string& text) {
+    std::vector<std::string> lines;
+    std::istringstream stream(text);
+    std::string line;
+    while (std::getline(stream, line)) {
+        lines.push_back(line);
+    }
+    return lines;
+}
+
+} // anonymous namespace
+
+// ============================================================================
+// WriteFileToolParams
+// ============================================================================
+
+WriteFileToolParams WriteFileToolParams::from_json(const nlohmann::json& j) {
+    WriteFileToolParams params;
+    params.content = j.at("content").get<std::string>();
+    params.file_path = j.at("filePath").get<std::string>();
+    return params;
+}
+
+nlohmann::json WriteFileToolParams::to_json() const {
+    return {
+        {"filePath", file_path},
+        {"content", content}
+    };
+}
+
+// ============================================================================
+// WriteFileTool
+// ============================================================================
+
+std::string WriteFileTool::description() const {
+    return "Write content to a file at the given path. "
+           "Creates the file if it does not exist, overwrites it if it does. "
+           "Creates parent directories as needed. "
+           "Shows a diff of changes after writing.";
+}
+
 nlohmann::json WriteFileTool::input_schema() const {
     return {
         {"type", "object"},
         {"properties", {
-            {"path", {
+            {"filePath", {
                 {"type", "string"},
-                {"description", "The absolute or relative path to the file to write"}
+                {"description", "The absolute path to the file to write (must be absolute, not relative)"}
             }},
             {"content", {
                 {"type", "string"},
                 {"description", "The content to write to the file"}
             }}
         }},
-        {"required", nlohmann::json::array({"path", "content"})}
+        {"required", nlohmann::json::array({"filePath", "content"})}
     };
 }
 
 bool WriteFileTool::validate_input(const nlohmann::json& input) const {
-    return input.contains("path") && input["path"].is_string() &&
-           !input["path"].get<std::string>().empty() &&
+    return input.contains("filePath") && input["filePath"].is_string() &&
+           !input["filePath"].get<std::string>().empty() &&
            input.contains("content") && input["content"].is_string();
+}
+
+std::string WriteFileTool::create_diff(
+    const std::string& file_path,
+    const std::string& old_content,
+    const std::string& new_content
+) {
+    std::ostringstream diff;
+    diff << "--- " << file_path << "\n";
+    diff << "+++ " << file_path << "\n";
+    
+    auto old_lines = split_lines(old_content);
+    auto new_lines = split_lines(new_content);
+    
+    size_t old_idx = 0;
+    size_t new_idx = 0;
+    
+    while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
+        if (old_idx < old_lines.size() && new_idx < new_lines.size()) {
+            if (old_lines[old_idx] == new_lines[new_idx]) {
+                diff << " " << old_lines[old_idx] << "\n";
+                ++old_idx;
+                ++new_idx;
+            } else {
+                if (old_idx + 1 < old_lines.size() && old_lines[old_idx + 1] == new_lines[new_idx]) {
+                    diff << "-" << old_lines[old_idx] << "\n";
+                    ++old_idx;
+                } else if (new_idx + 1 < new_lines.size() && old_lines[old_idx] == new_lines[new_idx + 1]) {
+                    diff << "+" << new_lines[new_idx] << "\n";
+                    ++new_idx;
+                } else {
+                    diff << "-" << old_lines[old_idx] << "\n";
+                    diff << "+" << new_lines[new_idx] << "\n";
+                    ++old_idx;
+                    ++new_idx;
+                }
+            }
+        } else if (old_idx < old_lines.size()) {
+            diff << "-" << old_lines[old_idx] << "\n";
+            ++old_idx;
+        } else {
+            diff << "+" << new_lines[new_idx] << "\n";
+            ++new_idx;
+        }
+    }
+    
+    return diff.str();
 }
 
 ToolResult WriteFileTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     if (!validate_input(input)) {
         return ToolResult::error(
-            "Write file failed",
-            "Invalid input: 'path' (non-empty string) and 'content' (string) are required"
+            "Write failed",
+            "Invalid input: 'filePath' (non-empty string) and 'content' (string) are required"
         );
     }
 
-    const std::string path    = input["path"].get<std::string>();
-    const std::string content = input["content"].get<std::string>();
+    WriteFileToolParams params;
+    try {
+        params = WriteFileToolParams::from_json(input);
+    } catch (const std::exception& e) {
+        return ToolResult::error("Write", fmt::format("Invalid parameters: {}", e.what()));
+    }
+    
+    std::string path = params.file_path;
+    std::string content = params.content;
 
-    // Check permission via ruleset first
-    const auto action = permission::PermissionSystem::evaluate("write", path, ctx.ruleset);
+    // Resolve relative path
+    fs::path file_path(path);
+    if (!file_path.is_absolute()) {
+        file_path = fs::path(ctx.working_directory) / file_path;
+        path = file_path.string();
+    }
+
+    // Check permission
+    const auto action = permission::PermissionSystem::evaluate("edit", path, ctx.ruleset);
 
     if (action == permission::PermissionAction::Deny) {
-        return ToolResult::error(
-            fmt::format("Write file: {}", path),
-            fmt::format("Permission denied for writing '{}'", path)
-        );
+        return ToolResult::error(path, fmt::format("Permission denied for writing '{}'", path));
     }
+
+    // Read existing content for diff
+    std::string old_content;
+    bool file_exists = fs::exists(path);
+    
+    if (file_exists) {
+        std::ifstream ifs(path);
+        if (ifs) {
+            std::ostringstream oss;
+            oss << ifs.rdbuf();
+            old_content = oss.str();
+        }
+    }
+    
+    // Create diff
+    std::string diff = create_diff(path, old_content, content);
 
     if (action == permission::PermissionAction::Ask) {
         if (!ctx.ask_permission) {
-            return ToolResult::error(
-                fmt::format("Write file: {}", path),
-                "Permission requires user confirmation but no ask_permission callback is set"
-            );
+            return ToolResult::error(path, "Permission requires user confirmation but no callback is set");
         }
         permission::PermissionRequest req;
-        req.id         = fmt::format("write_file_{:x}", std::hash<std::string>{}(path));
-        req.permission = "write";
-        req.patterns   = {path};
-        req.tool       = name();
+        req.id = fmt::format("write_{:x}", std::hash<std::string>{}(path));
+        req.permission = "edit";
+        req.patterns = {path};
+        req.tool = name();
+        req.metadata = {
+            {"filepath", path},
+            {"diff", diff}
+        };
 
         const auto reply = ctx.ask_permission(req);
         if (reply.type == permission::PermissionReply::Type::Reject) {
-            return ToolResult::error(
-                fmt::format("Write file: {}", path),
-                fmt::format("User rejected permission for writing '{}'", path)
-            );
+            return ToolResult::error(path, fmt::format("User rejected permission for writing '{}'", path));
         }
     }
 
     // Check abort flag
     if (ctx.should_abort()) {
-        return ToolResult::error("Write file aborted", "Operation was aborted");
+        return ToolResult::error("Write aborted", "Operation was aborted");
     }
 
     // Create parent directories and write atomically via temp file
     std::error_code ec;
-    const fs::path file_path(path);
     if (file_path.has_parent_path()) {
         fs::create_directories(file_path.parent_path(), ec);
         if (ec) {
             return ToolResult::error(
-                fmt::format("Write file: {}", path),
+                path,
                 fmt::format("Failed to create parent directories for '{}': {}", path, ec.message())
             );
         }
     }
 
     // Write to a temporary file first, then rename for atomicity
-    // Use session+message ID for unique tmp filename to prevent concurrent write races
     const fs::path tmp_path = file_path.parent_path() /
         fmt::format("{}.{:x}.turbot_tmp",
             file_path.filename().string(),
@@ -104,7 +220,7 @@ ToolResult WriteFileTool::execute(const nlohmann::json& input, ToolContext& ctx)
         std::ofstream tmp_file(tmp_path, std::ios::out | std::ios::trunc);
         if (!tmp_file.is_open()) {
             return ToolResult::error(
-                fmt::format("Write file: {}", path),
+                path,
                 fmt::format("Cannot open temp file for writing: '{}'", tmp_path.string())
             );
         }
@@ -113,7 +229,7 @@ ToolResult WriteFileTool::execute(const nlohmann::json& input, ToolContext& ctx)
         if (!tmp_file.good()) {
             fs::remove(tmp_path, ec);
             return ToolResult::error(
-                fmt::format("Write file: {}", path),
+                path,
                 fmt::format("Failed to write content to temp file: '{}'", tmp_path.string())
             );
         }
@@ -124,21 +240,32 @@ ToolResult WriteFileTool::execute(const nlohmann::json& input, ToolContext& ctx)
     if (ec) {
         fs::remove(tmp_path, ec);
         return ToolResult::error(
-            fmt::format("Write file: {}", path),
+            path,
             fmt::format("Failed to finalize write to '{}': {}", path, ec.message())
         );
     }
 
+    std::string output = "Wrote file successfully.";
+    if (!file_exists) {
+        output = fmt::format("Created new file: {}", path);
+    }
+
     nlohmann::json metadata = {
-        {"path",          path},
-        {"bytes_written", static_cast<int64_t>(content.size())}
+        {"filepath", path},
+        {"bytes_written", static_cast<int64_t>(content.size())},
+        {"exists", file_exists},
+        {"diff", diff}
     };
 
-    return ToolResult::success(
-        fmt::format("Write file: {}", path),
-        fmt::format("Successfully wrote {} bytes to '{}'", content.size(), path),
-        metadata
-    );
+    // Get relative path for title
+    std::string title = path;
+    std::error_code rel_ec;
+    auto relative = fs::relative(path, ctx.working_directory, rel_ec);
+    if (!rel_ec && !relative.empty()) {
+        title = relative.string();
+    }
+
+    return ToolResult::success(title, output, metadata);
 }
 
 } // namespace turbot::core::tool::builtin

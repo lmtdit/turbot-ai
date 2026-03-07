@@ -29,6 +29,10 @@ set(CORE_SOURCES
     src/tool/builtin/read_file_tool.cpp
     src/tool/builtin/write_file_tool.cpp
     src/tool/builtin/bash_tool.cpp
+    src/tool/builtin/edit_tool.cpp
+    src/tool/builtin/glob_tool.cpp
+    src/tool/builtin/grep_tool.cpp
+    src/tool/builtin/list_tool.cpp
     src/tool/builtin/task_tool.cpp
     # Agent module
     src/agent/agent.cpp
@@ -71,6 +75,10 @@ set(CORE_HEADERS
     include/turbot/core/tool/builtin/read_file_tool.hpp
     include/turbot/core/tool/builtin/write_file_tool.hpp
     include/turbot/core/tool/builtin/bash_tool.hpp
+    include/turbot/core/tool/builtin/edit_tool.hpp
+    include/turbot/core/tool/builtin/glob_tool.hpp
+    include/turbot/core/tool/builtin/grep_tool.hpp
+    include/turbot/core/tool/builtin/list_tool.hpp
     include/turbot/core/tool/builtin/task_tool.hpp
     # Agent module
     include/turbot/core/agent/agent.hpp

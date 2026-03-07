@@ -5,6 +5,60 @@
 namespace turbot::core::tool {
 
 // ============================================================================
+// ShellMode
+// ============================================================================
+
+std::string shell_mode_to_string(ShellMode mode) {
+    switch (mode) {
+        case ShellMode::Normal:  return "normal";
+        case ShellMode::Sandbox: return "sandbox";
+        case ShellMode::Ask:     return "ask";
+    }
+    throw std::invalid_argument(fmt::format("Invalid ShellMode value: {}", static_cast<int>(mode)));
+}
+
+ShellMode string_to_shell_mode(const std::string& str) {
+    if (str == "normal")  return ShellMode::Normal;
+    if (str == "sandbox") return ShellMode::Sandbox;
+    if (str == "ask")     return ShellMode::Ask;
+    throw std::invalid_argument(fmt::format("Invalid shell mode string: {}", str));
+}
+
+// ============================================================================
+// ToolConfig
+// ============================================================================
+
+nlohmann::json ToolConfig::to_json() const {
+    return {
+        {"shell_mode",        shell_mode_to_string(shell_mode)},
+        {"default_timeout",   default_timeout},
+        {"max_timeout",       max_timeout},
+        {"auto_approve_read", auto_approve_read},
+        {"auto_approve_edit", auto_approve_edit}
+    };
+}
+
+ToolConfig ToolConfig::from_json(const nlohmann::json& j) {
+    ToolConfig config;
+    if (j.contains("shell_mode")) {
+        config.shell_mode = string_to_shell_mode(j["shell_mode"].get<std::string>());
+    }
+    if (j.contains("default_timeout")) {
+        config.default_timeout = j["default_timeout"].get<int>();
+    }
+    if (j.contains("max_timeout")) {
+        config.max_timeout = j["max_timeout"].get<int>();
+    }
+    if (j.contains("auto_approve_read")) {
+        config.auto_approve_read = j["auto_approve_read"].get<bool>();
+    }
+    if (j.contains("auto_approve_edit")) {
+        config.auto_approve_edit = j["auto_approve_edit"].get<bool>();
+    }
+    return config;
+}
+
+// ============================================================================
 // ToolResult
 // ============================================================================
 
