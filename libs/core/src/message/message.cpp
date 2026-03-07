@@ -553,7 +553,11 @@ std::vector<MessageInfo> MessageDao::list_messages_by_session(
         if (row.contains("tokens")) {
             auto val = row["tokens"];
             if (val.is_string()) {
-                info.tokens = TokenUsage::from_json(nlohmann::json::parse(val.get<std::string>()));
+                try {
+                    info.tokens = TokenUsage::from_json(nlohmann::json::parse(val.get<std::string>()));
+                } catch (const nlohmann::json::parse_error& e) {
+                    TURBOT_LOG_ERROR("Failed to parse tokens JSON: {}", e.what());
+                }
             } else if (val.is_object()) {
                 info.tokens = TokenUsage::from_json(val);
             }
@@ -620,7 +624,12 @@ std::vector<Part> MessageDao::list_parts(const std::string& message_id) {
         // Handle JSON string stored in SQLite
         auto data_val = row["data"];
         if (data_val.is_string()) {
-            part.data = nlohmann::json::parse(data_val.get<std::string>());
+            try {
+                part.data = nlohmann::json::parse(data_val.get<std::string>());
+            } catch (const nlohmann::json::parse_error& e) {
+                TURBOT_LOG_ERROR("Failed to parse part data JSON: {}", e.what());
+                part.data = nullptr;
+            }
         } else {
             part.data = data_val;
         }

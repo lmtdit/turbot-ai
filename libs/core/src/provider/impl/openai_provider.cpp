@@ -401,7 +401,8 @@ ChatResponse OpenAIProvider::chat_stream(
                                 tc.name = current_tool_call_name;
                                 try {
                                     tc.arguments = nlohmann::json::parse(current_tool_args);
-                                } catch (...) {
+                                } catch (const nlohmann::json::parse_error& e) {
+                                    TURBOT_LOG_ERROR("Failed to parse tool call arguments: {}", e.what());
                                     tc.arguments = nlohmann::json::object();
                                 }
                                 accumulated_tool_calls.push_back(tc);
@@ -423,7 +424,8 @@ ChatResponse OpenAIProvider::chat_stream(
                         tc.name = current_tool_call_name;
                         try {
                             tc.arguments = nlohmann::json::parse(current_tool_args);
-                        } catch (...) {
+                        } catch (const nlohmann::json::parse_error& e) {
+                            TURBOT_LOG_ERROR("Failed to parse tool call arguments: {}", e.what());
                             tc.arguments = nlohmann::json::object();
                         }
                         accumulated_tool_calls.push_back(tc);
@@ -488,7 +490,8 @@ bool OpenAIProvider::validate() {
             ChatOptions{.max_tokens = 5}
         );
         return !response.is_error();
-    } catch (...) {
+    } catch (const std::exception& e) {
+        TURBOT_LOG_DEBUG("OpenAI validation failed: {}", e.what());
         return false;
     }
 }

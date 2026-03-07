@@ -1,6 +1,7 @@
 #pragma once
 
 #include <turbot/core/common/export.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <nlohmann/json.hpp>
 #include <functional>
 #include <optional>
@@ -142,7 +143,8 @@ public:
             try {
                 callback(key, new_value);
             } catch (const std::exception& e) {
-                // 记录错误但不抛出异常
+                // 记录错误但不抛出异常，避免影响其他回调
+                TURBOT_LOG_ERROR("Config change callback error for key '{}': {}", key, e.what());
             }
         }
     }
