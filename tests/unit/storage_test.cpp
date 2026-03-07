@@ -976,3 +976,415 @@ TEST_CASE("SQLiteDatabase::close_and_reopen", "[storage][sqlite]") {
     
     std::filesystem::remove(db_path);
 }
+
+// ============================================================================
+// Execute Scalar Edge Cases
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::execute_scalar_edge_cases", "[storage][sqlite]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("scalar returns nullopt for empty result") {
+        auto value = db->execute_scalar<int64_t>("SELECT value FROM test WHERE id = 999");
+        REQUIRE_FALSE(value.has_value());
+    }
+    
+    SECTION("scalar returns nullopt for empty table") {
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) as count FROM test");
+        REQUIRE(count.has_value());
+        REQUIRE(*count == 0);
+    }
+    
+    SECTION("scalar with string type") {
+        db->execute("INSERT INTO test (value) VALUES (42)");
+        auto str_val = db->execute_scalar<std::string>("SELECT 'test_string' as str");
+        REQUIRE(str_val.has_value());
+        REQUIRE(*str_val == "test_string");
+    }
+    
+    SECTION("scalar with double type") {
+        auto double_val = db->execute_scalar<double>("SELECT 3.14159 as pi");
+        REQUIRE(double_val.has_value());
+        REQUIRE(*double_val == Catch::Approx(3.14159));
+    }
+}
+
+// ============================================================================
+// Health Check Edge Cases
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::health_check_edge_cases", "[storage][sqlite]") {
+    SECTION("health check on healthy database") {
+        TestDatabase test_db;
+        REQUIRE(test_db.db()->health_check());
+    }
+    
+    SECTION("health check returns false on closed database") {
+        const std::string db_path = "/tmp/test_health_check.db";
+        std::filesystem::remove(db_path);
+        
+        DatabaseConfig config;
+        config.path = db_path;
+        auto db = std::make_shared<SQLiteDatabase>(config);
+        
+        REQUIRE(db->health_check());
+        db->close();
+        // health_check would throw on closed db, but catches exception and returns false
+        REQUIRE_FALSE(db->health_check());
+        
+        std::filesystem::remove(db_path);
+    }
+}
+
+// ============================================================================
+// Query Result Tests
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::query_result", "[storage][sqlite]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    SECTION("multiple rows returned") {
+        db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+        db->execute("INSERT INTO test (value) VALUES (1)");
+        db->execute("INSERT INTO test (value) VALUES (2)");
+        db->execute("INSERT INTO test (value) VALUES (3)");
+        
+        auto result = db->execute("SELECT * FROM test ORDER BY value");
+        REQUIRE(result.rows.size() == 3);
+        // Note: affected_rows for SELECT may vary based on prior operations
+        // We just verify we got the expected rows
+        
+        REQUIRE(result.rows[0]["value"] == 1);
+        REQUIRE(result.rows[1]["value"] == 2);
+        REQUIRE(result.rows[2]["value"] == 3);
+    }
+    
+    SECTION("affected rows for delete") {
+        db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+        db->execute("INSERT INTO test (value) VALUES (1)");
+        db->execute("INSERT INTO test (value) VALUES (2)");
+        
+        auto result = db->execute("DELETE FROM test WHERE value = 1");
+        REQUIRE(result.affected_rows == 1);
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) as count FROM test");
+        REQUIRE(*count == 1);
+    }
+    
+    SECTION("affected rows for update") {
+        db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+        db->execute("INSERT INTO test (value) VALUES (1)");
+        db->execute("INSERT INTO test (value) VALUES (2)");
+        
+        auto result = db->execute("UPDATE test SET value = 999 WHERE value > 0");
+        REQUIRE(result.affected_rows == 2);
+    }
+}
+
+// ============================================================================
+// Transaction Execute Tests
+// ============================================================================
+
+TEST_CASE("SQLiteTransaction::execute_one", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("execute_one in transaction") {
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO test (value) VALUES (42)");
+        
+        auto row = tx->execute_one("SELECT value FROM test WHERE id = 1");
+        REQUIRE(row.has_value());
+        REQUIRE((*row)["value"] == 42);
+        
+        tx->commit();
+    }
+    
+    SECTION("execute_one returns nullopt for no match in transaction") {
+        auto tx = db->begin_transaction();
+        
+        auto row = tx->execute_one("SELECT value FROM test WHERE id = 999");
+        REQUIRE_FALSE(row.has_value());
+        
+        tx->rollback();
+    }
+}
+
+TEST_CASE("SQLiteTransaction::destructor_rollback", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("transaction rolls back on destructor") {
+        {
+            auto tx = db->begin_transaction();
+            tx->execute("INSERT INTO test (value) VALUES (1)");
+            // tx destructor called here - should rollback
+        }
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) as count FROM test");
+        REQUIRE(count.has_value());
+        REQUIRE(*count == 0);
+    }
+}
+
+// ============================================================================
+// Migration Pending and Empty Cases
+// ============================================================================
+
+TEST_CASE("MigrationRunner::pending_and_empty", "[storage][migration]") {
+    const std::string db_path = "/tmp/test_migration_pending.db";
+    std::filesystem::remove(db_path);
+    
+    DatabaseConfig config;
+    config.path = db_path;
+    auto db = std::make_shared<SQLiteDatabase>(config);
+    
+    MigrationRunner runner(db);
+    
+    runner.add_migration(std::make_unique<TestMigration>(
+        "001_create_test",
+        1,
+        "CREATE TABLE test (id INTEGER PRIMARY KEY)",
+        "DROP TABLE test"
+    ));
+    
+    SECTION("get_pending before run") {
+        auto pending = runner.get_pending();
+        REQUIRE(pending.size() == 1);
+        REQUIRE(pending[0] == "001_create_test");
+    }
+    
+    SECTION("get_pending after run") {
+        runner.run();
+        auto pending = runner.get_pending();
+        REQUIRE(pending.empty());
+    }
+    
+    SECTION("get_executed before run") {
+        auto executed = runner.get_executed();
+        REQUIRE(executed.empty());
+    }
+    
+    SECTION("get_executed after run") {
+        runner.run();
+        auto executed = runner.get_executed();
+        REQUIRE(executed.size() == 1);
+    }
+    
+    SECTION("run with no migrations") {
+        MigrationRunner empty_runner(db);
+        REQUIRE_NOTHROW(empty_runner.run());
+        auto pending = empty_runner.get_pending();
+        REQUIRE(pending.empty());
+    }
+    
+    std::filesystem::remove(db_path);
+}
+
+// ============================================================================
+// Migration Multiple Steps Rollback
+// ============================================================================
+
+TEST_CASE("MigrationRunner::rollback_multiple", "[storage][migration]") {
+    const std::string db_path = "/tmp/test_migration_rollback_multi.db";
+    std::filesystem::remove(db_path);
+    
+    DatabaseConfig config;
+    config.path = db_path;
+    auto db = std::make_shared<SQLiteDatabase>(config);
+    
+    MigrationRunner runner(db);
+    
+    runner.add_migration(std::make_unique<TestMigration>(
+        "001_create_users",
+        1,
+        "CREATE TABLE users (id INTEGER PRIMARY KEY)",
+        "DROP TABLE users"
+    ));
+    
+    runner.add_migration(std::make_unique<TestMigration>(
+        "002_create_posts",
+        2,
+        "CREATE TABLE posts (id INTEGER PRIMARY KEY)",
+        "DROP TABLE posts"
+    ));
+    
+    runner.add_migration(std::make_unique<TestMigration>(
+        "003_create_comments",
+        3,
+        "CREATE TABLE comments (id INTEGER PRIMARY KEY)",
+        "DROP TABLE comments"
+    ));
+    
+    SECTION("rollback multiple steps") {
+        runner.run();
+        
+        auto executed = runner.get_executed();
+        REQUIRE(executed.size() == 3);
+        
+        runner.rollback(2);
+        
+        executed = runner.get_executed();
+        REQUIRE(executed.size() == 1);
+        REQUIRE(executed[0] == "001_create_users");
+    }
+    
+    SECTION("rollback more than available") {
+        runner.run();
+        
+        runner.rollback(10);  // More than available
+        
+        auto executed = runner.get_executed();
+        REQUIRE(executed.empty());
+    }
+    
+    std::filesystem::remove(db_path);
+}
+
+// ============================================================================
+// Migration Sorting Tests
+// ============================================================================
+
+TEST_CASE("MigrationRunner::sorting", "[storage][migration]") {
+    const std::string db_path = "/tmp/test_migration_sorting.db";
+    std::filesystem::remove(db_path);
+    
+    DatabaseConfig config;
+    config.path = db_path;
+    auto db = std::make_shared<SQLiteDatabase>(config);
+    
+    MigrationRunner runner(db);
+    
+    // Add migrations in non-sequential order
+    runner.add_migration(std::make_unique<TestMigration>(
+        "003_third",
+        3,
+        "CREATE TABLE third (id INTEGER PRIMARY KEY)",
+        "DROP TABLE third"
+    ));
+    
+    runner.add_migration(std::make_unique<TestMigration>(
+        "001_first",
+        1,
+        "CREATE TABLE first (id INTEGER PRIMARY KEY)",
+        "DROP TABLE first"
+    ));
+    
+    runner.add_migration(std::make_unique<TestMigration>(
+        "002_second",
+        2,
+        "CREATE TABLE second (id INTEGER PRIMARY KEY)",
+        "DROP TABLE second"
+    ));
+    
+    SECTION("migrations are sorted by version") {
+        runner.run();
+        
+        auto executed = runner.get_executed();
+        REQUIRE(executed.size() == 3);
+        REQUIRE(executed[0] == "001_first");
+        REQUIRE(executed[1] == "002_second");
+        REQUIRE(executed[2] == "003_third");
+    }
+    
+    std::filesystem::remove(db_path);
+}
+
+// ============================================================================
+// Database Config Method Tests
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::config_accessor", "[storage][sqlite]") {
+    DatabaseConfig config;
+    config.path = ":memory:";
+    config.cache_size = -5000;
+    config.timeout = 60;
+    
+    SQLiteDatabase db(config);
+    
+    REQUIRE(db.config().path == ":memory:");
+    REQUIRE(db.config().cache_size == -5000);
+    REQUIRE(db.config().timeout == 60);
+}
+
+// ============================================================================
+// Self-Move Assignment Protection Test
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::self_move_protection", "[storage][sqlite]") {
+    const std::string db_path = "/tmp/test_self_move.db";
+    std::filesystem::remove(db_path);
+    
+    DatabaseConfig config;
+    config.path = db_path;
+    
+    auto db = std::make_unique<SQLiteDatabase>(config);
+    REQUIRE(db->is_open());
+    
+    // Self-move assignment should be safe (no-op)
+    *db = std::move(*db);
+    
+    // Database should still be open
+    REQUIRE(db->is_open());
+    
+    std::filesystem::remove(db_path);
+}
+
+// ============================================================================
+// Empty SQL Tests
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::empty_results", "[storage][sqlite]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("select from empty table") {
+        auto result = db->execute("SELECT * FROM test");
+        REQUIRE(result.rows.empty());
+        REQUIRE(result.affected_rows == 0);
+    }
+    
+    SECTION("execute_one on empty table") {
+        auto row = db->execute_one("SELECT * FROM test WHERE id = 1");
+        REQUIRE_FALSE(row.has_value());
+    }
+}
+
+// ============================================================================
+// Migration Macro Test
+// ============================================================================
+
+TURBOT_MIGRATION(TestMacroMigration, 1,
+    "CREATE TABLE macro_test (id INTEGER PRIMARY KEY)",
+    "DROP TABLE macro_test"
+);
+
+TEST_CASE("MigrationRunner::macro", "[storage][migration]") {
+    const std::string db_path = "/tmp/test_migration_macro.db";
+    std::filesystem::remove(db_path);
+    
+    DatabaseConfig config;
+    config.path = db_path;
+    auto db = std::make_shared<SQLiteDatabase>(config);
+    
+    MigrationRunner runner(db);
+    runner.add_migration(std::make_unique<TestMacroMigrationMigration>());
+    
+    runner.run();
+    
+    auto executed = runner.get_executed();
+    REQUIRE(executed.size() == 1);
+    REQUIRE(executed[0] == "TestMacroMigration");
+    
+    std::filesystem::remove(db_path);
+}
