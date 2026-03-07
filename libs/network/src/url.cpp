@@ -1,5 +1,7 @@
 #include <turbot/network/url.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <algorithm>
+#include <stdexcept>
 
 namespace turbot::network {
 
@@ -31,7 +33,11 @@ void Url::parse(std::string_view url) {
         host_ = std::string(host_port.substr(0, port_start));
         try {
             port_ = std::stoi(std::string(host_port.substr(port_start + 1)));
-        } catch (...) {
+        } catch (const std::invalid_argument& e) {
+            TURBOT_LOG_WARN("Invalid port in URL: {}", std::string(host_port.substr(port_start + 1)));
+            port_ = std::nullopt;
+        } catch (const std::out_of_range& e) {
+            TURBOT_LOG_WARN("Port out of range in URL: {}", std::string(host_port.substr(port_start + 1)));
             port_ = std::nullopt;
         }
     } else {
