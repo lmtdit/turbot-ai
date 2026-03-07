@@ -78,8 +78,12 @@ private:
     /// @param name Migration name to remove
     void remove_migration(const std::string& name);
 
+    /// Ensure migrations are sorted by version (lazy sort)
+    void ensure_sorted();
+
     std::shared_ptr<Database> db_;
     std::vector<std::unique_ptr<Migration>> migrations_;
+    bool migrations_sorted_ = false;  ///< Track if migrations_ is sorted
 };
 
 /// Helper macro for creating simple migrations

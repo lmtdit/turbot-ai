@@ -4,8 +4,16 @@
 
 #include <algorithm>
 #include <chrono>
+#include <set>
 
 namespace turbot::storage {
+
+// Helper for version-based ordering
+struct MigrationCompare {
+    bool operator()(const std::unique_ptr<Migration>& a, const std::unique_ptr<Migration>& b) const {
+        return a->version() < b->version();
+    }
+};
 
 MigrationRunner::MigrationRunner(std::shared_ptr<Database> db)
     : db_(std::move(db)) {
@@ -19,13 +27,14 @@ void MigrationRunner::add_migration(std::unique_ptr<Migration> migration) {
         throw std::runtime_error("Cannot add null migration");
     }
     migrations_.push_back(std::move(migration));
+    migrations_sorted_ = false;  // Mark as needing sort
+}
 
-    // Sort migrations by version
-    std::sort(migrations_.begin(), migrations_.end(),
-              [](const std::unique_ptr<Migration>& a,
-                 const std::unique_ptr<Migration>& b) {
-                  return a->version() < b->version();
-              });
+void MigrationRunner::ensure_sorted() {
+    if (!migrations_sorted_) {
+        std::sort(migrations_.begin(), migrations_.end(), MigrationCompare{});
+        migrations_sorted_ = true;
+    }
 }
 
 void MigrationRunner::create_migration_table() {
@@ -58,6 +67,7 @@ void MigrationRunner::remove_migration(const std::string& name) {
 
 void MigrationRunner::run() {
     create_migration_table();
+    ensure_sorted();  // Lazy sort before iteration
 
     auto executed = get_executed();
     size_t pending_count = 0;
@@ -93,6 +103,7 @@ void MigrationRunner::rollback(int steps) {
         throw std::runtime_error("Rollback steps must be positive");
     }
 
+    ensure_sorted();  // Lazy sort before iteration
     auto executed = get_executed();
 
     // Reverse order for rollback
@@ -126,6 +137,7 @@ void MigrationRunner::rollback(int steps) {
 }
 
 std::vector<std::string> MigrationRunner::get_pending() {
+    ensure_sorted();  // Lazy sort before iteration
     auto executed = get_executed();
     std::vector<std::string> pending;
 
@@ -154,6 +166,7 @@ std::vector<std::string> MigrationRunner::get_executed() {
 }
 
 bool MigrationRunner::validate() {
+    ensure_sorted();  // Lazy sort before iteration
     auto executed = get_executed();
 
     // Check that all executed migrations are registered
