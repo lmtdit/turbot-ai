@@ -5,10 +5,27 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <mutex>
 #include <sstream>
 #include <unordered_map>
 
 namespace turbot::network {
+
+// ============================================================================
+// CURL Global Initialization (Thread-Safe)
+// ============================================================================
+
+namespace {
+
+std::once_flag curl_init_flag;
+
+void ensure_curl_initialized() {
+    std::call_once(curl_init_flag, []() {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+    });
+}
+
+} // anonymous namespace
 
 // ============================================================================
 // Helper Functions
@@ -201,12 +218,8 @@ public:
     std::unordered_map<std::string, std::string> default_headers_;
     
     Impl() {
-        // Initialize libcurl globally (once)
-        static bool initialized = false;
-        if (!initialized) {
-            curl_global_init(CURL_GLOBAL_DEFAULT);
-            initialized = true;
-        }
+        // Initialize libcurl globally (thread-safe using std::call_once)
+        ensure_curl_initialized();
     }
     
     ~Impl() {
