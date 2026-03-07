@@ -337,3 +337,36 @@ class SQLiteTransaction {
 **最后更新时间**: 2026-03-08  
 **修复验证**: 所有 256 个测试用例通过，1335 个断言成功
 **修复总结**: 8 个 Critical、10 个 Warning、7 个 Suggestion 已全部修复，1 个评估保留，2 个待后续优化
+
+---
+
+## 第二轮代码审查 (2026-03-08)
+
+### 新发现并已修复的问题
+
+| #   | 严重度   | 文件:行号                     | 问题描述                  | 状态      |
+| --- | -------- | ----------------------------- | ------------------------- | --------- |
+| 1   | Critical | `http_client.cpp:249`         | 临时字符串生命周期问题    | ✅ 已修复 |
+| 2   | Critical | `message.cpp:556,623`         | JSON 解析无异常处理       | ✅ 已修复 |
+| 3   | Critical | `openai_provider.cpp:404,426` | catch(...) 异常吞没无日志 | ✅ 已修复 |
+| 4   | Warning  | `sqlite_database.cpp:33,46`   | 整数截断风险              | ✅ 已修复 |
+| 5   | Warning  | `crypto_utils.cpp:190`        | nonce 生成不一致          | ✅ 已修复 |
+| 6   | Warning  | `http_client.cpp:186`         | 字符串边界检查            | ✅ 已修复 |
+| 7   | Warning  | `json_utils.cpp:164`          | stoul 溢出风险            | ⚠️ 已处理 |
+| 8   | Warning  | `config.hpp:142`              | 回调异常未记录日志        | ✅ 已修复 |
+
+### 第二轮修复详情
+
+1. **http_client.cpp 临时字符串生命周期**：`std::string(method_to_string(...)).c_str()` 临时对象在语句结束时销毁，存储到局部变量确保生命周期
+
+2. **message.cpp JSON 解析**：为 `nlohmann::json::parse()` 添加 try-catch 并记录错误日志
+
+3. **openai_provider.cpp 异常处理**：将 `catch(...)` 改为具体异常类型并添加日志
+
+4. **sqlite_database.cpp 整数截断**：添加字符串大小检查，超过 INT_MAX 抛出异常
+
+5. **crypto_utils.cpp nonce 生成**：AES-GCM nonce 改用 `random_bytes(12)` 生成真正的 12 字节随机数据
+
+6. **http_client.cpp 边界检查**：`line.substr(0, 5)` 改为 `line.compare(0, 5, "HTTP/")` 避免短字符串异常
+
+7. **config.hpp 回调异常日志**：为 set() 中的回调异常添加 `TURBOT_LOG_ERROR` 记录
