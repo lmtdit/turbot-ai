@@ -15,6 +15,7 @@ set(UNIT_TEST_SOURCES
     unit/logger_test.cpp
     unit/version_test.cpp
     unit/storage_test.cpp
+    unit/message_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
