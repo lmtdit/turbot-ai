@@ -164,13 +164,17 @@ std::vector<uint8_t> sha256(const std::vector<uint8_t>& data) {
 }
 
 std::string hmac_sha256(const std::string& key, const std::string& data) {
-    unsigned char* digest;
     unsigned int digest_len;
 
-    digest = HMAC(EVP_sha256(),
-                  key.c_str(), key.size(),
-                  reinterpret_cast<const unsigned char*>(data.c_str()), data.size(),
-                  nullptr, &digest_len);
+    unsigned char* digest = HMAC(EVP_sha256(),
+                                  key.c_str(), key.size(),
+                                  reinterpret_cast<const unsigned char*>(data.c_str()), data.size(),
+                                  nullptr, &digest_len);
+
+    // 检查 HMAC 是否成功
+    if (!digest) {
+        throw std::runtime_error("HMAC computation failed");
+    }
 
     return to_hex(std::vector<uint8_t>(digest, digest + digest_len));
 }
