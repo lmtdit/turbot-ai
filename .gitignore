@@ -73,3 +73,4 @@ docs/latex/
 *.tmp
 *.temp
 *.log
+.cache
