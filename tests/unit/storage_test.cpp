@@ -2,7 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <turbot/storage/sqlite_database.hpp>
 #include <turbot/storage/migration.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/logger.hpp>
 
 #include <filesystem>
 #include <fstream>
@@ -1388,3 +1388,331 @@ TEST_CASE("MigrationRunner::macro", "[storage][migration]") {
     
     std::filesystem::remove(db_path);
 }
+
+// ============================================================================
+// Transaction Exception Safety Tests
+// ============================================================================
+
+TEST_CASE("Transaction::exception_safety", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)");
+    
+    SECTION("SQL error in transaction does not corrupt state") {
+        {
+            auto tx = db->begin_transaction();
+            tx->execute("INSERT INTO test (value) VALUES (1)");
+            
+            // This will fail due to NOT NULL constraint
+            REQUIRE_THROWS_AS(
+                tx->execute("INSERT INTO test (id) VALUES (NULL)"),
+                std::runtime_error
+            );
+            
+            // Transaction should still be active
+            REQUIRE(tx->is_active());
+            
+            // Should be able to rollback
+            REQUIRE_NOTHROW(tx->rollback());
+        }
+        
+        // Data should be rolled back
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) as count FROM test");
+        REQUIRE(count.has_value());
+        REQUIRE(*count == 0);
+    }
+    
+    SECTION("multiple operations with partial failure") {
+        {
+            auto tx = db->begin_transaction();
+            tx->execute("INSERT INTO test (value) VALUES (1)");
+            tx->execute("INSERT INTO test (value) VALUES (2)");
+            
+            // Fail the third insert
+            REQUIRE_THROWS_AS(
+                tx->execute("INSERT INTO test (id, value) VALUES (1, 3)"),  // Duplicate id
+                std::runtime_error
+            );
+            
+            // Rollback
+            tx->rollback();
+        }
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) as count FROM test");
+        REQUIRE(count.has_value());
+        REQUIRE(*count == 0);
+    }
+    
+    SECTION("commit after SQL error rolls back") {
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO test (value) VALUES (1)");
+        
+        // SQL error
+        REQUIRE_THROWS_AS(
+            tx->execute("INSERT INTO nonexistent_table VALUES (1)"),
+            std::runtime_error
+        );
+        
+        // Commit should still work for the valid operations
+        REQUIRE_NOTHROW(tx->commit());
+        
+        // The first insert should be committed
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) as count FROM test");
+        REQUIRE(count.has_value());
+        REQUIRE(*count == 1);
+    }
+}
+
+TEST_CASE("Transaction::multi_table", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)");
+    db->execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount REAL)");
+    
+    SECTION("transaction across multiple tables") {
+        {
+            auto tx = db->begin_transaction();
+            tx->execute("INSERT INTO users (name) VALUES ('Alice')");
+            tx->execute("INSERT INTO orders (user_id, amount) VALUES (1, 100.0)");
+            tx->commit();
+        }
+        
+        auto user_count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM users");
+        auto order_count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM orders");
+        
+        REQUIRE(*user_count == 1);
+        REQUIRE(*order_count == 1);
+    }
+    
+    SECTION("rollback across multiple tables") {
+        {
+            auto tx = db->begin_transaction();
+            tx->execute("INSERT INTO users (name) VALUES ('Bob')");
+            tx->execute("INSERT INTO orders (user_id, amount) VALUES (1, 200.0)");
+            // No commit - should rollback
+        }
+        
+        auto user_count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM users");
+        auto order_count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM orders");
+        
+        REQUIRE(*user_count == 0);
+        REQUIRE(*order_count == 0);
+    }
+    
+    SECTION("constraint violation rollback") {
+        db->execute("CREATE TABLE unique_test (id INTEGER PRIMARY KEY, name TEXT UNIQUE)");
+        
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO unique_test (name) VALUES ('unique_name')");
+        
+        // This should fail due to UNIQUE constraint
+        REQUIRE_THROWS_AS(
+            tx->execute("INSERT INTO unique_test (name) VALUES ('unique_name')"),
+            std::runtime_error
+        );
+        
+        tx->rollback();
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM unique_test");
+        REQUIRE(*count == 0);
+    }
+}
+
+TEST_CASE("Transaction::long_running", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)");
+    
+    SECTION("large batch insert in transaction") {
+        const int num_inserts = 100;
+        
+        auto tx = db->begin_transaction();
+        for (int i = 0; i < num_inserts; ++i) {
+            tx->execute("INSERT INTO test (value) VALUES (?)", {nlohmann::json("value_" + std::to_string(i))});
+        }
+        tx->commit();
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == num_inserts);
+    }
+    
+    SECTION("rollback large batch") {
+        const int num_inserts = 100;
+        
+        {
+            auto tx = db->begin_transaction();
+            for (int i = 0; i < num_inserts; ++i) {
+                tx->execute("INSERT INTO test (value) VALUES (?)", {nlohmann::json("value_" + std::to_string(i))});
+            }
+            // No commit - should rollback all
+        }
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 0);
+    }
+}
+
+TEST_CASE("TransactionGuard::edge_cases", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("guard with null transaction") {
+        TransactionGuard guard(nullptr);
+        REQUIRE_FALSE(static_cast<bool>(guard));
+        
+        // These should not throw
+        REQUIRE_NOTHROW(guard.commit());
+        REQUIRE_NOTHROW(guard.rollback());
+    }
+    
+    SECTION("double commit via guard") {
+        TransactionGuard guard(db->begin_transaction());
+        guard->execute("INSERT INTO test (value) VALUES (1)");
+        guard.commit();
+        
+        // Second commit should not throw (no-op on null tx)
+        REQUIRE_NOTHROW(guard.commit());
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 1);
+    }
+    
+    SECTION("rollback then commit") {
+        TransactionGuard guard(db->begin_transaction());
+        guard->execute("INSERT INTO test (value) VALUES (1)");
+        guard.rollback();
+        
+        // Commit after rollback should not throw
+        REQUIRE_NOTHROW(guard.commit());
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 0);
+    }
+    
+    SECTION("move to self") {
+        TransactionGuard guard(db->begin_transaction());
+        guard->execute("INSERT INTO test (value) VALUES (1)");
+        
+        // Self move assignment should be safe
+        guard = std::move(guard);
+        
+        // Guard should still be valid and able to commit
+        guard.commit();
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 1);
+    }
+    
+    SECTION("move from inactive guard") {
+        TransactionGuard guard1(db->begin_transaction());
+        guard1.commit();
+        
+        TransactionGuard guard2(db->begin_transaction());
+        guard2->execute("INSERT INTO test (value) VALUES (2)");
+        
+        // Move from inactive guard1 to guard2
+        guard2 = std::move(guard1);
+        
+        // guard2 now holds the committed transaction (null)
+        REQUIRE_FALSE(static_cast<bool>(guard2));
+        
+        // The insert in the original guard2's transaction should have been rolled back
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 0);
+    }
+}
+
+TEST_CASE("Transaction::execute_one", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)");
+    
+    SECTION("execute_one returns inserted row") {
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO test (name) VALUES ('test')");
+        
+        auto row = tx->execute_one("SELECT * FROM test WHERE name = 'test'");
+        REQUIRE(row.has_value());
+        REQUIRE((*row)["name"].get<std::string>() == "test");
+        
+        tx->commit();
+    }
+    
+    SECTION("execute_one on empty result") {
+        auto tx = db->begin_transaction();
+        
+        auto row = tx->execute_one("SELECT * FROM test WHERE id = 999");
+        REQUIRE_FALSE(row.has_value());
+        
+        tx->rollback();
+    }
+    
+    SECTION("execute_one with parameters") {
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO test (name) VALUES (?)", {nlohmann::json("param_test")});
+        
+        auto row = tx->execute_one(
+            "SELECT * FROM test WHERE name = ?",
+            {nlohmann::json("param_test")}
+        );
+        
+        REQUIRE(row.has_value());
+        REQUIRE((*row)["name"].get<std::string>() == "param_test");
+        
+        tx->commit();
+    }
+}
+
+TEST_CASE("Transaction::state_transitions", "[storage][transaction]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("commit then rollback") {
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO test (value) VALUES (1)");
+        tx->commit();
+        
+        // Rollback after commit should be safe but do nothing
+        REQUIRE_NOTHROW(tx->rollback());
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 1);  // Data was committed
+    }
+    
+    SECTION("rollback then commit") {
+        auto tx = db->begin_transaction();
+        tx->execute("INSERT INTO test (value) VALUES (1)");
+        tx->rollback();
+        
+        // Commit after rollback should throw
+        REQUIRE_THROWS_AS(tx->commit(), std::runtime_error);
+        
+        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
+        REQUIRE(*count == 0);  // Data was rolled back
+    }
+    
+    SECTION("is_active reflects correct state") {
+        auto tx = db->begin_transaction();
+        REQUIRE(tx->is_active());
+        
+        tx->commit();
+        REQUIRE_FALSE(tx->is_active());
+    }
+    
+    SECTION("is_active after rollback") {
+        auto tx = db->begin_transaction();
+        REQUIRE(tx->is_active());
+        
+        tx->rollback();
+        REQUIRE_FALSE(tx->is_active());
+    }
+}
+

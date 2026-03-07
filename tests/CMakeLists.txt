@@ -16,6 +16,7 @@ set(UNIT_TEST_SOURCES
     unit/version_test.cpp
     unit/storage_test.cpp
     unit/message_test.cpp
+    unit/provider_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
@@ -31,6 +32,7 @@ target_link_libraries(turbot-unit-tests
 
 turbot_configure_target(turbot-unit-tests)
 turbot_configure_sanitizers(turbot-unit-tests)
+turbot_configure_coverage(turbot-unit-tests)
 
 include(Catch)
 catch_discover_tests(turbot-unit-tests)
@@ -54,5 +56,6 @@ target_link_libraries(${INTEGRATION_TEST_NAME}
 
 turbot_configure_target(${INTEGRATION_TEST_NAME})
 turbot_configure_sanitizers(${INTEGRATION_TEST_NAME})
+turbot_configure_coverage(${INTEGRATION_TEST_NAME})
 
 catch_discover_tests(${INTEGRATION_TEST_NAME})

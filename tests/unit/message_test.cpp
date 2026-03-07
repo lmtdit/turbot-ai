@@ -4,7 +4,7 @@
 #include <turbot/core/message/part.hpp>
 #include <turbot/core/message/message.hpp>
 #include <turbot/storage/sqlite_database.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/logger.hpp>
 
 using namespace turbot::core;
 using namespace turbot::storage;

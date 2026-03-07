@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/logger.hpp>
 
 using namespace turbot::core;
 

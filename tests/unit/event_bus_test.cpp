@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include <turbot/core/event_bus.hpp>
+#include <turbot/core/event/event_bus.hpp>
 #include <chrono>
 #include <thread>
 

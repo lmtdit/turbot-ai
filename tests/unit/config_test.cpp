@@ -1,5 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
-#include <turbot/core/config.hpp>
+#include <turbot/core/config/config.hpp>
 #include <fstream>
 #include <filesystem>
 
