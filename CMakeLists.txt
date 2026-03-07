@@ -40,6 +40,7 @@ option(TURBOT_ENABLE_CLANG_TIDY "Enable clang-tidy" OFF)
 add_subdirectory(libs/core)
 add_subdirectory(libs/utils)
 add_subdirectory(libs/network)
+add_subdirectory(libs/storage)
 
 # Add subdirectories for applications
 add_subdirectory(apps/turbot-cli)
