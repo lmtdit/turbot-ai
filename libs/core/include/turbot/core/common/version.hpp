@@ -1,7 +1,7 @@
 #pragma once
 
 #include <string_view>
-#include <turbot/core/export.hpp>
+#include <turbot/core/common/export.hpp>
 
 namespace turbot::core {
 

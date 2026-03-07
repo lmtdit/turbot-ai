@@ -1,6 +1,6 @@
 #pragma once
 
-#include <turbot/core/export.hpp>
+#include <turbot/core/common/export.hpp>
 #include <nlohmann/json.hpp>
 #include <cstdint>
 

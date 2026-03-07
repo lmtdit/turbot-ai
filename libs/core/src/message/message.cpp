@@ -1,5 +1,5 @@
 #include <turbot/core/message/message.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <turbot/storage/database.hpp>
 #include <random>
 #include <sstream>

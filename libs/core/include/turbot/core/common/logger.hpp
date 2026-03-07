@@ -2,7 +2,7 @@
 
 #include <spdlog/spdlog.h>
 #include <memory>
-#include <turbot/core/export.hpp>
+#include <turbot/core/common/export.hpp>
 
 namespace turbot::core {
 

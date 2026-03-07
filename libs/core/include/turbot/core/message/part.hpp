@@ -1,6 +1,6 @@
 #pragma once
 
-#include <turbot/core/export.hpp>
+#include <turbot/core/common/export.hpp>
 #include <turbot/core/message/token_usage.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>

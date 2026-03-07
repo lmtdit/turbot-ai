@@ -1,4 +1,4 @@
-#include <turbot/core/event_bus.hpp>
+#include <turbot/core/event/event_bus.hpp>
 #include <turbot/utils/string_utils.hpp>
 #include <algorithm>
 #include <set>

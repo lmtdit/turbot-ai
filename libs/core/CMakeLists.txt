@@ -2,26 +2,49 @@
 
 set(LIBRARY_NAME turbot-core)
 
-# Source files
+# Source files - organized by module
 set(CORE_SOURCES
-    src/version.cpp
-    src/logger.cpp
-    src/config.cpp
-    src/event_bus.cpp
-    src/part.cpp
-    src/message.cpp
+    # Common module
+    src/common/version.cpp
+    src/common/logger.cpp
+    # Config module
+    src/config/config.cpp
+    # Event module
+    src/event/event_bus.cpp
+    # Message module
+    src/message/part.cpp
+    src/message/message.cpp
+    # Provider module
+    src/provider/provider.cpp
+    src/provider/impl/openai_provider.cpp
+    src/provider/impl/bailian_provider.cpp
+    src/provider/impl/zhipu_provider.cpp
+    src/provider/impl/kimi_provider.cpp
+    src/provider/impl/iflow_provider.cpp
 )
 
-# Header files
+# Header files - organized by module
 set(CORE_HEADERS
-    include/turbot/core/version.hpp
-    include/turbot/core/logger.hpp
-    include/turbot/core/config.hpp
-    include/turbot/core/event_bus.hpp
-    include/turbot/core/export.hpp
+    # Common module
+    include/turbot/core/common/export.hpp
+    include/turbot/core/common/version.hpp
+    include/turbot/core/common/logger.hpp
+    # Config module
+    include/turbot/core/config/config.hpp
+    # Event module
+    include/turbot/core/event/event_bus.hpp
+    # Message module
     include/turbot/core/message/token_usage.hpp
     include/turbot/core/message/part.hpp
     include/turbot/core/message/message.hpp
+    # Provider module
+    include/turbot/core/provider/provider.hpp
+    include/turbot/core/provider/provider_manager.hpp
+    include/turbot/core/provider/impl/openai_provider.hpp
+    include/turbot/core/provider/impl/bailian_provider.hpp
+    include/turbot/core/provider/impl/zhipu_provider.hpp
+    include/turbot/core/provider/impl/kimi_provider.hpp
+    include/turbot/core/provider/impl/iflow_provider.hpp
 )
 
 # Create library
@@ -55,6 +78,7 @@ target_link_libraries(${LIBRARY_NAME}
     PRIVATE
         turbot::utils
         turbot::storage
+        turbot::network
 )
 
 # Export macros

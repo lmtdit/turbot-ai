@@ -1,6 +1,6 @@
 #pragma once
 
-#include <turbot/core/export.hpp>
+#include <turbot/core/common/export.hpp>
 #include <turbot/utils/string_utils.hpp>
 #include <nlohmann/json.hpp>
 #include <functional>
