@@ -8,6 +8,8 @@ set(CORE_SOURCES
     src/logger.cpp
     src/config.cpp
     src/event_bus.cpp
+    src/part.cpp
+    src/message.cpp
 )
 
 # Header files
@@ -17,6 +19,9 @@ set(CORE_HEADERS
     include/turbot/core/config.hpp
     include/turbot/core/event_bus.hpp
     include/turbot/core/export.hpp
+    include/turbot/core/message/token_usage.hpp
+    include/turbot/core/message/part.hpp
+    include/turbot/core/message/message.hpp
 )
 
 # Create library
@@ -49,6 +54,7 @@ target_link_libraries(${LIBRARY_NAME}
         nlohmann_json::nlohmann_json
     PRIVATE
         turbot::utils
+        turbot::storage
 )
 
 # Export macros
