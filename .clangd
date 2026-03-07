@@ -1,0 +1,17 @@
+CompileFlags:
+  Add:
+    # Include paths for all libraries (relative to project root)
+    - '-Ilibs/core/include'
+    - '-Ilibs/network/include'
+    - '-Ilibs/storage/include'
+    - '-Ilibs/utils/include'
+  Remove:
+    # Remove problematic flags that may cause issues
+    - '-Werror=*'
+
+Diagnostics:
+  Suppress:
+    - 'pp_file_not_found'
+  ClangTidy:
+    Remove:
+      - 'modernize-use-trailing-return-type'
