@@ -1,6 +1,6 @@
 #include <turbot/storage/migration.hpp>
 #include <turbot/storage/database.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/logger.hpp>
 
 #include <algorithm>
 #include <chrono>

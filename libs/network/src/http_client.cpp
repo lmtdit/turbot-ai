@@ -1,5 +1,5 @@
 #include <turbot/network/http_client.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/logger.hpp>
 
 #include <curl/curl.h>
 #include <algorithm>
