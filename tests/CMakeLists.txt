@@ -2,12 +2,27 @@
 
 find_package(Catch2 REQUIRED)
 
+# Config Manager 单元测试（独立，不依赖 network）
+add_executable(config-manager-test unit/config_manager_test.cpp)
+
+target_link_libraries(config-manager-test
+    PRIVATE
+        turbot::core
+        turbot::utils
+        Catch2::Catch2WithMain
+)
+
+turbot_configure_target(config-manager-test)
+turbot_configure_sanitizers(config-manager-test)
+turbot_configure_coverage(config-manager-test)
+
 # 单元测试
 set(UNIT_TEST_SOURCES
     unit/json_utils_test.cpp
     unit/string_utils_test.cpp
     unit/crypto_utils_test.cpp
     unit/config_test.cpp
+    unit/config_manager_test.cpp
     unit/event_bus_test.cpp
     unit/file_utils_test.cpp
     unit/url_test.cpp
@@ -41,6 +56,7 @@ turbot_configure_sanitizers(turbot-unit-tests)
 turbot_configure_coverage(turbot-unit-tests)
 
 include(Catch)
+catch_discover_tests(config-manager-test)
 catch_discover_tests(turbot-unit-tests)
 
 # 集成测试

@@ -9,6 +9,7 @@ set(CORE_SOURCES
     src/common/logger.cpp
     # Config module
     src/config/config.cpp
+    src/config/config_manager.cpp
     # Event module
     src/event/event_bus.cpp
     # Message module
@@ -53,6 +54,7 @@ set(CORE_HEADERS
     include/turbot/core/common/logger.hpp
     # Config module
     include/turbot/core/config/config.hpp
+    include/turbot/core/config/config_manager.hpp
     # Event module
     include/turbot/core/event/event_bus.hpp
     # Message module
