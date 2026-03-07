@@ -21,6 +21,14 @@ set(CORE_SOURCES
     src/provider/impl/zhipu_provider.cpp
     src/provider/impl/kimi_provider.cpp
     src/provider/impl/iflow_provider.cpp
+    # Permission module
+    src/permission/permission.cpp
+    # Tool module
+    src/tool/tool.cpp
+    src/tool/tool_registry.cpp
+    src/tool/builtin/read_file_tool.cpp
+    src/tool/builtin/write_file_tool.cpp
+    src/tool/builtin/bash_tool.cpp
 )
 
 # Header files - organized by module
@@ -45,6 +53,14 @@ set(CORE_HEADERS
     include/turbot/core/provider/impl/zhipu_provider.hpp
     include/turbot/core/provider/impl/kimi_provider.hpp
     include/turbot/core/provider/impl/iflow_provider.hpp
+    # Permission module
+    include/turbot/core/permission/permission.hpp
+    # Tool module
+    include/turbot/core/tool/tool.hpp
+    include/turbot/core/tool/tool_registry.hpp
+    include/turbot/core/tool/builtin/read_file_tool.hpp
+    include/turbot/core/tool/builtin/write_file_tool.hpp
+    include/turbot/core/tool/builtin/bash_tool.hpp
 )
 
 # Create library

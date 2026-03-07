@@ -71,15 +71,24 @@ libs/core/
 │   │   ├── message.hpp      # Message模型
 │   │   ├── part.hpp         # Part系统
 │   │   └── token_usage.hpp  # Token统计
-│   └── provider/            # AI提供商系统 ✓ 已实现
-│       ├── provider.hpp     # Provider接口
-│       ├── provider_manager.hpp
-│       └── impl/            # Provider实现
-│           ├── openai_provider.hpp
-│           ├── bailian_provider.hpp
-│           ├── zhipu_provider.hpp
-│           ├── kimi_provider.hpp
-│           └── iflow_provider.hpp
+│   ├── provider/            # AI提供商系统 ✓ 已实现
+│   │   ├── provider.hpp     # Provider接口
+│   │   ├── provider_manager.hpp
+│   │   └── impl/            # Provider实现
+│   │       ├── openai_provider.hpp
+│   │       ├── bailian_provider.hpp
+│   │       ├── zhipu_provider.hpp
+│   │       ├── kimi_provider.hpp
+│   │       └── iflow_provider.hpp
+│   ├── permission/          # 权限系统 ✓ 已实现
+│   │   └── permission.hpp   # 权限规则、PermissionSystem
+│   └── tool/                # 工具系统 ✓ 已实现
+│       ├── tool.hpp         # Tool 抽象基类、ToolContext、ToolResult
+│       ├── tool_registry.hpp # ToolRegistry 单例
+│       └── builtin/         # 内置工具
+│           ├── read_file_tool.hpp
+│           ├── write_file_tool.hpp
+│           └── bash_tool.hpp
 └── src/
     ├── common/
     │   ├── logger.cpp
@@ -91,14 +100,23 @@ libs/core/
     ├── message/
     │   ├── message.cpp
     │   └── part.cpp
-    └── provider/
-        ├── provider.cpp
-        └── impl/
-            ├── openai_provider.cpp
-            ├── bailian_provider.cpp
-            ├── zhipu_provider.cpp
-            ├── kimi_provider.cpp
-            └── iflow_provider.cpp
+    ├── provider/
+    │   ├── provider.cpp
+    │   └── impl/
+    │       ├── openai_provider.cpp
+    │       ├── bailian_provider.cpp
+    │       ├── zhipu_provider.cpp
+    │       ├── kimi_provider.cpp
+    │       └── iflow_provider.cpp
+    ├── permission/
+    │   └── permission.cpp
+    └── tool/
+        ├── tool.cpp
+        ├── tool_registry.cpp
+        └── builtin/
+            ├── read_file_tool.cpp
+            ├── write_file_tool.cpp
+            └── bash_tool.cpp
 ```
 
 ### 3.2 storage - 存储层
@@ -192,7 +210,9 @@ tests/
 │   ├── file_utils_test.cpp  ✓ file_utils模块测试
 │   ├── url_test.cpp         ✓ url模块测试
 │   ├── http_client_test.cpp ✓ http_client模块测试
-│   └── storage_test.cpp     ✓ storage模块测试
+│   ├── storage_test.cpp     ✓ storage模块测试
+│   ├── permission_test.cpp  ✓ permission模块测试
+│   └── tool_test.cpp        ✓ tool模块测试
 ├── integration/             # 集成测试 (计划中)
 │   └── ...
 └── test_integration.cpp     # 测试入口
@@ -297,16 +317,18 @@ Plan 1.5 - Provider系统 ✅ 完成
 └── tests/unit/
     └── provider_test.cpp
 
-Plan 1.6 - 权限和工具系统
+Plan 1.6 - 权限和工具系统 ✅ 完成
 ├── libs/core/permission/ # 权限系统（独立）
-│   ├── permission.hpp
-│   └── ruleset.hpp
+│   └── permission.hpp    # PermissionSystem, PermissionRule, Ruleset, PermissionReply
 ├── libs/core/tool/       # 工具系统（独立）
-│   ├── tool.hpp
-│   └── tool_registry.hpp
+│   ├── tool.hpp          # Tool接口, ToolResult, ToolContext
+│   ├── tool_registry.hpp # ToolRegistry 注册表
+│   └── builtin/          # 内置工具实现
+│       ├── read_file_tool.hpp
+│       ├── write_file_tool.hpp
+│       └── bash_tool.hpp
 └── tests/unit/
     ├── permission_test.cpp
-    ├── ruleset_test.cpp
     └── tool_test.cpp
 
 Plan 1.7 - Agent和会话系统
@@ -440,23 +462,23 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 
 ## 11. 实现状态
 
-| 模块              | 状态      | 说明                                               |
-| ----------------- | --------- | -------------------------------------------------- |
-| utils             | ✅ 完成   | crypto_utils, file_utils, json_utils, string_utils |
-| core/common       | ✅ 完成   | export, logger, version                            |
-| core/config       | ✅ 完成   | 配置管理                                           |
-| core/event        | ✅ 完成   | 事件总线                                           |
-| core/message      | ✅ 完成   | message, part, token_usage                         |
-| core/provider     | ✅ 完成   | provider, provider_manager, 5 个 provider 实现     |
-| storage           | ✅ 完成   | database, sqlite_database, transaction, migration  |
-| network           | ✅ 完成   | http_client, url                                   |
-| core/permission   | 📋 计划中 | 权限系统                                           |
-| core/tool         | 📋 计划中 | 工具系统                                           |
-| core/agent        | 📋 计划中 | Agent 系统                                         |
-| core/session      | 📋 计划中 | 会话系统                                           |
-| network/websocket | 📋 计划中 | WebSocket 客户端                                   |
-| network/async     | 📋 计划中 | 异步 IO                                            |
-| storage/pool      | 📋 计划中 | 连接池                                             |
+| 模块              | 状态      | 说明                                                                |
+| ----------------- | --------- | ------------------------------------------------------------------- |
+| utils             | ✅ 完成   | crypto_utils, file_utils, json_utils, string_utils                  |
+| core/common       | ✅ 完成   | export, logger, version                                             |
+| core/config       | ✅ 完成   | 配置管理                                                            |
+| core/event        | ✅ 完成   | 事件总线                                                            |
+| core/message      | ✅ 完成   | message, part, token_usage                                          |
+| core/provider     | ✅ 完成   | provider, provider_manager, 5 个 provider 实现                      |
+| storage           | ✅ 完成   | database, sqlite_database, transaction, migration                   |
+| network           | ✅ 完成   | http_client, url                                                    |
+| core/permission   | ✅ 完成   | 权限系统：PermissionRule、Ruleset、PermissionSystem                 |
+| core/tool         | ✅ 完成   | 工具系统：Tool、ToolRegistry、ReadFileTool、WriteFileTool、BashTool |
+| core/agent        | 📋 计划中 | Agent 系统                                                          |
+| core/session      | 📋 计划中 | 会话系统                                                            |
+| network/websocket | 📋 计划中 | WebSocket 客户端                                                    |
+| network/async     | 📋 计划中 | 异步 IO                                                             |
+| storage/pool      | 📋 计划中 | 连接池                                                              |
 
 **状态图例**：
 
