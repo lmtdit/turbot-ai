@@ -5,13 +5,15 @@
 ## 目录分类
 
 - `./decisions`
-  - 核心决策记录（core decision），保存不可逆或长期有效的决策。
+  - 核心决策记录（core decision），保存不可逆或长期有效的决策文档。
 - `./architecture`
   - 架构设计、核心概念、技术 PRD、技术流程等文档。
 - `./plans`
   - 产品规划、产品愿景、发展路线图、重构计划、模版设计等。
 - `./researchs`
-  - 对外部项目的调研分析、竞品对比、决策分析、架构分析等。
+  - 对外部项目的调研分析、竞品对比、决策分析、架构分析等文档。
+- `./reviews`
+  - 代码 review 的文档记录。
 
 ## 文档存放规则
 
@@ -30,6 +32,7 @@
 - 方案设计：`<n.n>-<topic>-design.md`，保存到 `docs/plans/`目录。
 - 项目计划：`<n.n>-<topic>-plan.md`，保存到 `docs/plans/`目录。
 - 技术重构：`<n.n>-<topic>-refactor.md`，保存到 `docs/plans/`目录。
+- review：`<yyyy-mm-dd>-<module>-code-review.md`
 
 ## 快速导航
 
