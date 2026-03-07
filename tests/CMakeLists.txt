@@ -19,6 +19,8 @@ set(UNIT_TEST_SOURCES
     unit/provider_test.cpp
     unit/permission_test.cpp
     unit/tool_test.cpp
+    unit/agent_test.cpp
+    unit/session_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})

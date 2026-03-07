@@ -29,6 +29,14 @@ set(CORE_SOURCES
     src/tool/builtin/read_file_tool.cpp
     src/tool/builtin/write_file_tool.cpp
     src/tool/builtin/bash_tool.cpp
+    # Agent module
+    src/agent/agent.cpp
+    src/agent/builtin/build_agent.cpp
+    src/agent/builtin/plan_agent.cpp
+    src/agent/builtin/explore_agent.cpp
+    # Session module
+    src/session/session.cpp
+    src/session/session_state_machine.cpp
 )
 
 # Header files - organized by module
@@ -61,6 +69,14 @@ set(CORE_HEADERS
     include/turbot/core/tool/builtin/read_file_tool.hpp
     include/turbot/core/tool/builtin/write_file_tool.hpp
     include/turbot/core/tool/builtin/bash_tool.hpp
+    # Agent module
+    include/turbot/core/agent/agent.hpp
+    include/turbot/core/agent/builtin/build_agent.hpp
+    include/turbot/core/agent/builtin/plan_agent.hpp
+    include/turbot/core/agent/builtin/explore_agent.hpp
+    # Session module
+    include/turbot/core/session/session.hpp
+    include/turbot/core/session/session_state_machine.hpp
 )
 
 # Create library

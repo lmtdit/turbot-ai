@@ -82,13 +82,22 @@ libs/core/
 │   │       └── iflow_provider.hpp
 │   ├── permission/          # 权限系统 ✓ 已实现
 │   │   └── permission.hpp   # 权限规则、PermissionSystem
-│   └── tool/                # 工具系统 ✓ 已实现
-│       ├── tool.hpp         # Tool 抽象基类、ToolContext、ToolResult
-│       ├── tool_registry.hpp # ToolRegistry 单例
-│       └── builtin/         # 内置工具
-│           ├── read_file_tool.hpp
-│           ├── write_file_tool.hpp
-│           └── bash_tool.hpp
+│   ├── tool/                # 工具系统 ✓ 已实现
+│   │   ├── tool.hpp         # Tool 抽象基类、ToolContext、ToolResult
+│   │   ├── tool_registry.hpp # ToolRegistry 单例
+│   │   └── builtin/         # 内置工具
+│   │       ├── read_file_tool.hpp
+│   │       ├── write_file_tool.hpp
+│   │       └── bash_tool.hpp
+│   ├── agent/               # Agent系统 ✓ 已实现
+│   │   ├── agent.hpp        # Agent抽象基类、AgentRegistry
+│   │   └── builtin/         # 内置代理
+│   │       ├── build_agent.hpp
+│   │       ├── plan_agent.hpp
+│   │       └── explore_agent.hpp
+│   └── session/             # 会话系统 ✓ 已实现
+│       ├── session.hpp      # Session、SessionInfo、SessionState
+│       └── session_state_machine.hpp
 └── src/
     ├── common/
     │   ├── logger.cpp
@@ -110,13 +119,22 @@ libs/core/
     │       └── iflow_provider.cpp
     ├── permission/
     │   └── permission.cpp
-    └── tool/
-        ├── tool.cpp
-        ├── tool_registry.cpp
-        └── builtin/
-            ├── read_file_tool.cpp
-            ├── write_file_tool.cpp
-            └── bash_tool.cpp
+    ├── tool/
+    │   ├── tool.cpp
+    │   ├── tool_registry.cpp
+    │   └── builtin/
+    │       ├── read_file_tool.cpp
+    │       ├── write_file_tool.cpp
+    │       └── bash_tool.cpp
+    ├── agent/
+    │   ├── agent.cpp
+    │   └── builtin/
+    │       ├── build_agent.cpp
+    │       ├── plan_agent.cpp
+    │       └── explore_agent.cpp
+    └── session/
+        ├── session.cpp
+        └── session_state_machine.cpp
 ```
 
 ### 3.2 storage - 存储层
@@ -213,6 +231,8 @@ tests/
 │   ├── storage_test.cpp     ✓ storage模块测试
 │   ├── permission_test.cpp  ✓ permission模块测试
 │   └── tool_test.cpp        ✓ tool模块测试
+│   ├── agent_test.cpp       ✓ agent模块测试
+│   └── session_test.cpp     ✓ session模块测试
 ├── integration/             # 集成测试 (计划中)
 │   └── ...
 └── test_integration.cpp     # 测试入口
@@ -331,13 +351,16 @@ Plan 1.6 - 权限和工具系统 ✅ 完成
     ├── permission_test.cpp
     └── tool_test.cpp
 
-Plan 1.7 - Agent和会话系统
+Plan 1.7 - Agent和会话系统 ✅ 完成
 ├── libs/core/agent/      # Agent系统
 │   ├── agent.hpp
 │   └── builtin/
+│       ├── build_agent.hpp
+│       ├── plan_agent.hpp
+│       └── explore_agent.hpp
 ├── libs/core/session/    # 会话系统
 │   ├── session.hpp
-│   └── session_loop.hpp
+│   └── session_state_machine.hpp
 └── tests/unit/
     ├── agent_test.cpp
     └── session_test.cpp
@@ -474,8 +497,8 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 | network           | ✅ 完成   | http_client, url                                                    |
 | core/permission   | ✅ 完成   | 权限系统：PermissionRule、Ruleset、PermissionSystem                 |
 | core/tool         | ✅ 完成   | 工具系统：Tool、ToolRegistry、ReadFileTool、WriteFileTool、BashTool |
-| core/agent        | 📋 计划中 | Agent 系统                                                          |
-| core/session      | 📋 计划中 | 会话系统                                                            |
+| core/agent        | ✅ 完成   | Agent系统：Agent、AgentRegistry、BuildAgent、PlanAgent、ExploreAgent |
+| core/session      | ✅ 完成   | 会话系统：Session、SessionStateMachine、SessionState |
 | network/websocket | 📋 计划中 | WebSocket 客户端                                                    |
 | network/async     | 📋 计划中 | 异步 IO                                                             |
 | storage/pool      | 📋 计划中 | 连接池                                                              |

@@ -1,0 +1,175 @@
+#pragma once
+
+#include <turbot/core/common/export.hpp>
+#include <turbot/core/permission/permission.hpp>
+#include <nlohmann/json.hpp>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace turbot::core::agent {
+
+/// Agent mode determines how the agent is used
+enum class TURBOT_CORE_API AgentMode {
+    Primary,   ///< Main agent that can execute tools
+    Subagent,  ///< Sub-agent spawned by primary agent
+    All        ///< Special value for listing all agents
+};
+
+/// Convert AgentMode to string
+[[nodiscard]] TURBOT_CORE_API std::string agent_mode_to_string(AgentMode mode);
+
+/// Convert string to AgentMode
+[[nodiscard]] TURBOT_CORE_API AgentMode string_to_agent_mode(const std::string& str);
+
+/// Agent information structure
+struct TURBOT_CORE_API AgentInfo {
+    std::string name;                      ///< Agent identifier
+    std::optional<std::string> description; ///< Human-readable description
+    AgentMode mode = AgentMode::Primary;   ///< Agent mode
+    bool native = false;                   ///< Whether this is a native (built-in) agent
+    bool hidden = false;                   ///< Whether this agent should be hidden from UI
+    permission::Ruleset permission;        ///< Permission rules for this agent
+    std::optional<std::string> model_id;   ///< Preferred model ID
+    nlohmann::json options;                ///< Additional agent options
+
+    /// Serialize to JSON
+    [[nodiscard]] nlohmann::json to_json() const;
+
+    /// Deserialize from JSON
+    static AgentInfo from_json(const nlohmann::json& j);
+
+    /// Equality comparison
+    bool operator==(const AgentInfo& other) const noexcept;
+};
+
+/// Parameters for agent execution
+struct TURBOT_CORE_API ExecuteParams {
+    std::string session_id;       ///< Session ID for this execution
+    std::string prompt;           ///< User prompt/input
+    nlohmann::json context;       ///< Additional context data
+    std::optional<std::string> model_override; ///< Override model for this execution
+};
+
+/// Result of agent execution
+struct TURBOT_CORE_API ExecuteResult {
+    std::string output;           ///< Agent output text
+    nlohmann::json metadata;      ///< Structured metadata
+    bool is_success = true;       ///< Whether execution succeeded
+    std::optional<std::string> error_message; ///< Error message if failed
+
+    /// Create a success result
+    [[nodiscard]] static ExecuteResult ok(
+        const std::string& output,
+        const nlohmann::json& metadata = nlohmann::json::object()
+    );
+
+    /// Create an error result
+    [[nodiscard]] static ExecuteResult error(const std::string& error_msg);
+};
+
+/// Abstract base class for all agents
+class TURBOT_CORE_API Agent {
+public:
+    virtual ~Agent() = default;
+
+    // Non-copyable
+    Agent(const Agent&) = delete;
+    Agent& operator=(const Agent&) = delete;
+
+    // Movable
+    Agent(Agent&&) = default;
+    Agent& operator=(Agent&&) = default;
+
+    /// Get the agent name (unique identifier)
+    [[nodiscard]] virtual std::string name() const = 0;
+
+    /// Get the agent description
+    [[nodiscard]] virtual std::string description() const = 0;
+
+    /// Execute the agent with given parameters
+    /// @param params Execution parameters
+    /// @return Execution result
+    [[nodiscard]] virtual ExecuteResult execute(const ExecuteParams& params) = 0;
+
+    /// Get the agent info
+    [[nodiscard]] const AgentInfo& info() const noexcept { return info_; }
+
+    /// Convert agent to tool definition format for LLM
+    [[nodiscard]] nlohmann::json to_tool_definition() const;
+
+protected:
+    AgentInfo info_;
+    Agent() = default;
+};
+
+/// Smart pointer for Agent
+using AgentPtr = std::shared_ptr<Agent>;
+
+/// Agent registry - singleton that manages all registered agents
+class TURBOT_CORE_API AgentRegistry {
+public:
+    /// Get the singleton instance
+    static AgentRegistry& instance();
+
+    /// Register an agent
+    /// @param agent Agent to register
+    /// @return true if registration succeeded, false if agent with same name exists
+    bool register_agent(AgentPtr agent);
+
+    /// Unregister an agent by name
+    /// @param name Agent name to unregister
+    /// @return true if agent was removed, false if not found
+    bool unregister_agent(const std::string& name);
+
+    /// Get an agent by name
+    /// @param name Agent name
+    /// @return Agent pointer or nullptr if not found
+    [[nodiscard]] AgentPtr get(const std::string& name) const;
+
+    /// Check if an agent exists
+    /// @param name Agent name
+    /// @return true if agent exists
+    [[nodiscard]] bool has(const std::string& name) const;
+
+    /// List all registered agents
+    /// @return Vector of agent pointers
+    [[nodiscard]] std::vector<AgentPtr> list() const;
+
+    /// List agents by mode
+    /// @param mode Agent mode filter
+    /// @return Vector of agent pointers
+    [[nodiscard]] std::vector<AgentPtr> list_by_mode(AgentMode mode) const;
+
+    /// Get all agent names
+    /// @return Vector of agent names
+    [[nodiscard]] std::vector<std::string> names() const;
+
+    /// Clear all agents (mainly for testing)
+    void clear();
+
+    /// Get the number of registered agents
+    [[nodiscard]] size_t size() const;
+
+private:
+    AgentRegistry() = default;
+    ~AgentRegistry() = default;
+
+    // Non-copyable, non-movable
+    AgentRegistry(const AgentRegistry&) = delete;
+    AgentRegistry& operator=(const AgentRegistry&) = delete;
+    AgentRegistry(AgentRegistry&&) = delete;
+    AgentRegistry& operator=(AgentRegistry&&) = delete;
+
+    mutable std::shared_mutex mutex_;
+    std::unordered_map<std::string, AgentPtr> agents_;
+
+    // Internal unlocked version for use within locked methods
+    [[nodiscard]] std::vector<AgentPtr> list_locked() const;
+};
+
+} // namespace turbot::core::agent
