@@ -25,9 +25,9 @@ public:
     SQLiteDatabase(const SQLiteDatabase&) = delete;
     SQLiteDatabase& operator=(const SQLiteDatabase&) = delete;
 
-    // Movable
-    SQLiteDatabase(SQLiteDatabase&&) noexcept;
-    SQLiteDatabase& operator=(SQLiteDatabase&&) noexcept;
+    // Non-movable (mutex cannot be moved)
+    SQLiteDatabase(SQLiteDatabase&&) = delete;
+    SQLiteDatabase& operator=(SQLiteDatabase&&) = delete;
 
     /// @name Database interface implementation
     /// @{

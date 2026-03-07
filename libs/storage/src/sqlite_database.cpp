@@ -24,6 +24,73 @@ struct StmtDeleter {
 
 using StmtPtr = std::unique_ptr<sqlite3_stmt, StmtDeleter>;
 
+// Shared helper: bind JSON value to SQLite parameter
+void bind_json_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {
+    if (value.is_null()) {
+        sqlite3_bind_null(stmt, index);
+    } else if (value.is_string()) {
+        auto str = value.get<std::string>();
+        sqlite3_bind_text(stmt, index, str.c_str(), static_cast<int>(str.size()),
+                          SQLITE_TRANSIENT);
+    } else if (value.is_number_integer()) {
+        sqlite3_bind_int64(stmt, index, value.get<int64_t>());
+    } else if (value.is_number_unsigned()) {
+        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(value.get<uint64_t>()));
+    } else if (value.is_number_float()) {
+        sqlite3_bind_double(stmt, index, value.get<double>());
+    } else if (value.is_boolean()) {
+        sqlite3_bind_int(stmt, index, value.get<bool>() ? 1 : 0);
+    } else {
+        // Complex types: serialize to JSON string
+        std::string json_str = value.dump();
+        sqlite3_bind_text(stmt, index, json_str.c_str(),
+                          static_cast<int>(json_str.size()), SQLITE_TRANSIENT);
+    }
+}
+
+// Shared helper: convert SQLite row to JSON object
+nlohmann::json sqlite_row_to_json(sqlite3_stmt* stmt) {
+    nlohmann::json row;
+    int count = sqlite3_column_count(stmt);
+
+    for (int i = 0; i < count; i++) {
+        const char* name = sqlite3_column_name(stmt, i);
+
+        switch (sqlite3_column_type(stmt, i)) {
+            case SQLITE_INTEGER:
+                row[name] = sqlite3_column_int64(stmt, i);
+                break;
+            case SQLITE_FLOAT:
+                row[name] = sqlite3_column_double(stmt, i);
+                break;
+            case SQLITE_TEXT: {
+                const char* text = reinterpret_cast<const char*>(
+                    sqlite3_column_text(stmt, i));
+                if (text) {
+                    row[name] = std::string(text, static_cast<size_t>(sqlite3_column_bytes(stmt, i)));
+                } else {
+                    row[name] = "";
+                }
+                break;
+            }
+            case SQLITE_BLOB: {
+                int size = sqlite3_column_bytes(stmt, i);
+                const void* blob = sqlite3_column_blob(stmt, i);
+                row[name] = nlohmann::json::binary(
+                    std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
+                                         static_cast<const uint8_t*>(blob) + size));
+                break;
+            }
+            case SQLITE_NULL:
+            default:
+                row[name] = nullptr;
+                break;
+        }
+    }
+
+    return row;
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -62,30 +129,6 @@ SQLiteDatabase::~SQLiteDatabase() {
     close();
 }
 
-SQLiteDatabase::SQLiteDatabase(SQLiteDatabase&& other) noexcept
-    : config_(std::move(other.config_))
-    , db_(other.db_)
-    , alive_flag_(std::move(other.alive_flag_)) {
-    other.db_ = nullptr;
-    other.alive_flag_ = nullptr;
-}
-
-SQLiteDatabase& SQLiteDatabase::operator=(SQLiteDatabase&& other) noexcept {
-    if (this != &other) {
-        // 标记当前数据库已销毁
-        if (alive_flag_) {
-            *alive_flag_ = false;
-        }
-        close();
-        config_ = std::move(other.config_);
-        db_ = other.db_;
-        alive_flag_ = std::move(other.alive_flag_);
-        other.db_ = nullptr;
-        other.alive_flag_ = nullptr;
-    }
-    return *this;
-}
-
 void SQLiteDatabase::setup_pragmas() {
     // Enable WAL mode for better concurrency
     if (config_.journal_wal) {
@@ -119,68 +162,11 @@ void SQLiteDatabase::ensure_migrations_table() {
 }
 
 void SQLiteDatabase::bind_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {
-    if (value.is_null()) {
-        sqlite3_bind_null(stmt, index);
-    } else if (value.is_string()) {
-        auto str = value.get<std::string>();
-        sqlite3_bind_text(stmt, index, str.c_str(), static_cast<int>(str.size()),
-                          SQLITE_TRANSIENT);
-    } else if (value.is_number_integer()) {
-        sqlite3_bind_int64(stmt, index, value.get<int64_t>());
-    } else if (value.is_number_unsigned()) {
-        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(value.get<uint64_t>()));
-    } else if (value.is_number_float()) {
-        sqlite3_bind_double(stmt, index, value.get<double>());
-    } else if (value.is_boolean()) {
-        sqlite3_bind_int(stmt, index, value.get<bool>() ? 1 : 0);
-    } else {
-        // Complex types: serialize to JSON string
-        std::string json_str = value.dump();
-        sqlite3_bind_text(stmt, index, json_str.c_str(),
-                          static_cast<int>(json_str.size()), SQLITE_TRANSIENT);
-    }
+    bind_json_param(stmt, index, value);
 }
 
 nlohmann::json SQLiteDatabase::row_to_json(sqlite3_stmt* stmt) {
-    nlohmann::json row;
-    int count = sqlite3_column_count(stmt);
-
-    for (int i = 0; i < count; i++) {
-        const char* name = sqlite3_column_name(stmt, i);
-
-        switch (sqlite3_column_type(stmt, i)) {
-            case SQLITE_INTEGER:
-                row[name] = sqlite3_column_int64(stmt, i);
-                break;
-            case SQLITE_FLOAT:
-                row[name] = sqlite3_column_double(stmt, i);
-                break;
-            case SQLITE_TEXT: {
-                const char* text = reinterpret_cast<const char*>(
-                    sqlite3_column_text(stmt, i));
-                if (text) {
-                    row[name] = std::string(text, sqlite3_column_bytes(stmt, i));
-                } else {
-                    row[name] = "";
-                }
-                break;
-            }
-            case SQLITE_BLOB: {
-                int size = sqlite3_column_bytes(stmt, i);
-                const void* blob = sqlite3_column_blob(stmt, i);
-                row[name] = nlohmann::json::binary(
-                    std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
-                                         static_cast<const uint8_t*>(blob) + size));
-                break;
-            }
-            case SQLITE_NULL:
-            default:
-                row[name] = nullptr;
-                break;
-        }
-    }
-
-    return row;
+    return sqlite_row_to_json(stmt);
 }
 
 QueryResult SQLiteDatabase::execute(
@@ -379,67 +365,11 @@ void SQLiteTransaction::rollback() {
 }
 
 void SQLiteTransaction::bind_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {
-    if (value.is_null()) {
-        sqlite3_bind_null(stmt, index);
-    } else if (value.is_string()) {
-        auto str = value.get<std::string>();
-        sqlite3_bind_text(stmt, index, str.c_str(), static_cast<int>(str.size()),
-                          SQLITE_TRANSIENT);
-    } else if (value.is_number_integer()) {
-        sqlite3_bind_int64(stmt, index, value.get<int64_t>());
-    } else if (value.is_number_unsigned()) {
-        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(value.get<uint64_t>()));
-    } else if (value.is_number_float()) {
-        sqlite3_bind_double(stmt, index, value.get<double>());
-    } else if (value.is_boolean()) {
-        sqlite3_bind_int(stmt, index, value.get<bool>() ? 1 : 0);
-    } else {
-        std::string json_str = value.dump();
-        sqlite3_bind_text(stmt, index, json_str.c_str(),
-                          static_cast<int>(json_str.size()), SQLITE_TRANSIENT);
-    }
+    bind_json_param(stmt, index, value);
 }
 
 nlohmann::json SQLiteTransaction::row_to_json(sqlite3_stmt* stmt) {
-    nlohmann::json row;
-    int count = sqlite3_column_count(stmt);
-
-    for (int i = 0; i < count; i++) {
-        const char* name = sqlite3_column_name(stmt, i);
-
-        switch (sqlite3_column_type(stmt, i)) {
-            case SQLITE_INTEGER:
-                row[name] = sqlite3_column_int64(stmt, i);
-                break;
-            case SQLITE_FLOAT:
-                row[name] = sqlite3_column_double(stmt, i);
-                break;
-            case SQLITE_TEXT: {
-                const char* text = reinterpret_cast<const char*>(
-                    sqlite3_column_text(stmt, i));
-                if (text) {
-                    row[name] = std::string(text, sqlite3_column_bytes(stmt, i));
-                } else {
-                    row[name] = "";
-                }
-                break;
-            }
-            case SQLITE_BLOB: {
-                int size = sqlite3_column_bytes(stmt, i);
-                const void* blob = sqlite3_column_blob(stmt, i);
-                row[name] = nlohmann::json::binary(
-                    std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
-                                         static_cast<const uint8_t*>(blob) + size));
-                break;
-            }
-            case SQLITE_NULL:
-            default:
-                row[name] = nullptr;
-                break;
-        }
-    }
-
-    return row;
+    return sqlite_row_to_json(stmt);
 }
 
 QueryResult SQLiteTransaction::execute(
