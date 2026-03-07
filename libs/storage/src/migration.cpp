@@ -126,8 +126,19 @@ void MigrationRunner::rollback(int steps) {
         TURBOT_LOG_INFO("Rolling back migration: {}", migration_name);
 
         try {
-            db_->execute(migration->down());
-            remove_migration(migration_name);
+            // Use transaction for atomic rollback - both down() and remove_migration
+            // must succeed together or be rolled back together
+            auto tx = db_->begin_transaction();
+            try {
+                tx->execute(migration->down());
+                tx->execute(
+                    "DELETE FROM _migrations WHERE name = ?",
+                    {nlohmann::json(migration_name)});
+                tx->commit();
+            } catch (...) {
+                // Transaction will auto-rollback in destructor
+                throw;
+            }
             executed.pop_back();
         } catch (const std::exception& e) {
             TURBOT_LOG_ERROR("Rollback of migration '{}' failed: {}", migration_name, e.what());

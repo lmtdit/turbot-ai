@@ -20,6 +20,56 @@ constexpr int DEFAULT_TIMEOUT_MS = 120000;
 // Maximum timeout in milliseconds (10 minutes)
 constexpr int MAX_TIMEOUT_MS = 600000;
 
+/// Validate working directory to prevent path traversal attacks.
+/// Returns true if the directory is safe to use.
+bool validate_working_directory(const std::string& cwd, std::string& error) {
+    namespace fs = std::filesystem;
+    
+    if (cwd.empty()) {
+        return true;  // Empty is ok, will use current directory
+    }
+    
+    std::error_code ec;
+    
+    // Check if path exists and is a directory
+    if (!fs::exists(cwd, ec) || ec) {
+        error = fmt::format("Working directory does not exist: {}", cwd);
+        return false;
+    }
+    
+    if (!fs::is_directory(cwd, ec) || ec) {
+        error = fmt::format("Working directory is not a directory: {}", cwd);
+        return false;
+    }
+    
+    // Resolve to canonical path to prevent path traversal
+    fs::path canonical_path = fs::canonical(cwd, ec);
+    if (ec) {
+        error = fmt::format("Failed to resolve working directory: {}", cwd);
+        return false;
+    }
+    
+    // Check for dangerous paths (optional: add more as needed)
+    std::string canonical_str = canonical_path.string();
+    
+    // Block access to system directories (basic protection)
+    const std::vector<std::string> blocked_prefixes = {
+        "/etc",
+        "/sys",
+        "/proc",
+        "/root"
+    };
+    
+    for (const auto& prefix : blocked_prefixes) {
+        if (canonical_str == prefix || canonical_str.substr(0, prefix.size() + 1) == prefix + "/") {
+            error = fmt::format("Access to system directory is not allowed: {}", cwd);
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 /// Escape a string for use as a single-quoted shell argument.
 std::string escape_shell_arg(const std::string& cmd) {
     std::string escaped = "'";
@@ -259,10 +309,19 @@ ToolResult BashTool::execute_normal(
         full_command = fmt::format("{} -c {} 2>&1", shell_path(), escaped_cmd);
     }
 
-    // Determine working directory
+    // Determine working directory with validation
     std::string cwd = params.workdir.value_or(ctx.working_directory);
     if (cwd.empty()) {
         cwd = std::filesystem::current_path().string();
+    }
+    
+    // Validate working directory to prevent path traversal
+    std::string cwd_error;
+    if (!validate_working_directory(cwd, cwd_error)) {
+        return ToolResult::error(
+            fmt::format("Bash: {}", params.command.substr(0, 50)),
+            cwd_error
+        );
     }
 
     // Change to working directory if needed
@@ -361,17 +420,26 @@ ToolResult BashTool::execute_sandbox(
     // For demonstration, we just use a restricted PATH and readonly filesystem flags
     std::string sandbox_prefix = "env -i PATH=/usr/bin:/bin HOME=$HOME ";
     
+    // Determine working directory with validation
+    std::string cwd = params.workdir.value_or(ctx.working_directory);
+    if (cwd.empty()) {
+        cwd = std::filesystem::current_path().string();
+    }
+    
+    // Validate working directory to prevent path traversal
+    std::string cwd_error;
+    if (!validate_working_directory(cwd, cwd_error)) {
+        return ToolResult::error(
+            fmt::format("Bash (sandbox): {}", params.command.substr(0, 50)),
+            cwd_error
+        );
+    }
+
     if (!tc.empty()) {
         sandbox_cmd = fmt::format("{} {} {} -c {} {} 2>&1", 
             tc, timeout_sec, shell_path(), sandbox_prefix, escaped_cmd);
     } else {
         sandbox_cmd = fmt::format("{} -c {} {} 2>&1", shell_path(), sandbox_prefix, escaped_cmd);
-    }
-
-    // Determine working directory
-    std::string cwd = params.workdir.value_or(ctx.working_directory);
-    if (cwd.empty()) {
-        cwd = std::filesystem::current_path().string();
     }
 
     // Execute the command

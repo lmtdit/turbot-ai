@@ -258,26 +258,38 @@ QueryResult SQLiteDatabase::execute_batch(
 }
 
 void SQLiteDatabase::migrate(const std::string& name, const std::string& sql) {
-    // Check if migration already applied
-    auto existing = execute_one(
-        "SELECT id FROM _migrations WHERE name = ?",
-        {nlohmann::json(name)});
+    // Use transaction for atomic migration - ensures both SQL execution and
+    // migration record are committed together or rolled back together
+    auto tx = begin_transaction();
 
-    if (existing.has_value()) {
-        TURBOT_LOG_DEBUG("Migration '{}' already applied", name);
-        return;
+    try {
+        // Check if migration already applied (within transaction)
+        auto existing = tx->execute_one(
+            "SELECT id FROM _migrations WHERE name = ?",
+            {nlohmann::json(name)});
+
+        if (existing.has_value()) {
+            TURBOT_LOG_DEBUG("Migration '{}' already applied", name);
+            tx->rollback();  // Release transaction
+            return;
+        }
+
+        // Execute migration SQL
+        tx->execute(sql);
+
+        // Record migration
+        auto now = std::chrono::system_clock::now().time_since_epoch().count();
+        tx->execute(
+            "INSERT INTO _migrations (name, version, executed_at) VALUES (?, 1, ?)",
+            {nlohmann::json(name), nlohmann::json(now)});
+
+        // Commit transaction - atomic commit of both operations
+        tx->commit();
+        TURBOT_LOG_INFO("Applied migration: {}", name);
+    } catch (...) {
+        // Transaction will auto-rollback in destructor if not committed
+        throw;
     }
-
-    // Execute migration
-    execute(sql);
-
-    // Record migration
-    auto now = std::chrono::system_clock::now().time_since_epoch().count();
-    execute(
-        "INSERT INTO _migrations (name, version, executed_at) VALUES (?, 1, ?)",
-        {nlohmann::json(name), nlohmann::json(now)});
-
-    TURBOT_LOG_INFO("Applied migration: {}", name);
 }
 
 bool SQLiteDatabase::health_check() {

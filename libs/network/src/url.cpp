@@ -22,6 +22,23 @@ void Url::parse(std::string_view url) {
         return;
     }
     scheme_ = std::string(url.substr(0, scheme_end));
+    
+    // Normalize scheme to lowercase per RFC 3986
+    std::transform(scheme_.begin(), scheme_.end(), scheme_.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    
+    // Validate scheme - must start with letter and contain only alphanumeric, +, -, .
+    if (scheme_.empty() || !std::isalpha(static_cast<unsigned char>(scheme_[0]))) {
+        valid_ = false;
+        return;
+    }
+    for (char c : scheme_) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '+' && c != '-' && c != '.') {
+            valid_ = false;
+            return;
+        }
+    }
+    
     url = url.substr(scheme_end + 3);
 
     // Parse host and port
@@ -29,20 +46,32 @@ void Url::parse(std::string_view url) {
     auto host_port = url.substr(0, path_start);
 
     auto port_start = host_port.find(':');
+    bool port_parse_error = false;
+    
     if (port_start != std::string_view::npos) {
         host_ = std::string(host_port.substr(0, port_start));
         try {
-            port_ = std::stoi(std::string(host_port.substr(port_start + 1)));
+            int parsed_port = std::stoi(std::string(host_port.substr(port_start + 1)));
+            // Validate port range
+            if (parsed_port > 0 && parsed_port <= 65535) {
+                port_ = parsed_port;
+            } else {
+                TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+                port_parse_error = true;
+            }
         } catch (const std::invalid_argument& e) {
             TURBOT_LOG_WARN("Invalid port in URL: {}", std::string(host_port.substr(port_start + 1)));
-            port_ = std::nullopt;
+            port_parse_error = true;
         } catch (const std::out_of_range& e) {
             TURBOT_LOG_WARN("Port out of range in URL: {}", std::string(host_port.substr(port_start + 1)));
-            port_ = std::nullopt;
+            port_parse_error = true;
         }
     } else {
         host_ = std::string(host_port);
-        // Default ports
+    }
+    
+    // Set default ports only if no port was parsed and no error occurred
+    if (!port_.has_value() && !port_parse_error) {
         if (scheme_ == "http") port_ = 80;
         else if (scheme_ == "https") port_ = 443;
     }
@@ -71,7 +100,13 @@ void Url::parse(std::string_view url) {
         path_ = "/";
     }
 
-    valid_ = !host_.empty();
+    // URL is valid only if we have a non-empty host AND a valid scheme
+    valid_ = !host_.empty() && !scheme_.empty();
+    
+    // If port parsing failed, mark URL as invalid
+    if (port_parse_error) {
+        valid_ = false;
+    }
 }
 
 std::string Url::to_string() const {

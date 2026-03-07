@@ -22,6 +22,22 @@ namespace {
     // 函数声明
     bool is_base64(uint8_t c);
 
+    // RAII wrapper for EVP_CIPHER_CTX
+    struct EvpCipherCtxDeleter {
+        void operator()(EVP_CIPHER_CTX* ctx) const {
+            if (ctx) EVP_CIPHER_CTX_free(ctx);
+        }
+    };
+    using EvpCipherCtxPtr = std::unique_ptr<EVP_CIPHER_CTX, EvpCipherCtxDeleter>;
+
+    // RAII wrapper for EVP_MD_CTX
+    struct EvpMdCtxDeleter {
+        void operator()(EVP_MD_CTX* ctx) const {
+            if (ctx) EVP_MD_CTX_free(ctx);
+        }
+    };
+    using EvpMdCtxPtr = std::unique_ptr<EVP_MD_CTX, EvpMdCtxDeleter>;
+
     // 十六进制编码
     std::string to_hex(const std::vector<uint8_t>& data) {
         std::ostringstream oss;
@@ -34,9 +50,20 @@ namespace {
 
     // 十六进制解码
     std::vector<uint8_t> from_hex(const std::string& hex) {
+        // 输入验证：长度必须为偶数
+        if (hex.length() % 2 != 0) {
+            throw std::invalid_argument("Hex string must have even length");
+        }
+
         std::vector<uint8_t> data;
+        data.reserve(hex.length() / 2);
 
         for (size_t i = 0; i < hex.length(); i += 2) {
+            // 验证字符是否为有效十六进制字符
+            if (!std::isxdigit(static_cast<unsigned char>(hex[i])) ||
+                !std::isxdigit(static_cast<unsigned char>(hex[i + 1]))) {
+                throw std::invalid_argument("Invalid hex character in string");
+            }
             std::string byte_string = hex.substr(i, 2);
             uint8_t byte = static_cast<uint8_t>(std::stoul(byte_string, nullptr, 16));
             data.push_back(byte);
@@ -111,7 +138,11 @@ namespace {
             in++;
             if (i == 4) {
                 for (i = 0; i < 4; i++) {
-                    char_array_4[i] = static_cast<uint8_t>(base64_chars.find(char_array_4[i]));
+                    size_t pos = base64_chars.find(char_array_4[i]);
+                    if (pos == std::string_view::npos) {
+                        throw std::runtime_error("Invalid base64 character");
+                    }
+                    char_array_4[i] = static_cast<uint8_t>(pos);
                 }
 
                 char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
@@ -131,7 +162,16 @@ namespace {
             }
 
             for (j = 0; j < 4; j++) {
-                char_array_4[j] = static_cast<uint8_t>(base64_chars.find(char_array_4[j]));
+                // Only validate characters that were actually read from input
+                // j < i means it was a real character, j >= i means it's padding (0)
+                if (j < i) {
+                    size_t pos = base64_chars.find(char_array_4[j]);
+                    if (pos == std::string_view::npos) {
+                        throw std::runtime_error("Invalid base64 character");
+                    }
+                    char_array_4[j] = static_cast<uint8_t>(pos);
+                }
+                // Padding characters (j >= i) are already 0, which is correct for decoding
             }
 
             char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
@@ -152,14 +192,48 @@ namespace {
 }
 
 std::string sha256(const std::string& data) {
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
+    if (!ctx) {
+        throw std::runtime_error("Failed to create digest context");
+    }
+
+    if (EVP_DigestInit_ex(ctx.get(), EVP_sha256(), nullptr) != 1) {
+        throw std::runtime_error("Failed to initialize SHA256");
+    }
+
+    if (EVP_DigestUpdate(ctx.get(), data.data(), data.size()) != 1) {
+        throw std::runtime_error("Failed to update SHA256");
+    }
+
     std::vector<uint8_t> hash(SHA256_DIGEST_LENGTH);
-    SHA256(reinterpret_cast<const uint8_t*>(data.c_str()), data.size(), hash.data());
+    unsigned int hash_len = 0;
+    if (EVP_DigestFinal_ex(ctx.get(), hash.data(), &hash_len) != 1) {
+        throw std::runtime_error("Failed to finalize SHA256");
+    }
+
     return to_hex(hash);
 }
 
 std::vector<uint8_t> sha256(const std::vector<uint8_t>& data) {
+    EvpMdCtxPtr ctx(EVP_MD_CTX_new());
+    if (!ctx) {
+        throw std::runtime_error("Failed to create digest context");
+    }
+
+    if (EVP_DigestInit_ex(ctx.get(), EVP_sha256(), nullptr) != 1) {
+        throw std::runtime_error("Failed to initialize SHA256");
+    }
+
+    if (EVP_DigestUpdate(ctx.get(), data.data(), data.size()) != 1) {
+        throw std::runtime_error("Failed to update SHA256");
+    }
+
     std::vector<uint8_t> hash(SHA256_DIGEST_LENGTH);
-    SHA256(data.data(), data.size(), hash.data());
+    unsigned int hash_len = 0;
+    if (EVP_DigestFinal_ex(ctx.get(), hash.data(), &hash_len) != 1) {
+        throw std::runtime_error("Failed to finalize SHA256");
+    }
+
     return hash;
 }
 
@@ -193,41 +267,35 @@ AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext, const std::string
     // 准备密文缓冲区（明文 + 16字节tag）
     std::vector<uint8_t> ciphertext(plaintext.size());
 
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EvpCipherCtxPtr ctx(EVP_CIPHER_CTX_new());
     if (!ctx) {
         throw std::runtime_error("Failed to create cipher context");
     }
 
-    if (EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr,
+    if (EVP_EncryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr,
                            reinterpret_cast<const uint8_t*>(key.data()),
                            reinterpret_cast<const uint8_t*>(result.nonce.data())) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("Failed to initialize encryption");
     }
 
     int len;
-    if (EVP_EncryptUpdate(ctx, ciphertext.data(), &len,
+    if (EVP_EncryptUpdate(ctx.get(), ciphertext.data(), &len,
                           reinterpret_cast<const uint8_t*>(plaintext.data()),
                           plaintext.size()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("Failed to encrypt");
     }
 
     int ciphertext_len = len;
-    if (EVP_EncryptFinal_ex(ctx, ciphertext.data() + len, &len) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    if (EVP_EncryptFinal_ex(ctx.get(), ciphertext.data() + len, &len) != 1) {
         throw std::runtime_error("Failed to finalize encryption");
     }
     ciphertext_len += len;
 
     // 获取tag
     std::vector<uint8_t> tag(16);
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag.data()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_GET_TAG, 16, tag.data()) != 1) {
         throw std::runtime_error("Failed to get tag");
     }
-
-    EVP_CIPHER_CTX_free(ctx);
 
     result.ciphertext = std::string(ciphertext.begin(), ciphertext.begin() + ciphertext_len);
     result.tag = std::string(tag.begin(), tag.end());
@@ -246,38 +314,35 @@ std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted, const std::string
 
     std::vector<uint8_t> plaintext(encrypted.ciphertext.size());
 
-    EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+    EvpCipherCtxPtr ctx(EVP_CIPHER_CTX_new());
     if (!ctx) {
         throw std::runtime_error("Failed to create cipher context");
     }
 
-    if (EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr,
+    if (EVP_DecryptInit_ex(ctx.get(), EVP_aes_256_gcm(), nullptr,
                            reinterpret_cast<const uint8_t*>(key.data()),
                            reinterpret_cast<const uint8_t*>(encrypted.nonce.data())) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("Failed to initialize decryption");
     }
 
     int len;
-    if (EVP_DecryptUpdate(ctx, plaintext.data(), &len,
+    if (EVP_DecryptUpdate(ctx.get(), plaintext.data(), &len,
                           reinterpret_cast<const uint8_t*>(encrypted.ciphertext.data()),
                           encrypted.ciphertext.size()) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
         throw std::runtime_error("Failed to decrypt");
     }
 
     int plaintext_len = len;
 
-    // 设置tag
-    if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, encrypted.tag.size(),
-                            const_cast<char*>(encrypted.tag.data())) != 1) {
-        EVP_CIPHER_CTX_free(ctx);
+    // 设置tag - OpenSSL API requires non-const pointer
+    std::vector<uint8_t> tag_copy(encrypted.tag.begin(), encrypted.tag.end());
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, encrypted.tag.size(),
+                            tag_copy.data()) != 1) {
         throw std::runtime_error("Failed to set tag");
     }
 
     // 验证tag并完成解密
-    int ret = EVP_DecryptFinal_ex(ctx, plaintext.data() + len, &len);
-    EVP_CIPHER_CTX_free(ctx);
+    int ret = EVP_DecryptFinal_ex(ctx.get(), plaintext.data() + len, &len);
 
     if (ret <= 0) {
         throw std::runtime_error("Decryption failed: tag verification failed");
@@ -305,15 +370,14 @@ std::string random_string(size_t length) {
 
 std::string random_alphanumeric(size_t length) {
     const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, chars.size() - 1);
+    // Use OpenSSL RAND_bytes for cryptographic-quality randomness
+    auto bytes = random_bytes(length);
 
     std::string result;
     result.reserve(length);
 
-    for (size_t i = 0; i < length; ++i) {
-        result += chars[dis(gen)];
+    for (auto byte : bytes) {
+        result += chars[byte % chars.size()];
     }
 
     return result;

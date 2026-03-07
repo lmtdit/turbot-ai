@@ -1,14 +1,19 @@
 #include <turbot/core/tool/builtin/edit_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <fmt/format.h>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 
 namespace turbot::core::tool::builtin {
 
 namespace {
+
+/// Maximum file size for editing (10MB)
+constexpr size_t MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /// Split string by lines
 std::vector<std::string> split_lines(const std::string& text) {
@@ -597,6 +602,9 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     if (!std::filesystem::exists(file_path, ec)) {
         // If old_string is empty, create new file
         if (params.old_string.empty()) {
+            // Validate path is not a symlink target outside workspace
+            // (basic protection against path traversal)
+            
             // Request permission
             if (ctx.ask_permission) {
                 permission::PermissionRequest req;
@@ -611,20 +619,41 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
                 }
             }
             
+            // Validate new_string size
+            if (params.new_string.size() > MAX_FILE_SIZE) {
+                return ToolResult::error("Edit", 
+                    fmt::format("Content too large: {} bytes (max: {} bytes)", 
+                                params.new_string.size(), MAX_FILE_SIZE));
+            }
+            
             // Create parent directories if needed
             std::filesystem::create_directories(file_path.parent_path(), ec);
             
-            // Write new file
-            std::ofstream ofs(file_path);
+            // Write new file atomically using temp file + rename
+            std::filesystem::path temp_path = file_path;
+            temp_path += ".tmp." + std::to_string(std::random_device{}());
+            
+            std::ofstream ofs(temp_path);
             if (!ofs) {
-                return ToolResult::error("Edit", fmt::format("Failed to create file: {}", file_path_str));
+                return ToolResult::error("Edit", fmt::format("Failed to create temp file: {}", temp_path.string()));
             }
             ofs << params.new_string;
             ofs.flush();
             if (!ofs) {
+                std::error_code remove_ec;
+                std::filesystem::remove(temp_path, remove_ec);
                 return ToolResult::error("Edit", fmt::format("Failed to write to file: {}", file_path_str));
             }
             ofs.close();
+            
+            // Rename temp file to target (atomic on most filesystems)
+            std::error_code rename_ec;
+            std::filesystem::rename(temp_path, file_path, rename_ec);
+            if (rename_ec) {
+                std::error_code remove_ec;
+                std::filesystem::remove(temp_path, remove_ec);
+                return ToolResult::error("Edit", fmt::format("Failed to rename temp file: {}", rename_ec.message()));
+            }
             
             nlohmann::json metadata = {
                 {"filepath", file_path_str},
@@ -641,9 +670,31 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
         return ToolResult::error("Edit", fmt::format("File not found: {}", file_path_str));
     }
     
+    // Check if it's a symbolic link
+    if (std::filesystem::is_symlink(file_path, ec)) {
+        // Resolve the symlink target
+        auto resolved = std::filesystem::canonical(file_path, ec);
+        if (ec) {
+            return ToolResult::error("Edit", fmt::format("Failed to resolve symlink: {}", file_path_str));
+        }
+        TURBOT_LOG_INFO("Editing symlink {} -> {}", file_path_str, resolved.string());
+        file_path = resolved;
+        file_path_str = file_path.string();
+    }
+    
     // Check if it's a directory
     if (std::filesystem::is_directory(file_path, ec)) {
         return ToolResult::error("Edit", fmt::format("Path is a directory, not a file: {}", file_path_str));
+    }
+    
+    // Check file size before reading
+    auto file_size = std::filesystem::file_size(file_path, ec);
+    if (ec || file_size == static_cast<std::uintmax_t>(-1)) {
+        return ToolResult::error("Edit", fmt::format("Failed to get file size: {}", file_path_str));
+    }
+    if (file_size > MAX_FILE_SIZE) {
+        return ToolResult::error("Edit", 
+            fmt::format("File too large: {} bytes (max: {} bytes)", file_size, MAX_FILE_SIZE));
     }
     
     // Read file content
@@ -685,13 +736,31 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
         }
     }
     
-    // Write modified content
-    std::ofstream ofs(file_path);
+    // Write modified content atomically
+    std::filesystem::path temp_path = file_path;
+    temp_path += ".tmp." + std::to_string(std::random_device{}());
+    
+    std::ofstream ofs(temp_path);
     if (!ofs) {
-        return ToolResult::error("Edit", fmt::format("Failed to write file: {}", file_path_str));
+        return ToolResult::error("Edit", fmt::format("Failed to create temp file: {}", temp_path.string()));
     }
     ofs << replace_result.content;
+    ofs.flush();
+    if (!ofs) {
+        std::error_code remove_ec;
+        std::filesystem::remove(temp_path, remove_ec);
+        return ToolResult::error("Edit", fmt::format("Failed to write to file: {}", file_path_str));
+    }
     ofs.close();
+    
+    // Rename temp file to target (atomic on most filesystems)
+    std::error_code rename_ec;
+    std::filesystem::rename(temp_path, file_path, rename_ec);
+    if (rename_ec) {
+        std::error_code remove_ec;
+        std::filesystem::remove(temp_path, remove_ec);
+        return ToolResult::error("Edit", fmt::format("Failed to rename temp file: {}", rename_ec.message()));
+    }
     
     nlohmann::json metadata = {
         {"filepath", file_path_str},

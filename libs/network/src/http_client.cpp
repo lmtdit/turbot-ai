@@ -21,7 +21,15 @@ std::once_flag curl_init_flag;
 
 void ensure_curl_initialized() {
     std::call_once(curl_init_flag, []() {
-        curl_global_init(CURL_GLOBAL_DEFAULT);
+        CURLcode res = curl_global_init(CURL_GLOBAL_DEFAULT);
+        if (res != CURLE_OK) {
+            throw std::runtime_error(std::string("Failed to initialize libcurl: ") +
+                                     curl_easy_strerror(res));
+        }
+        // Register cleanup at program exit
+        std::atexit([]() {
+            curl_global_cleanup();
+        });
     });
 }
 
@@ -260,13 +268,29 @@ public:
                 curl_easy_setopt(curl, CURLOPT_MAXREDIRS, req.max_redirects);
             }
             
-            // Build headers list
+            // Build headers list with error handling
             struct curl_slist* curl_headers = nullptr;
+            
+            // Helper lambda to safely append headers
+            auto safe_append_header = [&curl_headers](const std::string& header) -> bool {
+                struct curl_slist* new_headers = curl_slist_append(curl_headers, header.c_str());
+                if (!new_headers) {
+                    if (curl_headers) {
+                        curl_slist_free_all(curl_headers);
+                    }
+                    return false;
+                }
+                curl_headers = new_headers;
+                return true;
+            };
             
             // Add request headers
             for (const auto& [key, value] : req.headers) {
                 std::string header = key + ": " + value;
-                curl_headers = curl_slist_append(curl_headers, header.c_str());
+                if (!safe_append_header(header)) {
+                    curl_easy_cleanup(curl);
+                    throw std::runtime_error("Failed to append HTTP header (out of memory)");
+                }
             }
             
             // Add default headers (if not already present)
@@ -280,7 +304,10 @@ public:
                 }
                 if (!found) {
                     std::string header = key + ": " + value;
-                    curl_headers = curl_slist_append(curl_headers, header.c_str());
+                    if (!safe_append_header(header)) {
+                        curl_easy_cleanup(curl);
+                        throw std::runtime_error("Failed to append HTTP header (out of memory)");
+                    }
                 }
             }
             
@@ -421,12 +448,18 @@ HttpResponse HttpClient::request_stream(const HttpRequest& req, StreamCallback c
 }
 
 std::future<HttpResponse> HttpClient::get_async(std::string_view url, const HttpHeaders& headers) {
+    // WARNING: Caller must ensure HttpClient remains valid until the future completes.
+    // The lambda captures 'this' pointer. If HttpClient is destroyed before the
+    // async operation completes, undefined behavior will occur.
     return std::async(std::launch::async, [this, url_str = std::string(url), headers]() {
         return this->get(url_str, headers);
     });
 }
 
 std::future<HttpResponse> HttpClient::post_async(std::string_view url, std::string_view body, const HttpHeaders& headers) {
+    // WARNING: Caller must ensure HttpClient remains valid until the future completes.
+    // The lambda captures 'this' pointer. If HttpClient is destroyed before the
+    // async operation completes, undefined behavior will occur.
     return std::async(std::launch::async, [this, url_str = std::string(url), 
                                            body_str = std::string(body), headers]() {
         return this->post(url_str, body_str, headers);
