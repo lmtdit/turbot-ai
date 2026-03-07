@@ -34,18 +34,15 @@ turbot_configure_sanitizers(${LIBRARY_NAME})
 turbot_configure_coverage(${LIBRARY_NAME})
 
 # Dependencies
+find_package(CURL REQUIRED)
+
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
         turbot::core
         turbot::utils
+    PRIVATE
+        CURL::libcurl
 )
-
-# Boost dependency removed - not currently needed for placeholder implementation
-# find_package(Boost REQUIRED COMPONENTS system)
-# target_link_libraries(${LIBRARY_NAME}
-#     PUBLIC
-#         Boost::system
-# )
 
 # Export macros
 target_compile_definitions(${LIBRARY_NAME}
