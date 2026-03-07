@@ -58,11 +58,11 @@ TURBOT_UTILS_API std::optional<T> get_safe(const nlohmann::json& data, const std
  * @param key 键名
  * @param default_value 默认值
  * @return 值或默认值
+ * @note 使用 nlohmann::json::value() 避免模板膨胀
  */
 template<typename T>
-T get_or(const nlohmann::json& data, const std::string& key, const T& default_value) {
-    auto result = get_safe<T>(data, key);
-    return result ? *result : default_value;
+inline T get_or(const nlohmann::json& data, const std::string& key, const T& default_value) {
+    return data.value(key, default_value);
 }
 
 /**
