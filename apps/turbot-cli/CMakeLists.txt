@@ -14,6 +14,7 @@ add_executable(${APP_NAME} ${CLI_SOURCES})
 # Compiler options
 turbot_configure_target(${APP_NAME})
 turbot_configure_sanitizers(${APP_NAME})
+turbot_configure_coverage(${APP_NAME})
 
 # Dependencies
 target_link_libraries(${APP_NAME}

@@ -1,5 +1,5 @@
-#include <turbot/core/version.hpp>
-#include <turbot/core/logger.hpp>
+#include <turbot/core/common/version.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <turbot/utils/string_utils.hpp>
 #include <turbot/network/http_client.hpp>
 #include <fmt/format.h>
