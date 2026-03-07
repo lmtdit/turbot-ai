@@ -70,6 +70,8 @@ public:
 private:
     ProviderManager() = default;
 
+    // mutex_ is mutable to allow locking in const methods (e.g., get_provider, list_providers)
+    // This follows the "logical constness" pattern where thread-safety is an implementation detail
     mutable std::mutex mutex_;
     std::unordered_map<std::string, ProviderPtr> providers_;
     std::unordered_map<std::string, ProviderFactory> factories_;
