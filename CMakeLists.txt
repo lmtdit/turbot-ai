@@ -36,11 +36,11 @@ option(TURBOT_ENABLE_SANITIZERS "Enable sanitizers" OFF)
 option(TURBOT_ENABLE_COVERAGE "Enable code coverage" OFF)
 option(TURBOT_ENABLE_CLANG_TIDY "Enable clang-tidy" OFF)
 
-# Add subdirectories for libraries
-add_subdirectory(libs/core)
+# Add subdirectories for libraries (order matters for dependencies)
 add_subdirectory(libs/utils)
 add_subdirectory(libs/network)
 add_subdirectory(libs/storage)
+add_subdirectory(libs/core)
 
 # Add subdirectories for applications
 add_subdirectory(apps/turbot-cli)
