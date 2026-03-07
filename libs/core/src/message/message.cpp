@@ -1,7 +1,8 @@
 #include <turbot/core/message/message.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <turbot/storage/database.hpp>
-#include <random>
+#include <turbot/utils/crypto_utils.hpp>
+#include <chrono>
 #include <sstream>
 
 namespace turbot::core {
@@ -10,35 +11,9 @@ namespace turbot::core {
 
 namespace {
 
+// 使用 crypto::generate_uuid() 确保线程安全
 std::string generate_message_id() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0, 15);
-    static std::uniform_int_distribution<> dis2(8, 11);
-    
-    std::stringstream ss;
-    ss << std::hex;
-    for (int i = 0; i < 8; i++) {
-        ss << dis(gen);
-    }
-    ss << "-";
-    for (int i = 0; i < 4; i++) {
-        ss << dis(gen);
-    }
-    ss << "-4";  // UUID v4
-    for (int i = 0; i < 3; i++) {
-        ss << dis(gen);
-    }
-    ss << "-";
-    ss << dis2(gen);
-    for (int i = 0; i < 3; i++) {
-        ss << dis(gen);
-    }
-    ss << "-";
-    for (int i = 0; i < 12; i++) {
-        ss << dis(gen);
-    }
-    return ss.str();
+    return turbot::utils::crypto::generate_uuid();
 }
 
 int64_t get_current_time_ms() {
@@ -50,7 +25,7 @@ int64_t get_current_time_ms() {
 } // anonymous namespace
 
 std::string generate_uuid() {
-    return generate_message_id();
+    return turbot::utils::crypto::generate_uuid();
 }
 
 int64_t current_timestamp_ms() {

@@ -110,15 +110,16 @@ public:
      * @param name 事件名称
      * @param data 事件数据
      * @param source 事件源
+     * @return std::future<void> 可用于等待任务完成
      */
     template<typename T>
-    void publish_async(const std::string& name, T data, const std::string& source = "turbot") {
+    std::future<void> publish_async(const std::string& name, T data, const std::string& source = "turbot") {
         Event<T> event(name, std::move(data), source);
 
-        // 在新线程中发布事件
-        std::thread([this, name, event]() mutable {
+        // 使用 std::async 代替 std::thread().detach() 避免资源泄漏
+        return std::async(std::launch::async, [this, event]() mutable {
             std::shared_lock<std::shared_mutex> lock(mutex_);
-            auto it = handlers_.find(name);
+            auto it = handlers_.find(event.name);
             if (it != handlers_.end()) {
                 for (auto& entry : it->second) {
                     try {
@@ -131,7 +132,7 @@ public:
                     }
                 }
             }
-        }).detach();
+        });
     }
 
     /**

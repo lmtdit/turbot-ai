@@ -108,26 +108,43 @@ public:
      */
     template<typename T>
     void set(const std::string& key, const T& value) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // 收集需要通知的回调（在锁外调用以避免死锁）
+        std::vector<std::pair<std::string, ChangeCallback>> callbacks_to_notify;
+        nlohmann::json new_value;
 
-        nlohmann::json current = config_;
-        auto parts = split_key(key);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
 
-        nlohmann::json* target = &current;
-        for (size_t i = 0; i < parts.size() - 1; ++i) {
-            if (!target->contains(parts[i])) {
-                (*target)[parts[i]] = nlohmann::json::object();
+            nlohmann::json current = config_;
+            auto parts = split_key(key);
+
+            nlohmann::json* target = &current;
+            for (size_t i = 0; i < parts.size() - 1; ++i) {
+                if (!target->contains(parts[i])) {
+                    (*target)[parts[i]] = nlohmann::json::object();
+                }
+                target = &(*target)[parts[i]];
             }
-            target = &(*target)[parts[i]];
+
+            (*target)[parts.back()] = value;
+            new_value = value;
+            config_ = current;
+
+            // 在锁内收集回调
+            auto it = watchers_.find(key);
+            if (it != watchers_.end()) {
+                callbacks_to_notify = it->second;
+            }
+        }  // 释放锁后再调用回调
+
+        // 锁外调用回调，避免死锁
+        for (const auto& [watch_id, callback] : callbacks_to_notify) {
+            try {
+                callback(key, new_value);
+            } catch (const std::exception& e) {
+                // 记录错误但不抛出异常
+            }
         }
-
-        nlohmann::json old_value = (*target)[parts.back()];
-        (*target)[parts.back()] = value;
-
-        config_ = current;
-
-        // 触发监听器
-        notify_change(key, old_value, value);
     }
 
     /**
