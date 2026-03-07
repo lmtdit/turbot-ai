@@ -186,8 +186,9 @@ AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext, const std::string
 
     AesGcmResult result;
 
-    // 生成随机nonce（12字节）
-    result.nonce = random_string(12);
+    // 生成随机nonce（12字节二进制）
+    auto nonce_bytes = random_bytes(12);
+    result.nonce = std::string(nonce_bytes.begin(), nonce_bytes.end());
 
     // 准备密文缓冲区（明文 + 16字节tag）
     std::vector<uint8_t> ciphertext(plaintext.size());
