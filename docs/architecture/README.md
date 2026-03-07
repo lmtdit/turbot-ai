@@ -7,6 +7,7 @@
 | 文档                                               | 说明         |
 | -------------------------------------------------- | ------------ |
 | [directory-structure.md](./directory-structure.md) | 目录架构规范 |
+| [config-hierarchy.md](./config-hierarchy.md)       | 配置分级机制 |
 
 ## 架构概述
 

@@ -88,7 +88,8 @@ libs/core/
 │   │   └── builtin/         # 内置工具
 │   │       ├── read_file_tool.hpp
 │   │       ├── write_file_tool.hpp
-│   │       └── bash_tool.hpp
+│   │       ├── bash_tool.hpp
+│   │       └── task_tool.hpp    # Task工具（多Agent协作）
 │   ├── agent/               # Agent系统 ✓ 已实现
 │   │   ├── agent.hpp        # Agent抽象基类、AgentRegistry
 │   │   └── builtin/         # 内置代理
@@ -97,7 +98,8 @@ libs/core/
 │   │       └── explore_agent.hpp
 │   └── session/             # 会话系统 ✓ 已实现
 │       ├── session.hpp      # Session、SessionInfo、SessionState
-│       └── session_state_machine.hpp
+│       ├── session_state_machine.hpp
+│       └── session_loop.hpp # SessionLoop（会话主循环）
 └── src/
     ├── common/
     │   ├── logger.cpp
@@ -125,7 +127,8 @@ libs/core/
     │   └── builtin/
     │       ├── read_file_tool.cpp
     │       ├── write_file_tool.cpp
-    │       └── bash_tool.cpp
+    │       ├── bash_tool.cpp
+    │       └── task_tool.cpp    # Task工具实现
     ├── agent/
     │   ├── agent.cpp
     │   └── builtin/
@@ -134,7 +137,8 @@ libs/core/
     │       └── explore_agent.cpp
     └── session/
         ├── session.cpp
-        └── session_state_machine.cpp
+        ├── session_state_machine.cpp
+        └── session_loop.cpp  # SessionLoop实现
 ```
 
 ### 3.2 storage - 存储层
@@ -199,15 +203,17 @@ libs/utils/
 
 ```
 apps/
-├── turbot-cli/              # 命令行应用
+├── turbot-cli/              # 命令行应用 ✓ 已实现
 │   ├── CMakeLists.txt
 │   └── src/
 │       ├── main.cpp
 │       └── commands.cpp
-└── turbot-server/           # 服务器应用
+└── turbot-server/           # 服务器应用 ✓ 已实现
     ├── CMakeLists.txt
     └── src/
-        └── main.cpp
+        ├── main.cpp
+        ├── server.cpp
+        └── server.hpp
 ```
 
 ## 5. 测试目录结构 (tests/)
@@ -230,9 +236,11 @@ tests/
 │   ├── http_client_test.cpp ✓ http_client模块测试
 │   ├── storage_test.cpp     ✓ storage模块测试
 │   ├── permission_test.cpp  ✓ permission模块测试
-│   └── tool_test.cpp        ✓ tool模块测试
+│   ├── tool_test.cpp        ✓ tool模块测试
 │   ├── agent_test.cpp       ✓ agent模块测试
-│   └── session_test.cpp     ✓ session模块测试
+│   ├── session_test.cpp     ✓ session模块测试
+│   ├── task_tool_test.cpp   ✓ task_tool模块测试 (1.8新增)
+│   └── session_loop_test.cpp ✓ session_loop模块测试 (1.8新增)
 ├── integration/             # 集成测试 (计划中)
 │   └── ...
 └── test_integration.cpp     # 测试入口
@@ -485,23 +493,25 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 
 ## 11. 实现状态
 
-| 模块              | 状态      | 说明                                                                |
-| ----------------- | --------- | ------------------------------------------------------------------- |
-| utils             | ✅ 完成   | crypto_utils, file_utils, json_utils, string_utils                  |
-| core/common       | ✅ 完成   | export, logger, version                                             |
-| core/config       | ✅ 完成   | 配置管理                                                            |
-| core/event        | ✅ 完成   | 事件总线                                                            |
-| core/message      | ✅ 完成   | message, part, token_usage                                          |
-| core/provider     | ✅ 完成   | provider, provider_manager, 5 个 provider 实现                      |
-| storage           | ✅ 完成   | database, sqlite_database, transaction, migration                   |
-| network           | ✅ 完成   | http_client, url                                                    |
-| core/permission   | ✅ 完成   | 权限系统：PermissionRule、Ruleset、PermissionSystem                 |
-| core/tool         | ✅ 完成   | 工具系统：Tool、ToolRegistry、ReadFileTool、WriteFileTool、BashTool |
-| core/agent        | ✅ 完成   | Agent系统：Agent、AgentRegistry、BuildAgent、PlanAgent、ExploreAgent |
-| core/session      | ✅ 完成   | 会话系统：Session、SessionStateMachine、SessionState |
-| network/websocket | 📋 计划中 | WebSocket 客户端                                                    |
-| network/async     | 📋 计划中 | 异步 IO                                                             |
-| storage/pool      | 📋 计划中 | 连接池                                                              |
+| 模块              | 状态      | 说明                                                                          |
+| ----------------- | --------- | ----------------------------------------------------------------------------- |
+| utils             | ✅ 完成   | crypto_utils, file_utils, json_utils, string_utils                            |
+| core/common       | ✅ 完成   | export, logger, version                                                       |
+| core/config       | ✅ 完成   | 配置管理                                                                      |
+| core/event        | ✅ 完成   | 事件总线                                                                      |
+| core/message      | ✅ 完成   | message, part, token_usage                                                    |
+| core/provider     | ✅ 完成   | provider, provider_manager, 5 个 provider 实现                                |
+| storage           | ✅ 完成   | database, sqlite_database, transaction, migration                             |
+| network           | ✅ 完成   | http_client, url                                                              |
+| core/permission   | ✅ 完成   | 权限系统：PermissionRule、Ruleset、PermissionSystem                           |
+| core/tool         | ✅ 完成   | 工具系统：Tool、ToolRegistry、ReadFileTool、WriteFileTool、BashTool、TaskTool |
+| core/agent        | ✅ 完成   | Agent 系统：Agent、AgentRegistry、BuildAgent、PlanAgent、ExploreAgent         |
+| core/session      | ✅ 完成   | 会话系统：Session、SessionStateMachine、SessionState、SessionLoop             |
+| apps/cli          | ✅ 完成   | 命令行应用：交互式会话、命令处理                                              |
+| apps/server       | ✅ 完成   | 服务器应用：HTTP API、会话管理                                                |
+| network/websocket | 📋 计划中 | WebSocket 客户端                                                              |
+| network/async     | 📋 计划中 | 异步 IO                                                                       |
+| storage/pool      | 📋 计划中 | 连接池                                                                        |
 
 **状态图例**：
 

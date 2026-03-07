@@ -2,6 +2,7 @@
 #include <turbot/core/tool/builtin/read_file_tool.hpp>
 #include <turbot/core/tool/builtin/write_file_tool.hpp>
 #include <turbot/core/tool/builtin/bash_tool.hpp>
+#include <turbot/core/tool/builtin/task_tool.hpp>
 #include <stdexcept>
 
 namespace turbot::core::tool {
@@ -101,6 +102,7 @@ void ToolRegistry::register_builtin_tools() {
     register_tool(std::make_unique<builtin::ReadFileTool>());
     register_tool(std::make_unique<builtin::WriteFileTool>());
     register_tool(std::make_unique<builtin::BashTool>());
+    register_tool(std::make_unique<TaskTool>());
 }
 
 } // namespace turbot::core::tool

@@ -328,7 +328,8 @@ TEST_CASE("ToolRegistry register_builtin_tools", "[core][tool][registry]") {
     REQUIRE(reg.has("read_file"));
     REQUIRE(reg.has("write_file"));
     REQUIRE(reg.has("bash"));
-    REQUIRE(reg.size() == 3);
+    REQUIRE(reg.has("task"));
+    REQUIRE(reg.size() == 4);
 
     reg.clear();
 }
