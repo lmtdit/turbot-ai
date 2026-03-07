@@ -44,12 +44,14 @@ std::string_view method_to_string(HttpMethod method) noexcept {
     }
 }
 
-// Case-insensitive string comparison for header names
-static std::string to_lower(std::string_view s) {
-    std::string result(s);
-    std::transform(result.begin(), result.end(), result.begin(), 
-                   [](unsigned char c) { return std::tolower(c); });
-    return result;
+// Case-insensitive string comparison for HTTP header names
+// HTTP header names are case-insensitive per RFC 7230
+static bool iequals(std::string_view a, std::string_view b) noexcept {
+    return a.size() == b.size() &&
+           std::equal(a.begin(), a.end(), b.begin(),
+                      [](unsigned char ca, unsigned char cb) {
+                          return std::tolower(ca) == std::tolower(cb);
+                      });
 }
 
 // ============================================================================
@@ -125,9 +127,8 @@ HttpRequest& HttpRequest::with_json_body(std::string_view json) {
 // ============================================================================
 
 std::optional<std::string> HttpResponse::get_header(std::string_view name) const {
-    std::string lower_name = to_lower(name);
     for (const auto& [key, value] : headers) {
-        if (to_lower(key) == lower_name) {
+        if (iequals(key, name)) {
             return value;
         }
     }
@@ -271,7 +272,7 @@ public:
             for (const auto& [key, value] : default_headers_) {
                 bool found = false;
                 for (const auto& [k, v] : req.headers) {
-                    if (to_lower(k) == to_lower(key)) {
+                    if (iequals(k, key)) {
                         found = true;
                         break;
                     }
