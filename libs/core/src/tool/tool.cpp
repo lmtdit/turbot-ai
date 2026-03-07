@@ -21,7 +21,8 @@ ShellMode string_to_shell_mode(const std::string& str) {
     if (str == "normal")  return ShellMode::Normal;
     if (str == "sandbox") return ShellMode::Sandbox;
     if (str == "ask")     return ShellMode::Ask;
-    throw std::invalid_argument(fmt::format("Invalid shell mode string: {}", str));
+    // Default to Ask for unknown values
+    return ShellMode::Ask;
 }
 
 // ============================================================================

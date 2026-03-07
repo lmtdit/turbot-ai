@@ -266,9 +266,7 @@ ToolResult BashTool::execute_normal(
     }
 
     // Change to working directory if needed
-    std::string cd_prefix;
     if (!cwd.empty() && cwd != ".") {
-        cd_prefix = fmt::format("cd {} && ", escape_shell_arg(cwd));
         full_command = tc.empty()
             ? fmt::format("{} -c 'cd {} && {}' 2>&1", shell_path(), escape_shell_arg(cwd), params.command)
             : fmt::format("{} {} {} -c 'cd {} && {}' 2>&1", tc, timeout_sec, shell_path(), escape_shell_arg(cwd), params.command);

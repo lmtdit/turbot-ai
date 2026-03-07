@@ -17,6 +17,7 @@ namespace {
 constexpr int DEFAULT_READ_LIMIT = 2000;
 constexpr int MAX_LINE_LENGTH = 2000;
 constexpr size_t MAX_BYTES = 50 * 1024;  // 50 KB
+constexpr double BINARY_THRESHOLD = 0.3;  // 30% non-printable chars = binary
 
 /// Get file extension lowercase
 std::string get_extension_lower(const std::string& path) {
@@ -149,7 +150,7 @@ bool ReadFileTool::is_binary_file(const std::string& path, size_t file_size) {
     }
     
     // If >30% non-printable, consider it binary
-    return static_cast<double>(non_printable) / bytes_read > 0.3;
+    return static_cast<double>(non_printable) / bytes_read > BINARY_THRESHOLD;
 }
 
 ToolResult ReadFileTool::read_directory(

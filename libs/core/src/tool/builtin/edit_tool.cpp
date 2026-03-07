@@ -137,8 +137,14 @@ bool EditTool::validate_input(const nlohmann::json& input) const {
 }
 
 int EditTool::levenshtein_distance(std::string_view a, std::string_view b) {
+    // Add length limit to prevent memory exhaustion
+    constexpr size_t MAX_LENGTH = 10000;
     if (a.empty() || b.empty()) {
         return static_cast<int>(std::max(a.length(), b.length()));
+    }
+    if (a.size() > MAX_LENGTH || b.size() > MAX_LENGTH) {
+        // For very long strings, use a simpler approximation
+        return static_cast<int>(std::abs(static_cast<long>(a.size()) - static_cast<long>(b.size())));
     }
     
     std::vector<int> matrix((a.length() + 1) * (b.length() + 1));
@@ -614,6 +620,10 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
                 return ToolResult::error("Edit", fmt::format("Failed to create file: {}", file_path_str));
             }
             ofs << params.new_string;
+            ofs.flush();
+            if (!ofs) {
+                return ToolResult::error("Edit", fmt::format("Failed to write to file: {}", file_path_str));
+            }
             ofs.close();
             
             nlohmann::json metadata = {
