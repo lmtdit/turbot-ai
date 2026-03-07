@@ -429,7 +429,7 @@ ProviderConfig ProviderConfig::from_json(const nlohmann::json& j) {
 
 // ===== ProviderManager =====
 
-ProviderManager& ProviderManager::instance() {
+ProviderManager& ProviderManager::instance() noexcept {
     static ProviderManager instance;
     return instance;
 }

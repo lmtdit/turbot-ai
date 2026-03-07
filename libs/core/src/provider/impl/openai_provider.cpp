@@ -459,7 +459,7 @@ ChatResponse OpenAIProvider::chat_stream(
 
 int64_t OpenAIProvider::count_tokens(
     const std::vector<ChatMessage>& messages,
-    const std::string& model_id
+    [[maybe_unused]] const std::string& model_id
 ) const {
     // Simple approximation: ~4 characters per token for English text
     // This is a rough estimate; real implementations should use tiktoken

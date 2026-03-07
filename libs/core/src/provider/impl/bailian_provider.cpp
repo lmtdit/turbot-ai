@@ -400,7 +400,7 @@ ChatResponse BailianProvider::chat_stream(
 
 int64_t BailianProvider::count_tokens(
     const std::vector<ChatMessage>& messages,
-    const std::string& model_id
+    [[maybe_unused]] const std::string& model_id
 ) const {
     // Approximation for Chinese text: ~1.5 characters per token
     int64_t total_chars = 0;

@@ -307,7 +307,7 @@ std::vector<Message> Message::list_by_session(
 std::vector<Message> Message::query(
     const std::string& session_id,
     std::shared_ptr<turbot::storage::Database> db,
-    const nlohmann::json& filter
+    [[maybe_unused]] const nlohmann::json& filter
 ) {
     // TODO: Implement query with filter
     return list_by_session(session_id, db);
@@ -424,7 +424,11 @@ std::optional<MessageInfo> MessageDao::get_message(const std::string& id) {
     if (result->contains("tokens")) {
         auto val = (*result)["tokens"];
         if (val.is_string()) {
-            info.tokens = TokenUsage::from_json(nlohmann::json::parse(val.get<std::string>()));
+            try {
+                info.tokens = TokenUsage::from_json(nlohmann::json::parse(val.get<std::string>()));
+            } catch (const nlohmann::json::parse_error& e) {
+                TURBOT_LOG_ERROR("Failed to parse tokens JSON: {}", e.what());
+            }
         } else if (val.is_object()) {
             info.tokens = TokenUsage::from_json(val);
         }
@@ -432,8 +436,12 @@ std::optional<MessageInfo> MessageDao::get_message(const std::string& id) {
     if (result->contains("tools")) {
         auto val = (*result)["tools"];
         if (val.is_string()) {
-            auto parsed = nlohmann::json::parse(val.get<std::string>());
-            if (!parsed.empty()) info.tools = parsed;
+            try {
+                auto parsed = nlohmann::json::parse(val.get<std::string>());
+                if (!parsed.empty()) info.tools = parsed;
+            } catch (const nlohmann::json::parse_error& e) {
+                TURBOT_LOG_ERROR("Failed to parse tools JSON: {}", e.what());
+            }
         } else if (val.is_object() || val.is_array()) {
             if (!val.empty()) info.tools = val;
         }
@@ -447,8 +455,12 @@ std::optional<MessageInfo> MessageDao::get_message(const std::string& id) {
     if (result->contains("error")) {
         auto val = (*result)["error"];
         if (val.is_string()) {
-            auto parsed = nlohmann::json::parse(val.get<std::string>());
-            if (!parsed.empty()) info.error = parsed;
+            try {
+                auto parsed = nlohmann::json::parse(val.get<std::string>());
+                if (!parsed.empty()) info.error = parsed;
+            } catch (const nlohmann::json::parse_error& e) {
+                TURBOT_LOG_ERROR("Failed to parse error JSON: {}", e.what());
+            }
         } else if (val.is_object()) {
             if (!val.empty()) info.error = val;
         }
@@ -470,8 +482,12 @@ std::optional<MessageInfo> MessageDao::get_message(const std::string& id) {
     if (result->contains("structured")) {
         auto val = (*result)["structured"];
         if (val.is_string()) {
-            auto parsed = nlohmann::json::parse(val.get<std::string>());
-            if (!parsed.empty()) info.structured = parsed;
+            try {
+                auto parsed = nlohmann::json::parse(val.get<std::string>());
+                if (!parsed.empty()) info.structured = parsed;
+            } catch (const nlohmann::json::parse_error& e) {
+                TURBOT_LOG_ERROR("Failed to parse structured JSON: {}", e.what());
+            }
         } else if (val.is_object() || val.is_array()) {
             if (!val.empty()) info.structured = val;
         }

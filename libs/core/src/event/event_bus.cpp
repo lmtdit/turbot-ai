@@ -7,7 +7,7 @@ using namespace turbot::utils;
 
 namespace turbot::core {
 
-EventBus& EventBus::instance() {
+EventBus& EventBus::instance() noexcept {
     static EventBus instance;
     return instance;
 }

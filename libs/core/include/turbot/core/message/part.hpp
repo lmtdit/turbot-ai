@@ -11,8 +11,8 @@
 
 namespace turbot::core {
 
-/// Part type enumeration
-enum class PartType {
+/// Part type enumeration - 使用 uint8_t 作为底层类型确保序列化一致性
+enum class PartType : uint8_t {
     Text,        ///< Text content
     Tool,        ///< Tool call
     Reasoning,   ///< Reasoning process

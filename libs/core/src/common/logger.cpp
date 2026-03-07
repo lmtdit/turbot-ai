@@ -3,7 +3,7 @@
 
 namespace turbot::core {
 
-Logger& Logger::instance() {
+Logger& Logger::instance() noexcept {
     static Logger instance;
     return instance;
 }
@@ -18,7 +18,7 @@ void Logger::set_level(spdlog::level::level_enum level) {
     logger_->set_level(level);
 }
 
-std::shared_ptr<spdlog::logger> Logger::get_logger() const {
+std::shared_ptr<spdlog::logger> Logger::get_logger() const noexcept {
     return logger_;
 }
 

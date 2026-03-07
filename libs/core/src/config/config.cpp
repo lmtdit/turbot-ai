@@ -82,17 +82,11 @@ void Config::load_from_string(const std::string& content) {
 }
 
 void Config::load_from_env(const std::string& prefix) {
-    int count = 0;
-
-    // 计算环境变量数量
-    while (environ[count] != nullptr) {
-        ++count;
-    }
-
     std::lock_guard<std::mutex> lock(mutex_);
     int loaded = 0;
 
-    for (int i = 0; i < count; ++i) {
+    // 单次遍历环境变量
+    for (int i = 0; environ[i] != nullptr; ++i) {
         std::string env_var = environ[i];
 
         size_t equal_pos = env_var.find('=');
@@ -263,7 +257,7 @@ std::vector<std::string> Config::split_key(const std::string& key) {
 }
 
 void Config::notify_change(const std::string& key,
-                           const nlohmann::json& old_value,
+                           [[maybe_unused]] const nlohmann::json& old_value,
                            const nlohmann::json& new_value) {
     auto it = watchers_.find(key);
     if (it != watchers_.end()) {

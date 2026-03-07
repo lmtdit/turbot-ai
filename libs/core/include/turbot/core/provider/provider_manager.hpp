@@ -19,7 +19,7 @@ using ProviderFactory = std::function<ProviderPtr(const ProviderConfig& config)>
 class TURBOT_CORE_API ProviderManager {
 public:
     /// Get singleton instance
-    static ProviderManager& instance();
+    static ProviderManager& instance() noexcept;
 
     // Delete copy and move
     ProviderManager(const ProviderManager&) = delete;

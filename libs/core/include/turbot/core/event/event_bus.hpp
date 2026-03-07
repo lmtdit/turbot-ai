@@ -70,7 +70,7 @@ public:
      * @brief 获取EventBus单例实例
      * @return EventBus实例引用
      */
-    static EventBus& instance();
+    static EventBus& instance() noexcept;
 
     /**
      * @brief 发布事件（同步）
@@ -88,10 +88,6 @@ public:
         if (it != handlers_.end()) {
             for (auto& entry : it->second) {
                 try {
-                    if (!entry.filter.empty()) {
-                        // TODO: 实现过滤器逻辑
-                    }
-
                     // 执行处理器 - 使用简化的类型检查
                     auto* handler = std::any_cast<EventHandler<T>>(&entry.handler);
                     if (handler) {
@@ -140,18 +136,15 @@ public:
      * @tparam T 事件数据类型
      * @param name 事件名称
      * @param handler 事件处理器
-     * @param filter 过滤器（可选）
      * @return 订阅ID
      */
     template<typename T>
-    std::string subscribe(const std::string& name, EventHandler<T> handler,
-                           const std::string& filter = "") {
+    std::string subscribe(const std::string& name, EventHandler<T> handler) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
 
         std::string id = turbot::utils::generate_uuid();
         HandlerEntry entry;
         entry.id = id;
-        entry.filter = filter;
         entry.handler = handler;
 
         handlers_[name].push_back(std::move(entry));
@@ -165,13 +158,11 @@ public:
      * @tparam F 可调用对象类型
      * @param name 事件名称
      * @param handler 事件处理器（lambda、函数指针等）
-     * @param filter 过滤器（可选）
      * @return 订阅ID
      */
     template<typename T, typename F>
-    std::string subscribe(const std::string& name, F&& handler,
-                           const std::string& filter = "") {
-        return subscribe<T>(name, EventHandler<T>(std::forward<F>(handler)), filter);
+    std::string subscribe(const std::string& name, F&& handler) {
+        return subscribe<T>(name, EventHandler<T>(std::forward<F>(handler)));
     }
 
     /**
@@ -179,18 +170,15 @@ public:
      * @tparam T 事件数据类型
      * @param name 事件名称
      * @param handler 事件处理器
-     * @param filter 过滤器（可选）
      * @return 订阅ID
      */
     template<typename T>
-    std::string subscribe_async(const std::string& name, AsyncEventHandler<T> handler,
-                                 const std::string& filter = "") {
+    std::string subscribe_async(const std::string& name, AsyncEventHandler<T> handler) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
 
         std::string id = turbot::utils::generate_uuid();
         HandlerEntry entry;
         entry.id = id;
-        entry.filter = filter;
         entry.handler = handler;
 
         handlers_[name].push_back(std::move(entry));
@@ -238,7 +226,6 @@ private:
      */
     struct HandlerEntry {
         std::string id;
-        std::string filter;
         std::any handler;
     };
 
