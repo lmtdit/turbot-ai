@@ -183,7 +183,7 @@ static HttpHeaders parse_headers(const std::string& header_string) {
         }
         
         // Skip status line and empty lines
-        if (line.empty() || line.substr(0, 5) == "HTTP/") {
+        if (line.empty() || (line.size() >= 5 && line.compare(0, 5, "HTTP/") == 0)) {
             continue;
         }
         
@@ -245,8 +245,9 @@ public:
             // Set URL
             curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
             
-            // Set method
-            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, std::string(method_to_string(req.method)).c_str());
+            // Set method - store in local variable to ensure lifetime
+            std::string method_str(method_to_string(req.method));
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method_str.c_str());
             
             // Set timeout
             int timeout = req.timeout_seconds > 0 ? req.timeout_seconds : default_timeout_;
