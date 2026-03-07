@@ -3,9 +3,28 @@
 
 #include <chrono>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 
 namespace turbot::storage::sqlite {
+
+// ============================================================================
+// RAII Wrapper for sqlite3_stmt
+// ============================================================================
+
+namespace {
+
+struct StmtDeleter {
+    void operator()(sqlite3_stmt* stmt) const noexcept {
+        if (stmt) {
+            sqlite3_finalize(stmt);
+        }
+    }
+};
+
+using StmtPtr = std::unique_ptr<sqlite3_stmt, StmtDeleter>;
+
+} // anonymous namespace
 
 // ============================================================================
 // SQLiteDatabase Implementation
@@ -36,21 +55,33 @@ SQLiteDatabase::SQLiteDatabase(const DatabaseConfig& config)
 }
 
 SQLiteDatabase::~SQLiteDatabase() {
+    // 标记数据库已销毁
+    if (alive_flag_) {
+        *alive_flag_ = false;
+    }
     close();
 }
 
 SQLiteDatabase::SQLiteDatabase(SQLiteDatabase&& other) noexcept
     : config_(std::move(other.config_))
-    , db_(other.db_) {
+    , db_(other.db_)
+    , alive_flag_(std::move(other.alive_flag_)) {
     other.db_ = nullptr;
+    other.alive_flag_ = nullptr;
 }
 
 SQLiteDatabase& SQLiteDatabase::operator=(SQLiteDatabase&& other) noexcept {
     if (this != &other) {
+        // 标记当前数据库已销毁
+        if (alive_flag_) {
+            *alive_flag_ = false;
+        }
         close();
         config_ = std::move(other.config_);
         db_ = other.db_;
+        alive_flag_ = std::move(other.alive_flag_);
         other.db_ = nullptr;
+        other.alive_flag_ = nullptr;
     }
     return *this;
 }
@@ -162,34 +193,37 @@ QueryResult SQLiteDatabase::execute(
         throw std::runtime_error("Database is not open");
     }
 
-    sqlite3_stmt* stmt = nullptr;
-    int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    sqlite3_stmt* raw_stmt = nullptr;
+    int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw_stmt, nullptr);
     if (result != SQLITE_OK) {
         throw std::runtime_error("Failed to prepare statement: " +
                                  std::string(sqlite3_errmsg(db_)));
     }
 
+    // 使用 RAII wrapper 管理 statement 生命周期
+    StmtPtr stmt(raw_stmt);
+
     // Bind parameters
     for (size_t i = 0; i < params.size(); i++) {
-        bind_param(stmt, static_cast<int>(i + 1), params[i]);
+        bind_param(stmt.get(), static_cast<int>(i + 1), params[i]);
     }
 
     QueryResult query_result;
     query_result.affected_rows = 0;
 
     // Execute and collect results
-    while ((result = sqlite3_step(stmt)) == SQLITE_ROW) {
-        query_result.rows.push_back(row_to_json(stmt));
+    while ((result = sqlite3_step(stmt.get())) == SQLITE_ROW) {
+        query_result.rows.push_back(row_to_json(stmt.get()));
     }
 
     if (result != SQLITE_DONE && result != SQLITE_ROW) {
         std::string err = sqlite3_errmsg(db_);
-        sqlite3_finalize(stmt);
+        // stmt 会通过 RAII 自动释放
         throw std::runtime_error("Query execution failed: " + err);
     }
 
     query_result.affected_rows = sqlite3_changes(db_);
-    sqlite3_finalize(stmt);
+    // stmt 会通过 RAII 自动释放
 
     return query_result;
 }
@@ -210,7 +244,7 @@ std::shared_ptr<Transaction> SQLiteDatabase::begin_transaction() {
         throw std::runtime_error("Database is not open");
     }
     execute("BEGIN IMMEDIATE TRANSACTION;");
-    return std::make_shared<SQLiteTransaction>(db_);
+    return std::make_shared<SQLiteTransaction>(db_, alive_flag_);
 }
 
 QueryResult SQLiteDatabase::execute_batch(
@@ -279,15 +313,16 @@ bool SQLiteDatabase::is_open() const {
 // SQLiteTransaction Implementation
 // ============================================================================
 
-SQLiteTransaction::SQLiteTransaction(sqlite3* db)
-    : db_(db) {
+SQLiteTransaction::SQLiteTransaction(sqlite3* db, std::shared_ptr<bool> alive_flag)
+    : db_(db)
+    , alive_flag_(std::move(alive_flag)) {
     if (!db_) {
         throw std::runtime_error("Cannot create transaction without database");
     }
 }
 
 SQLiteTransaction::~SQLiteTransaction() {
-    if (active_ && db_) {
+    if (active_ && is_db_alive() && db_) {
         try {
             rollback();
         } catch (...) {
@@ -297,6 +332,10 @@ SQLiteTransaction::~SQLiteTransaction() {
 }
 
 void SQLiteTransaction::commit() {
+    if (!is_db_alive()) {
+        active_ = false;
+        throw std::runtime_error("Database has been destroyed");
+    }
     if (!active_) {
         throw std::runtime_error("Transaction is not active");
     }
@@ -318,6 +357,11 @@ void SQLiteTransaction::commit() {
 void SQLiteTransaction::rollback() {
     if (!active_) {
         return;  // Already rolled back
+    }
+    
+    if (!is_db_alive()) {
+        active_ = false;
+        return;  // 数据库已销毁，无需 rollback
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -402,38 +446,45 @@ QueryResult SQLiteTransaction::execute(
     const std::string& sql,
     const std::vector<nlohmann::json>& params) {
 
+    if (!is_db_alive()) {
+        active_ = false;
+        throw std::runtime_error("Database has been destroyed");
+    }
     if (!active_) {
         throw std::runtime_error("Transaction is not active");
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
 
-    sqlite3_stmt* stmt = nullptr;
-    int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+    sqlite3_stmt* raw_stmt = nullptr;
+    int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw_stmt, nullptr);
     if (result != SQLITE_OK) {
         throw std::runtime_error("Failed to prepare statement: " +
                                  std::string(sqlite3_errmsg(db_)));
     }
 
+    // 使用 RAII wrapper 管理 statement 生命周期
+    StmtPtr stmt(raw_stmt);
+
     for (size_t i = 0; i < params.size(); i++) {
-        bind_param(stmt, static_cast<int>(i + 1), params[i]);
+        bind_param(stmt.get(), static_cast<int>(i + 1), params[i]);
     }
 
     QueryResult query_result;
     query_result.affected_rows = 0;
 
-    while ((result = sqlite3_step(stmt)) == SQLITE_ROW) {
-        query_result.rows.push_back(row_to_json(stmt));
+    while ((result = sqlite3_step(stmt.get())) == SQLITE_ROW) {
+        query_result.rows.push_back(row_to_json(stmt.get()));
     }
 
     if (result != SQLITE_DONE && result != SQLITE_ROW) {
         std::string err = sqlite3_errmsg(db_);
-        sqlite3_finalize(stmt);
+        // stmt 会通过 RAII 自动释放
         throw std::runtime_error("Query execution failed: " + err);
     }
 
     query_result.affected_rows = sqlite3_changes(db_);
-    sqlite3_finalize(stmt);
+    // stmt 会通过 RAII 自动释放
 
     return query_result;
 }
