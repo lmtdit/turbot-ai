@@ -45,9 +45,12 @@ TEST_CASE("Logger::set_level", "[core][logger]") {
 
 TEST_CASE("Logger macros", "[core][logger]") {
     SECTION("log macros do not throw") {
-        REQUIRE_NOTHROW(TURBOT_LOG_DEBUG("Test debug message: {}", 42));
-        REQUIRE_NOTHROW(TURBOT_LOG_INFO("Test info message"));
-        REQUIRE_NOTHROW(TURBOT_LOG_WARN("Test warn message"));
-        REQUIRE_NOTHROW(TURBOT_LOG_ERROR("Test error message"));
+        // do-while 包装的宏不能直接用于 REQUIRE_NOTHROW
+        // 因为它们展开后是语句而不是表达式
+        TURBOT_LOG_DEBUG("Test debug message: {}", 42);
+        TURBOT_LOG_INFO("Test info message");
+        TURBOT_LOG_WARN("Test warn message");
+        TURBOT_LOG_ERROR("Test error message");
+        REQUIRE(true);  // 如果宏抛出异常，测试会失败
     }
 }

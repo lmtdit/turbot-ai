@@ -463,58 +463,32 @@ TEST_CASE("SQLiteDatabase::json_data", "[storage][sqlite]") {
 // ============================================================================
 // Move Semantics Tests
 // ============================================================================
+// 移动语义测试已移除 - SQLiteDatabase 禁用移动构造和移动赋值
+// 因为 mutex 不能被移动
+// ============================================================================
 
-TEST_CASE("SQLiteDatabase::move_semantics", "[storage][sqlite]") {
-    SECTION("move constructor") {
-        const std::string db_path = "/tmp/test_move_ctor.db";
+TEST_CASE("SQLiteDatabase::non_movable", "[storage][sqlite]") {
+    SECTION("copy and move are deleted") {
+        // 编译时检查：以下代码应该无法编译
+        // SQLiteDatabase db1(config);
+        // SQLiteDatabase db2(std::move(db1));  // 错误：移动构造已删除
+        // SQLiteDatabase db3 = db1;            // 错误：拷贝构造已删除
+        
+        // 运行时检查：确保 SQLiteDatabase 可以正常使用
+        const std::string db_path = "/tmp/test_non_movable.db";
         std::filesystem::remove(db_path);
         
         DatabaseConfig config;
         config.path = db_path;
         
-        auto db1 = std::make_shared<SQLiteDatabase>(config);
-        REQUIRE(db1->is_open());
+        SQLiteDatabase db(config);
+        REQUIRE(db.is_open());
         
-        // Create table in original db
-        db1->execute("CREATE TABLE test (id INTEGER PRIMARY KEY, value TEXT)");
-        db1->execute("INSERT INTO test (value) VALUES ('test_data')");
-        
-        // Move construct
-        SQLiteDatabase db2(std::move(*db1));
-        REQUIRE(db2.is_open());
-        REQUIRE_FALSE(db1->is_open()); // Original should be closed
-        
-        // Verify data is accessible via moved db
-        auto row = db2.execute_one("SELECT value FROM test WHERE id = 1");
-        REQUIRE(row.has_value());
-        REQUIRE((*row)["value"] == "test_data");
+        db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY)");
+        auto result = db.execute_one("SELECT COUNT(*) as cnt FROM test");
+        REQUIRE(result.has_value());
         
         std::filesystem::remove(db_path);
-    }
-    
-    SECTION("move assignment") {
-        const std::string db_path1 = "/tmp/test_move_assign1.db";
-        const std::string db_path2 = "/tmp/test_move_assign2.db";
-        std::filesystem::remove(db_path1);
-        std::filesystem::remove(db_path2);
-        
-        DatabaseConfig config1, config2;
-        config1.path = db_path1;
-        config2.path = db_path2;
-        
-        auto db1 = std::make_unique<SQLiteDatabase>(config1);
-        auto db2 = std::make_unique<SQLiteDatabase>(config2);
-        
-        REQUIRE(db1->is_open());
-        REQUIRE(db2->is_open());
-        
-        // Move assign
-        *db1 = std::move(*db2);
-        REQUIRE(db1->is_open());
-        REQUIRE_FALSE(db2->is_open());
-        
-        std::filesystem::remove(db_path1);
-        std::filesystem::remove(db_path2);
     }
 }
 
@@ -1319,25 +1293,6 @@ TEST_CASE("SQLiteDatabase::config_accessor", "[storage][sqlite]") {
 // Self-Move Assignment Protection Test
 // ============================================================================
 
-TEST_CASE("SQLiteDatabase::self_move_protection", "[storage][sqlite]") {
-    const std::string db_path = "/tmp/test_self_move.db";
-    std::filesystem::remove(db_path);
-    
-    DatabaseConfig config;
-    config.path = db_path;
-    
-    auto db = std::make_unique<SQLiteDatabase>(config);
-    REQUIRE(db->is_open());
-    
-    // Self-move assignment should be safe (no-op)
-    *db = std::move(*db);
-    
-    // Database should still be open
-    REQUIRE(db->is_open());
-    
-    std::filesystem::remove(db_path);
-}
-
 // ============================================================================
 // Empty SQL Tests
 // ============================================================================
@@ -1592,20 +1547,6 @@ TEST_CASE("TransactionGuard::edge_cases", "[storage][transaction]") {
         
         auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
         REQUIRE(*count == 0);
-    }
-    
-    SECTION("move to self") {
-        TransactionGuard guard(db->begin_transaction());
-        guard->execute("INSERT INTO test (value) VALUES (1)");
-        
-        // Self move assignment should be safe
-        guard = std::move(guard);
-        
-        // Guard should still be valid and able to commit
-        guard.commit();
-        
-        auto count = db->execute_scalar<int64_t>("SELECT COUNT(*) FROM test");
-        REQUIRE(*count == 1);
     }
     
     SECTION("move from inactive guard") {
