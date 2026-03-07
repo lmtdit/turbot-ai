@@ -75,10 +75,10 @@ target_link_libraries(${LIBRARY_NAME}
         fmt::fmt
         spdlog::spdlog
         nlohmann_json::nlohmann_json
+        turbot::network
     PRIVATE
         turbot::utils
         turbot::storage
-        turbot::network
 )
 
 # Export macros
