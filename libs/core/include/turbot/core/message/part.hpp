@@ -17,6 +17,8 @@ enum class PartType : uint8_t {
     Tool,        ///< Tool call
     Reasoning,   ///< Reasoning process
     File,        ///< File reference
+    Image,       ///< Image content (v2.0)
+    Error,       ///< Error information (v2.0)
     Subtask,     ///< Subtask reference
     StepStart,   ///< Step start marker
     StepFinish,  ///< Step finish marker
@@ -24,7 +26,8 @@ enum class PartType : uint8_t {
     Patch,       ///< Code patch/diff
     Agent,       ///< Agent info
     Retry,       ///< Retry information
-    Compaction   ///< Context compaction
+    Compaction,  ///< Context compaction
+    Source       ///< Source/citation reference (v2.0)
 };
 
 /// Convert PartType to string
@@ -64,6 +67,35 @@ struct TURBOT_CORE_API Part {
         const std::string& path,
         const std::optional<std::string>& content = std::nullopt,
         const std::optional<std::string>& mime_type = std::nullopt
+    );
+
+    /// Create an image part (v2.0)
+    [[nodiscard]] static Part create_image(
+        const std::string& url,
+        const std::optional<std::string>& alt_text = std::nullopt,
+        const std::optional<std::string>& mime_type = std::nullopt
+    );
+
+    /// Create an image part from base64 data (v2.0)
+    [[nodiscard]] static Part create_image_base64(
+        const std::string& base64_data,
+        const std::string& mime_type = "image/png",
+        const std::optional<std::string>& alt_text = std::nullopt
+    );
+
+    /// Create an error part (v2.0)
+    [[nodiscard]] static Part create_error(
+        const std::string& message,
+        const std::optional<std::string>& code = std::nullopt,
+        const std::optional<nlohmann::json>& details = std::nullopt
+    );
+
+    /// Create a source/citation part (v2.0)
+    [[nodiscard]] static Part create_source(
+        const std::string& source_id,
+        const std::string& source_type,
+        const std::optional<std::string>& title = std::nullopt,
+        const std::optional<std::string>& url = std::nullopt
     );
 
     /// Create a subtask reference part
@@ -119,6 +151,8 @@ struct TURBOT_CORE_API Part {
     [[nodiscard]] bool is_tool() const noexcept { return type == PartType::Tool; }
     [[nodiscard]] bool is_reasoning() const noexcept { return type == PartType::Reasoning; }
     [[nodiscard]] bool is_file() const noexcept { return type == PartType::File; }
+    [[nodiscard]] bool is_image() const noexcept { return type == PartType::Image; }
+    [[nodiscard]] bool is_error() const noexcept { return type == PartType::Error; }
     [[nodiscard]] bool is_subtask() const noexcept { return type == PartType::Subtask; }
     [[nodiscard]] bool is_step_start() const noexcept { return type == PartType::StepStart; }
     [[nodiscard]] bool is_step_finish() const noexcept { return type == PartType::StepFinish; }
@@ -127,6 +161,7 @@ struct TURBOT_CORE_API Part {
     [[nodiscard]] bool is_agent() const noexcept { return type == PartType::Agent; }
     [[nodiscard]] bool is_retry() const noexcept { return type == PartType::Retry; }
     [[nodiscard]] bool is_compaction() const noexcept { return type == PartType::Compaction; }
+    [[nodiscard]] bool is_source() const noexcept { return type == PartType::Source; }
 
     // ===== Data accessors =====
 
@@ -141,6 +176,15 @@ struct TURBOT_CORE_API Part {
 
     /// Get file info (for FilePart)
     [[nodiscard]] nlohmann::json get_file() const;
+
+    /// Get image info (for ImagePart) (v2.0)
+    [[nodiscard]] nlohmann::json get_image() const;
+
+    /// Get error info (for ErrorPart) (v2.0)
+    [[nodiscard]] nlohmann::json get_error() const;
+
+    /// Get source info (for SourcePart) (v2.0)
+    [[nodiscard]] nlohmann::json get_source() const;
 
     /// Get subtask info (for SubtaskPart)
     [[nodiscard]] nlohmann::json get_subtask() const;

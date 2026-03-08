@@ -4,61 +4,76 @@
 #include <chrono>
 #include <sstream>
 #include <iomanip>
+#include <unordered_map>
 
 namespace turbot::core {
 
 // ===== PartType conversion =====
 
 std::string_view part_type_to_string(PartType type) noexcept {
-    switch (type) {
-        case PartType::Text:        return "text";
-        case PartType::Tool:        return "tool";
-        case PartType::Reasoning:   return "reasoning";
-        case PartType::File:        return "file";
-        case PartType::Subtask:     return "subtask";
-        case PartType::StepStart:   return "step_start";
-        case PartType::StepFinish:  return "step_finish";
-        case PartType::Snapshot:    return "snapshot";
-        case PartType::Patch:       return "patch";
-        case PartType::Agent:       return "agent";
-        case PartType::Retry:       return "retry";
-        case PartType::Compaction:  return "compaction";
-        default:                    return "text";
-    }
+    static const std::unordered_map<PartType, std::string_view> type_to_str = {
+        {PartType::Text, "text"},
+        {PartType::Tool, "tool"},
+        {PartType::Reasoning, "reasoning"},
+        {PartType::File, "file"},
+        {PartType::Image, "image"},
+        {PartType::Error, "error"},
+        {PartType::Subtask, "subtask"},
+        {PartType::StepStart, "step_start"},
+        {PartType::StepFinish, "step_finish"},
+        {PartType::Snapshot, "snapshot"},
+        {PartType::Patch, "patch"},
+        {PartType::Agent, "agent"},
+        {PartType::Retry, "retry"},
+        {PartType::Compaction, "compaction"},
+        {PartType::Source, "source"}
+    };
+    auto it = type_to_str.find(type);
+    return it != type_to_str.end() ? it->second : "text";
 }
 
 PartType part_type_from_string(std::string_view str) {
-    if (str == "text")        return PartType::Text;
-    if (str == "tool")        return PartType::Tool;
-    if (str == "reasoning")   return PartType::Reasoning;
-    if (str == "file")        return PartType::File;
-    if (str == "subtask")     return PartType::Subtask;
-    if (str == "step_start")  return PartType::StepStart;
-    if (str == "step_finish") return PartType::StepFinish;
-    if (str == "snapshot")    return PartType::Snapshot;
-    if (str == "patch")       return PartType::Patch;
-    if (str == "agent")       return PartType::Agent;
-    if (str == "retry")       return PartType::Retry;
-    if (str == "compaction")  return PartType::Compaction;
-    return PartType::Text;
+    static const std::unordered_map<std::string_view, PartType> str_to_type = {
+        {"text", PartType::Text},
+        {"tool", PartType::Tool},
+        {"reasoning", PartType::Reasoning},
+        {"file", PartType::File},
+        {"image", PartType::Image},
+        {"error", PartType::Error},
+        {"subtask", PartType::Subtask},
+        {"step_start", PartType::StepStart},
+        {"step_finish", PartType::StepFinish},
+        {"snapshot", PartType::Snapshot},
+        {"patch", PartType::Patch},
+        {"agent", PartType::Agent},
+        {"retry", PartType::Retry},
+        {"compaction", PartType::Compaction},
+        {"source", PartType::Source}
+    };
+    auto it = str_to_type.find(str);
+    return it != str_to_type.end() ? it->second : PartType::Text;
 }
 
 // ===== Role conversion =====
 
 std::string_view role_to_string(Role role) noexcept {
-    switch (role) {
-        case Role::User:      return "user";
-        case Role::Assistant: return "assistant";
-        case Role::System:    return "system";
-        default:              return "user";
-    }
+    static const std::unordered_map<Role, std::string_view> role_to_str = {
+        {Role::User, "user"},
+        {Role::Assistant, "assistant"},
+        {Role::System, "system"}
+    };
+    auto it = role_to_str.find(role);
+    return it != role_to_str.end() ? it->second : "user";
 }
 
 Role role_from_string(std::string_view str) {
-    if (str == "user")      return Role::User;
-    if (str == "assistant") return Role::Assistant;
-    if (str == "system")    return Role::System;
-    return Role::User;
+    static const std::unordered_map<std::string_view, Role> str_to_role = {
+        {"user", Role::User},
+        {"assistant", Role::Assistant},
+        {"system", Role::System}
+    };
+    auto it = str_to_role.find(str);
+    return it != str_to_role.end() ? it->second : Role::User;
 }
 
 // ===== Helper functions =====
@@ -133,6 +148,86 @@ Part Part::create_file(
     }
     if (mime_type) {
         part.data["mime_type"] = *mime_type;
+    }
+    part.time_created = part.time_updated = get_current_time_ms();
+    return part;
+}
+
+Part Part::create_image(
+    const std::string& url,
+    const std::optional<std::string>& alt_text,
+    const std::optional<std::string>& mime_type
+) {
+    Part part;
+    part.id = generate_part_id();
+    part.type = PartType::Image;
+    part.data = {{"url", url}};
+    if (alt_text) {
+        part.data["alt_text"] = *alt_text;
+    }
+    if (mime_type) {
+        part.data["mime_type"] = *mime_type;
+    }
+    part.time_created = part.time_updated = get_current_time_ms();
+    return part;
+}
+
+Part Part::create_image_base64(
+    const std::string& base64_data,
+    const std::string& mime_type,
+    const std::optional<std::string>& alt_text
+) {
+    Part part;
+    part.id = generate_part_id();
+    part.type = PartType::Image;
+    part.data = {
+        {"url", "data:" + mime_type + ";base64," + base64_data},
+        {"mime_type", mime_type}
+    };
+    if (alt_text) {
+        part.data["alt_text"] = *alt_text;
+    }
+    part.time_created = part.time_updated = get_current_time_ms();
+    return part;
+}
+
+Part Part::create_error(
+    const std::string& message,
+    const std::optional<std::string>& code,
+    const std::optional<nlohmann::json>& details
+) {
+    Part part;
+    part.id = generate_part_id();
+    part.type = PartType::Error;
+    part.data = {{"message", message}};
+    if (code) {
+        part.data["code"] = *code;
+    }
+    if (details) {
+        part.data["details"] = *details;
+    }
+    part.time_created = part.time_updated = get_current_time_ms();
+    return part;
+}
+
+Part Part::create_source(
+    const std::string& source_id,
+    const std::string& source_type,
+    const std::optional<std::string>& title,
+    const std::optional<std::string>& url
+) {
+    Part part;
+    part.id = generate_part_id();
+    part.type = PartType::Source;
+    part.data = {
+        {"source_id", source_id},
+        {"source_type", source_type}
+    };
+    if (title) {
+        part.data["title"] = *title;
+    }
+    if (url) {
+        part.data["url"] = *url;
     }
     part.time_created = part.time_updated = get_current_time_ms();
     return part;
@@ -281,6 +376,27 @@ std::string Part::get_reasoning() const {
 
 nlohmann::json Part::get_file() const {
     if (type == PartType::File) {
+        return data;
+    }
+    return nlohmann::json::object();
+}
+
+nlohmann::json Part::get_image() const {
+    if (type == PartType::Image) {
+        return data;
+    }
+    return nlohmann::json::object();
+}
+
+nlohmann::json Part::get_error() const {
+    if (type == PartType::Error) {
+        return data;
+    }
+    return nlohmann::json::object();
+}
+
+nlohmann::json Part::get_source() const {
+    if (type == PartType::Source) {
         return data;
     }
     return nlohmann::json::object();

@@ -46,6 +46,10 @@ set(CORE_SOURCES
     src/session/session_loop.cpp
     # LLM module (v2.0)
     src/llm/tool_schema.cpp
+    src/llm/message_builder.cpp
+    src/llm/stream_event.cpp
+    # Skill module (v2.0)
+    src/skill/skill.cpp
 )
 
 # Header files - organized by module
@@ -95,6 +99,10 @@ set(CORE_HEADERS
     include/turbot/core/session/session_loop.hpp
     # LLM module (v2.0)
     include/turbot/core/llm/tool_schema.hpp
+    include/turbot/core/llm/message_builder.hpp
+    include/turbot/core/llm/stream_event.hpp
+    # Skill module (v2.0)
+    include/turbot/core/skill/skill.hpp
 )
 
 # Create library

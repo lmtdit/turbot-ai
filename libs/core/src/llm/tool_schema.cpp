@@ -1,32 +1,43 @@
 #include <turbot/core/llm/tool_schema.hpp>
 #include <fmt/format.h>
 #include <algorithm>
+#include <unordered_map>
 
 namespace turbot::core::llm {
 
 // SchemaType conversion functions
 std::string schema_type_to_string(SchemaType type) {
-    switch (type) {
-        case SchemaType::String:  return "string";
-        case SchemaType::Number:  return "number";
-        case SchemaType::Integer: return "integer";
-        case SchemaType::Boolean: return "boolean";
-        case SchemaType::Object:  return "object";
-        case SchemaType::Array:   return "array";
-        case SchemaType::Null:    return "null";
+    static const std::unordered_map<SchemaType, std::string_view> type_to_str = {
+        {SchemaType::String, "string"},
+        {SchemaType::Number, "number"},
+        {SchemaType::Integer, "integer"},
+        {SchemaType::Boolean, "boolean"},
+        {SchemaType::Object, "object"},
+        {SchemaType::Array, "array"},
+        {SchemaType::Null, "null"}
+    };
+    auto it = type_to_str.find(type);
+    if (it != type_to_str.end()) {
+        return std::string(it->second);
     }
     throw std::invalid_argument(
         fmt::format("Invalid SchemaType value: {}", static_cast<int>(type)));
 }
 
 SchemaType string_to_schema_type(const std::string& str) {
-    if (str == "string")  return SchemaType::String;
-    if (str == "number")  return SchemaType::Number;
-    if (str == "integer") return SchemaType::Integer;
-    if (str == "boolean") return SchemaType::Boolean;
-    if (str == "object")  return SchemaType::Object;
-    if (str == "array")   return SchemaType::Array;
-    if (str == "null")    return SchemaType::Null;
+    static const std::unordered_map<std::string_view, SchemaType> str_to_type = {
+        {"string", SchemaType::String},
+        {"number", SchemaType::Number},
+        {"integer", SchemaType::Integer},
+        {"boolean", SchemaType::Boolean},
+        {"object", SchemaType::Object},
+        {"array", SchemaType::Array},
+        {"null", SchemaType::Null}
+    };
+    auto it = str_to_type.find(str);
+    if (it != str_to_type.end()) {
+        return it->second;
+    }
     throw std::invalid_argument(fmt::format("Invalid schema type: {}", str));
 }
 
@@ -413,6 +424,35 @@ nlohmann::json merge_schemas(
     return result;
 }
 
+std::string get_validation_error(
+    const nlohmann::json& value,
+    const ParameterSchema& schema
+);
+
+namespace {
+
+// Helper function to build detailed validation errors
+std::string build_validation_error(
+    const nlohmann::json& value,
+    const ParameterSchema& schema,
+    const std::string& reason
+) {
+    return fmt::format(
+        "Validation failed: {}. Expected type '{}', got '{}'. Value: {}",
+        reason,
+        schema_type_to_string(schema.type),
+        value.is_string() ? "string" :
+        value.is_number() ? "number" :
+        value.is_boolean() ? "boolean" :
+        value.is_object() ? "object" :
+        value.is_array() ? "array" :
+        value.is_null() ? "null" : "unknown",
+        value.dump().substr(0, 100)  // Limit output length
+    );
+}
+
+} // anonymous namespace
+
 bool validate_against_schema(
     const nlohmann::json& value,
     const ParameterSchema& schema
@@ -463,16 +503,14 @@ bool validate_against_schema(
             break;
     }
     
-    // Enum validation
+    // Enum validation - use unordered_set for O(1) lookup
     if (schema.enum_values) {
-        bool found = false;
         for (const auto& v : *schema.enum_values) {
             if (value == v) {
-                found = true;
-                break;
+                return true;  // Found in enum
             }
         }
-        if (!found) return false;
+        return false;  // Not found in enum values
     }
     
     // Range validation
@@ -501,11 +539,9 @@ std::string get_validation_error(
     const nlohmann::json& value,
     const ParameterSchema& schema
 ) {
+    // Type mismatch
     if (!validate_against_schema(value, schema)) {
-        return fmt::format(
-            "Value '{}' does not match schema type '{}'",
-            value.dump(), schema_type_to_string(schema.type)
-        );
+        return build_validation_error(value, schema, "Value does not match schema");
     }
     return "";
 }

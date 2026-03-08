@@ -277,6 +277,124 @@ TEST_CASE("Part::create_file_minimal", "[message][part]") {
     REQUIRE_FALSE(file_data.contains("content"));
 }
 
+// ============================================================================
+// Part v2.0 Extensions Tests
+// ============================================================================
+
+TEST_CASE("Part::create_image", "[message][part][v2]") {
+    auto part = Part::create_image("https://example.com/image.png", "A diagram", "image/png");
+    
+    REQUIRE(part.is_image());
+    auto image_data = part.get_image();
+    REQUIRE(image_data["url"] == "https://example.com/image.png");
+    REQUIRE(image_data["alt_text"] == "A diagram");
+    REQUIRE(image_data["mime_type"] == "image/png");
+}
+
+TEST_CASE("Part::create_image_minimal", "[message][part][v2]") {
+    auto part = Part::create_image("https://example.com/photo.jpg");
+    
+    REQUIRE(part.is_image());
+    REQUIRE_FALSE(part.is_file());
+    REQUIRE_FALSE(part.is_text());
+    auto image_data = part.get_image();
+    REQUIRE(image_data["url"] == "https://example.com/photo.jpg");
+    REQUIRE_FALSE(image_data.contains("alt_text"));
+}
+
+TEST_CASE("Part::create_image_base64", "[message][part][v2]") {
+    auto part = Part::create_image_base64("iVBORw0KGgo=", "image/png", "Base64 image");
+    
+    REQUIRE(part.is_image());
+    auto image_data = part.get_image();
+    REQUIRE(image_data["url"] == "data:image/png;base64,iVBORw0KGgo=");
+    REQUIRE(image_data["mime_type"] == "image/png");
+    REQUIRE(image_data["alt_text"] == "Base64 image");
+}
+
+TEST_CASE("Part::create_error", "[message][part][v2]") {
+    nlohmann::json details = {{"line", 42}, {"file", "test.cpp"}};
+    auto part = Part::create_error("Compilation failed", "COMPILE_ERROR", details);
+    
+    REQUIRE(part.is_error());
+    auto error_data = part.get_error();
+    REQUIRE(error_data["message"] == "Compilation failed");
+    REQUIRE(error_data["code"] == "COMPILE_ERROR");
+    REQUIRE(error_data["details"]["line"] == 42);
+}
+
+TEST_CASE("Part::create_error_minimal", "[message][part][v2]") {
+    auto part = Part::create_error("Something went wrong");
+    
+    REQUIRE(part.is_error());
+    REQUIRE_FALSE(part.is_text());
+    auto error_data = part.get_error();
+    REQUIRE(error_data["message"] == "Something went wrong");
+    REQUIRE_FALSE(error_data.contains("code"));
+    REQUIRE_FALSE(error_data.contains("details"));
+}
+
+TEST_CASE("Part::create_source", "[message][part][v2]") {
+    auto part = Part::create_source("src-123", "document", "API Documentation", "https://docs.example.com");
+    
+    REQUIRE(part.is_source());
+    auto source_data = part.get_source();
+    REQUIRE(source_data["source_id"] == "src-123");
+    REQUIRE(source_data["source_type"] == "document");
+    REQUIRE(source_data["title"] == "API Documentation");
+    REQUIRE(source_data["url"] == "https://docs.example.com");
+}
+
+TEST_CASE("Part::create_source_minimal", "[message][part][v2]") {
+    auto part = Part::create_source("src-456", "url");
+    
+    REQUIRE(part.is_source());
+    auto source_data = part.get_source();
+    REQUIRE(source_data["source_id"] == "src-456");
+    REQUIRE(source_data["source_type"] == "url");
+    REQUIRE_FALSE(source_data.contains("title"));
+    REQUIRE_FALSE(source_data.contains("url"));
+}
+
+TEST_CASE("PartType string conversion v2", "[message][part][v2]") {
+    REQUIRE(part_type_to_string(PartType::Image) == "image");
+    REQUIRE(part_type_to_string(PartType::Error) == "error");
+    REQUIRE(part_type_to_string(PartType::Source) == "source");
+    
+    REQUIRE(part_type_from_string("image") == PartType::Image);
+    REQUIRE(part_type_from_string("error") == PartType::Error);
+    REQUIRE(part_type_from_string("source") == PartType::Source);
+}
+
+TEST_CASE("Part serialization v2 types", "[message][part][v2]") {
+    SECTION("image part roundtrip") {
+        auto original = Part::create_image("https://example.com/img.png", "Test");
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_image());
+        REQUIRE(restored.get_image()["url"] == "https://example.com/img.png");
+    }
+    
+    SECTION("error part roundtrip") {
+        auto original = Part::create_error("Test error", "TEST_ERR");
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_error());
+        REQUIRE(restored.get_error()["message"] == "Test error");
+    }
+    
+    SECTION("source part roundtrip") {
+        auto original = Part::create_source("s1", "file", "Document");
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_source());
+        REQUIRE(restored.get_source()["source_id"] == "s1");
+    }
+}
+
 TEST_CASE("Part::create_subtask", "[message][part]") {
     auto part = Part::create_subtask("task-789", "code-agent", "running");
     
@@ -924,4 +1042,231 @@ TEST_CASE("current_timestamp_ms", "[message][util]") {
     
     REQUIRE(ts1 > 0);
     REQUIRE(ts2 >= ts1);  // Should be same or later
+}
+
+// ===== Additional A- level tests for Part system =====
+
+TEST_CASE("PartType O(1) string parsing", "[message][part][performance]") {
+    SECTION("all types parse correctly via hash map") {
+        REQUIRE(part_type_from_string("text") == PartType::Text);
+        REQUIRE(part_type_from_string("tool") == PartType::Tool);
+        REQUIRE(part_type_from_string("reasoning") == PartType::Reasoning);
+        REQUIRE(part_type_from_string("file") == PartType::File);
+        REQUIRE(part_type_from_string("image") == PartType::Image);
+        REQUIRE(part_type_from_string("error") == PartType::Error);
+        REQUIRE(part_type_from_string("source") == PartType::Source);
+        REQUIRE(part_type_from_string("subtask") == PartType::Subtask);
+        REQUIRE(part_type_from_string("step_start") == PartType::StepStart);
+        REQUIRE(part_type_from_string("step_finish") == PartType::StepFinish);
+        REQUIRE(part_type_from_string("snapshot") == PartType::Snapshot);
+        REQUIRE(part_type_from_string("patch") == PartType::Patch);
+        REQUIRE(part_type_from_string("agent") == PartType::Agent);
+        REQUIRE(part_type_from_string("retry") == PartType::Retry);
+        REQUIRE(part_type_from_string("compaction") == PartType::Compaction);
+    }
+
+    SECTION("unknown type defaults to text") {
+        REQUIRE(part_type_from_string("unknown_type") == PartType::Text);
+    }
+}
+
+TEST_CASE("PartType to_string consistency", "[message][part]") {
+    SECTION("round-trip conversion for all types") {
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::Text))) == PartType::Text);
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::Tool))) == PartType::Tool);
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::Reasoning))) == PartType::Reasoning);
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::File))) == PartType::File);
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::Image))) == PartType::Image);
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::Error))) == PartType::Error);
+        REQUIRE(part_type_from_string(std::string(part_type_to_string(PartType::Source))) == PartType::Source);
+    }
+}
+
+TEST_CASE("Role O(1) string parsing", "[message][role][performance]") {
+    SECTION("all roles parse correctly via hash map") {
+        REQUIRE(role_from_string("user") == Role::User);
+        REQUIRE(role_from_string("assistant") == Role::Assistant);
+        REQUIRE(role_from_string("system") == Role::System);
+    }
+
+    SECTION("unknown role defaults to user") {
+        REQUIRE(role_from_string("unknown_role") == Role::User);
+    }
+}
+
+TEST_CASE("Role to_string consistency", "[message][role]") {
+    SECTION("round-trip conversion") {
+        REQUIRE(role_from_string(std::string(role_to_string(Role::User))) == Role::User);
+        REQUIRE(role_from_string(std::string(role_to_string(Role::Assistant))) == Role::Assistant);
+        REQUIRE(role_from_string(std::string(role_to_string(Role::System))) == Role::System);
+    }
+}
+
+TEST_CASE("Part edge cases", "[message][part][edge]") {
+    SECTION("text part with empty content") {
+        auto part = Part::create_text("");
+        REQUIRE(part.is_text());
+        REQUIRE(part.get_text().empty());
+    }
+
+    SECTION("text part with special characters") {
+        auto part = Part::create_text("Special: \"quotes\" \\backslash\\ \n newline \t tab");
+        REQUIRE(part.get_text().find("quotes") != std::string::npos);
+        REQUIRE(part.get_text().find("newline") != std::string::npos);
+    }
+
+    SECTION("text part with unicode") {
+        auto part = Part::create_text("Unicode: 你好世界 🌍 مرحبا");
+        REQUIRE(part.get_text().find("你好世界") != std::string::npos);
+    }
+
+    SECTION("tool part with empty arguments") {
+        auto part = Part::create_tool("tool-1", "test", nlohmann::json::object());
+        REQUIRE(part.is_tool());
+        REQUIRE(part.get_tool()["arguments"].is_object());
+        REQUIRE(part.get_tool()["arguments"].empty());
+    }
+
+    SECTION("tool part with complex nested arguments") {
+        nlohmann::json complex_args = {
+            {"filter", {{"field", "name"}, {"value", "test"}}},
+            {"options", {{"case_sensitive", false}, {"limit", 10}}},
+            {"metadata", nlohmann::json::array({"tag1", "tag2"})}
+        };
+        auto part = Part::create_tool("tool-2", "complex_search", complex_args);
+        REQUIRE(part.is_tool());
+        REQUIRE(part.get_tool()["arguments"]["filter"]["field"] == "name");
+        REQUIRE(part.get_tool()["arguments"]["metadata"].size() == 2);
+    }
+
+    SECTION("error part with detailed information") {
+        nlohmann::json details = {
+            {"stack_trace", "at line 42 in test.cpp"},
+            {"context", {{"var1", "value1"}}}
+        };
+        auto part = Part::create_error("Critical failure", "ERR_001", details);
+        REQUIRE(part.is_error());
+        REQUIRE(part.get_error()["code"] == "ERR_001");
+        REQUIRE(part.get_error()["details"]["stack_trace"].is_string());
+    }
+
+    SECTION("image part with all optional fields") {
+        auto part = Part::create_image(
+            "https://example.com/image.png",
+            "A sample image",
+            "image/png"
+        );
+        REQUIRE(part.is_image());
+        REQUIRE(part.get_image()["alt_text"] == "A sample image");
+        REQUIRE(part.get_image()["mime_type"] == "image/png");
+    }
+
+    SECTION("source part with all optional fields") {
+        auto part = Part::create_source(
+            "src-001",
+            "document",
+            "API Reference",
+            "https://docs.example.com/api"
+        );
+        REQUIRE(part.is_source());
+        REQUIRE(part.get_source()["title"] == "API Reference");
+    }
+}
+
+TEST_CASE("Part serialization comprehensive", "[message][part][serialization]") {
+    SECTION("tool part with result roundtrip") {
+        nlohmann::json args = {{"x", 10}};
+        nlohmann::json result = {{"sum", 30}};
+        auto original = Part::create_tool("t1", "add", args, result);
+        
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_tool());
+        REQUIRE(restored.get_tool()["tool_id"] == "t1");
+        REQUIRE(restored.get_tool()["result"]["sum"] == 30);
+    }
+
+    SECTION("compaction part roundtrip") {
+        nlohmann::json summary = {
+            {"key_points", nlohmann::json::array({"point1", "point2"})},
+            {"action_items", nlohmann::json::array({"item1"})}
+        };
+        auto original = Part::create_compaction(50000, 5000, summary);
+        
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_compaction());
+        REQUIRE(restored.get_compaction()["original_tokens"] == 50000);
+        REQUIRE(restored.get_compaction()["summary"]["key_points"].size() == 2);
+    }
+
+    SECTION("agent part with model roundtrip") {
+        auto original = Part::create_agent("agent-001", "CodeGenerator", "gpt-4-turbo");
+        
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_agent());
+        REQUIRE(restored.get_agent()["agent_name"] == "CodeGenerator");
+        REQUIRE(restored.get_agent()["model"] == "gpt-4-turbo");
+    }
+
+    SECTION("step finish with result roundtrip") {
+        nlohmann::json result = {
+            {"files_modified", 5},
+            {"success", true}
+        };
+        auto original = Part::create_step_finish("step-1", "completed", result);
+        
+        auto json = original.to_json();
+        auto restored = Part::from_json(json);
+        
+        REQUIRE(restored.is_step_finish());
+        REQUIRE(restored.get_step()["status"] == "completed");
+        REQUIRE(restored.get_step()["result"]["files_modified"] == 5);
+    }
+}
+
+TEST_CASE("Part type checking comprehensive", "[message][part][type_check]") {
+    SECTION("all type checks return correct boolean") {
+        auto text = Part::create_text("text");
+        auto tool = Part::create_tool("id", "name", {});
+        auto reasoning = Part::create_reasoning("thought");
+        auto file = Part::create_file("/path");
+        auto image = Part::create_image("url");
+        auto error = Part::create_error("msg");
+        auto source = Part::create_source("id", "type");
+        auto subtask = Part::create_subtask("id", "agent", "status");
+        auto step_start = Part::create_step_start("id");
+        auto step_finish = Part::create_step_finish("id", "done");
+        auto snapshot = Part::create_snapshot({});
+        auto patch = Part::create_patch("/path", {});
+        auto agent = Part::create_agent("id", "name");
+        auto retry = Part::create_retry(1, "reason");
+        auto compaction = Part::create_compaction(100, 50, {});
+
+        REQUIRE(text.is_text());
+        REQUIRE_FALSE(text.is_tool());
+        REQUIRE_FALSE(text.is_reasoning());
+
+        REQUIRE(tool.is_tool());
+        REQUIRE_FALSE(tool.is_text());
+        REQUIRE_FALSE(tool.is_reasoning());
+
+        REQUIRE(reasoning.is_reasoning());
+        REQUIRE_FALSE(reasoning.is_text());
+
+        REQUIRE(image.is_image());
+        REQUIRE_FALSE(image.is_file());
+        REQUIRE_FALSE(image.is_source());
+
+        REQUIRE(error.is_error());
+        REQUIRE_FALSE(error.is_text());
+
+        REQUIRE(source.is_source());
+        REQUIRE_FALSE(source.is_image());
+        REQUIRE_FALSE(source.is_file());
+    }
 }

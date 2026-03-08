@@ -491,3 +491,116 @@ TEST_CASE("from_json error handling", "[core][llm][tool_schema][error]") {
         REQUIRE_FALSE(result.has_value());
     }
 }
+
+// ===== Additional A- level tests =====
+
+TEST_CASE("SchemaType O(1) string parsing", "[core][llm][tool_schema][performance]") {
+    SECTION("all types parse correctly via hash map") {
+        REQUIRE(string_to_schema_type("string") == SchemaType::String);
+        REQUIRE(string_to_schema_type("number") == SchemaType::Number);
+        REQUIRE(string_to_schema_type("integer") == SchemaType::Integer);
+        REQUIRE(string_to_schema_type("boolean") == SchemaType::Boolean);
+        REQUIRE(string_to_schema_type("object") == SchemaType::Object);
+        REQUIRE(string_to_schema_type("array") == SchemaType::Array);
+        REQUIRE(string_to_schema_type("null") == SchemaType::Null);
+    }
+
+    SECTION("invalid type throws with detailed message") {
+        try {
+            (void)string_to_schema_type("invalid_type");
+            FAIL("Should have thrown");
+        } catch (const std::invalid_argument& e) {
+            std::string msg = e.what();
+            REQUIRE(msg.find("invalid_type") != std::string::npos);
+        }
+    }
+}
+
+TEST_CASE("Enhanced validation error messages", "[core][llm][tool_schema][validation]") {
+    SECTION("type mismatch error includes expected and actual type") {
+        ParameterSchema schema;
+        schema.type = SchemaType::Integer;
+        
+        std::string error = schema_utils::get_validation_error("not_an_int", schema);
+        REQUIRE_FALSE(error.empty());
+        REQUIRE(error.find("integer") != std::string::npos);
+        REQUIRE(error.find("string") != std::string::npos);
+    }
+
+    SECTION("error message includes truncated value") {
+        ParameterSchema schema;
+        schema.type = SchemaType::Integer;
+        
+        std::string error = schema_utils::get_validation_error("test_value", schema);
+        REQUIRE(error.find("test_value") != std::string::npos);
+    }
+}
+
+TEST_CASE("ToolSchema round-trip serialization", "[core][llm][tool_schema][serialization]") {
+    SECTION("OpenAI format round-trip") {
+        ToolSchema original("complex_tool", "A complex tool with many parameters");
+        original.add_string_param("name", "Name parameter", true)
+                 .add_number_param("value", "Value with range", true, std::nullopt, 0.0, 100.0)
+                 .add_integer_param("count", "Count parameter", false, 10)
+                 .add_boolean_param("enabled", "Enable flag", false, true)
+                 .add_enum_param("status", "Status", {"active", "inactive"}, false);
+
+        nlohmann::json j = original.to_openai_tool();
+        ToolSchema restored = ToolSchema::from_json(j);
+
+        REQUIRE(restored.name() == "complex_tool");
+        REQUIRE(restored.parameters().size() == 5);
+        REQUIRE(restored.parameters().at("value").minimum == Catch::Approx(0.0));
+        REQUIRE(restored.parameters().at("value").maximum == Catch::Approx(100.0));
+        REQUIRE(restored.parameters().at("count").default_value == 10);
+        REQUIRE(restored.parameters().at("enabled").default_value == true);
+    }
+
+    SECTION("Anthropic format round-trip") {
+        ToolSchema original("anthropic_tool", "Anthropic format tool");
+        original.add_string_param("input", "Input text", true);
+
+        nlohmann::json j = original.to_anthropic_tool();
+        ToolSchema restored = ToolSchema::from_json(j);
+
+        REQUIRE(restored.name() == "anthropic_tool");
+        REQUIRE(restored.parameters().size() == 1);
+    }
+}
+
+TEST_CASE("Complex nested schema validation", "[core][llm][tool_schema][validation][nested]") {
+    SECTION("deeply nested object validation") {
+        auto deep_nested = std::make_shared<ParameterSchema>();
+        deep_nested->type = SchemaType::String;
+        
+        auto nested = std::make_shared<ParameterSchema>();
+        nested->type = SchemaType::Object;
+        nested->properties["deep_field"] = deep_nested;
+        
+        ParameterSchema schema;
+        schema.type = SchemaType::Object;
+        schema.properties["nested"] = nested;
+
+        REQUIRE(schema_utils::validate_against_schema(
+            nlohmann::json{{"nested", {{"deep_field", "value"}}}}, schema));
+        REQUIRE_FALSE(schema_utils::validate_against_schema(
+            nlohmann::json{{"nested", {{"deep_field", 123}}}}, schema));
+    }
+
+    SECTION("array of objects with required fields") {
+        auto item_schema = std::make_shared<ParameterSchema>();
+        item_schema->type = SchemaType::Object;
+        item_schema->properties["id"] = std::make_shared<ParameterSchema>();
+        item_schema->properties["id"]->type = SchemaType::Integer;
+        item_schema->properties["id"]->required = true;
+
+        ParameterSchema schema;
+        schema.type = SchemaType::Array;
+        schema.items = item_schema;
+
+        REQUIRE(schema_utils::validate_against_schema(
+            nlohmann::json::array({{{"id", 1}}, {{"id", 2}}}), schema));
+        REQUIRE_FALSE(schema_utils::validate_against_schema(
+            nlohmann::json::array({{{"name", "no_id"}}}), schema));
+    }
+}
