@@ -26,6 +26,23 @@ enum class TURBOT_CORE_API AgentMode {
 /// Convert string to AgentMode
 [[nodiscard]] TURBOT_CORE_API AgentMode string_to_agent_mode(const std::string& str);
 
+/// Model reference for an agent
+struct TURBOT_CORE_API ModelRef {
+    std::string model_id;      ///< Model identifier (e.g., "claude-3-opus")
+    std::string provider_id;   ///< Provider identifier (e.g., "anthropic")
+
+    /// Serialize to JSON
+    [[nodiscard]] nlohmann::json to_json() const;
+
+    /// Deserialize from JSON
+    static ModelRef from_json(const nlohmann::json& j);
+
+    /// Equality comparison
+    bool operator==(const ModelRef& other) const noexcept {
+        return model_id == other.model_id && provider_id == other.provider_id;
+    }
+};
+
 /// Agent information structure
 struct TURBOT_CORE_API AgentInfo {
     // === Basic fields (v1.0) ===
@@ -35,7 +52,7 @@ struct TURBOT_CORE_API AgentInfo {
     bool native = false;                   ///< Whether this is a native (built-in) agent
     bool hidden = false;                   ///< Whether this agent should be hidden from UI
     permission::Ruleset permission;        ///< Permission rules for this agent
-    std::optional<std::string> model_id;   ///< Preferred model ID
+    std::optional<ModelRef> model;         ///< Preferred model (model_id + provider_id)
     nlohmann::json options;                ///< Additional agent options (excluded from equality comparison)
 
     // === Extended fields (v2.0) ===
@@ -114,6 +131,36 @@ public:
     /// Get the agent info
     [[nodiscard]] const AgentInfo& info() const noexcept { return info_; }
 
+    // ===== Convenience accessors for common properties =====
+
+    /// Get the agent's system prompt (if configured)
+    [[nodiscard]] std::optional<std::string> prompt() const noexcept { return info_.prompt; }
+
+    /// Get the preferred model reference (if configured)
+    [[nodiscard]] std::optional<ModelRef> model() const noexcept { return info_.model; }
+
+    /// Get the preferred model ID (if configured)
+    [[nodiscard]] std::optional<std::string> model_id() const noexcept {
+        return info_.model.has_value() ? std::optional<std::string>(info_.model->model_id) : std::nullopt;
+    }
+
+    /// Get the preferred provider ID (if configured)
+    [[nodiscard]] std::optional<std::string> provider_id() const noexcept {
+        return info_.model.has_value() ? std::optional<std::string>(info_.model->provider_id) : std::nullopt;
+    }
+
+    /// Get the generation temperature (if configured)
+    [[nodiscard]] std::optional<double> temperature() const noexcept { return info_.temperature; }
+
+    /// Get the maximum execution steps (if configured)
+    [[nodiscard]] std::optional<int> steps() const noexcept { return info_.steps; }
+
+    /// Get the agent mode
+    [[nodiscard]] AgentMode mode() const noexcept { return info_.mode; }
+
+    /// Check if agent is hidden
+    [[nodiscard]] bool is_hidden() const noexcept { return info_.hidden; }
+
     /// Convert agent to tool definition format for LLM
     [[nodiscard]] nlohmann::json to_tool_definition() const;
 
@@ -160,9 +207,22 @@ public:
     /// @return Vector of agent pointers
     [[nodiscard]] std::vector<AgentPtr> list_by_mode(AgentMode mode) const;
 
+    /// List visible agents (non-hidden)
+    /// @return Vector of agent pointers
+    [[nodiscard]] std::vector<AgentPtr> list_visible() const;
+
+    /// List primary agents (mode == Primary and not hidden)
+    /// @return Vector of agent pointers
+    [[nodiscard]] std::vector<AgentPtr> list_primary() const;
+
     /// Get all agent names
     /// @return Vector of agent names
     [[nodiscard]] std::vector<std::string> names() const;
+
+    /// Get the default agent name
+    /// Returns the first visible primary agent, or "build" if available
+    /// @return Default agent name, or empty string if none found
+    [[nodiscard]] std::string default_agent() const;
 
     /// Clear all agents (mainly for testing)
     void clear();
@@ -186,5 +246,61 @@ private:
     // Internal unlocked version for use within locked methods
     [[nodiscard]] std::vector<AgentPtr> list_locked() const;
 };
+
+// ============================================================================
+// Agent Loader - Initialize and load agents
+// ============================================================================
+
+/// Agent loader - handles initialization and loading of agents
+namespace agent_loader {
+
+/// Initialize built-in agents (build, plan, explore, etc.)
+/// @return Number of agents initialized
+TURBOT_CORE_API size_t initialize_builtin_agents();
+
+/// Load agents from configuration
+/// @param config_json Configuration JSON with agent definitions
+/// @return Number of agents loaded
+TURBOT_CORE_API size_t load_from_config(const nlohmann::json& config_json);
+
+/// Reload all agents (clear and reinitialize)
+/// @return Number of agents loaded
+TURBOT_CORE_API size_t reload();
+
+} // namespace agent_loader
+
+// ============================================================================
+// Agent Generator - Generate new agent configurations
+// ============================================================================
+
+/// Agent generation result
+struct TURBOT_CORE_API AgentGenerateResult {
+    std::string identifier;      ///< Agent identifier/name
+    std::string when_to_use;     ///< Description of when to use this agent
+    std::string system_prompt;   ///< System prompt for the agent
+    
+    /// Convert to AgentInfo
+    [[nodiscard]] AgentInfo to_agent_info() const;
+    
+    /// Serialize to JSON
+    [[nodiscard]] nlohmann::json to_json() const;
+};
+
+/// Agent generator - creates new agent configurations using LLM
+namespace agent_generator {
+
+/// Parameters for agent generation
+struct GenerateParams {
+    std::string description;     ///< Description of what the agent should do
+    std::optional<ModelRef> model; ///< Optional model to use for generation
+};
+
+/// Generate a new agent configuration
+/// @param params Generation parameters
+/// @return Generated agent result
+/// @throws std::runtime_error if generation fails
+[[nodiscard]] TURBOT_CORE_API AgentGenerateResult generate(const GenerateParams& params);
+
+} // namespace agent_generator
 
 } // namespace turbot::core::agent

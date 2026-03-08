@@ -23,6 +23,9 @@ public:
     [[nodiscard]] ExecuteResult execute(const ExecuteParams& params) override {
         return ExecuteResult::ok("Test output for: " + params.prompt);
     }
+    
+    // Allow setting hidden for testing
+    void set_hidden(bool hidden) { info_.hidden = hidden; }
 };
 
 TEST_CASE("AgentMode conversion", "[core][agent][agent_mode]") {
@@ -51,7 +54,7 @@ TEST_CASE("AgentInfo serialization", "[core][agent][agent_info]") {
         info.mode = AgentMode::Primary;
         info.native = true;
         info.hidden = false;
-        info.model_id = "gpt-4";
+        info.model = ModelRef{"gpt-4", "openai"};
 
         nlohmann::json j = info.to_json();
         
@@ -60,7 +63,8 @@ TEST_CASE("AgentInfo serialization", "[core][agent][agent_info]") {
         REQUIRE(j["mode"] == "primary");
         REQUIRE(j["native"] == true);
         REQUIRE(j["hidden"] == false);
-        REQUIRE(j["model_id"] == "gpt-4");
+        REQUIRE(j["model"]["model_id"] == "gpt-4");
+        REQUIRE(j["model"]["provider_id"] == "openai");
     }
 
     SECTION("v2.0 extended fields serialization") {
@@ -379,7 +383,10 @@ TEST_CASE("AgentInfo deserialization validation", "[core][agent][agent_info][val
             {"mode", "subagent"},
             {"native", false},
             {"hidden", true},
-            {"model_id", "gpt-3.5"}
+            {"model", {
+                {"model_id", "gpt-3.5"},
+                {"provider_id", "openai"}
+            }}
         };
 
         AgentInfo info = AgentInfo::from_json(j);
@@ -389,7 +396,9 @@ TEST_CASE("AgentInfo deserialization validation", "[core][agent][agent_info][val
         REQUIRE(info.mode == AgentMode::Subagent);
         REQUIRE(info.native == false);
         REQUIRE(info.hidden == true);
-        REQUIRE(info.model_id == "gpt-3.5");
+        REQUIRE(info.model.has_value());
+        REQUIRE(info.model->model_id == "gpt-3.5");
+        REQUIRE(info.model->provider_id == "openai");
     }
 
     SECTION("round trip") {
@@ -642,4 +651,148 @@ TEST_CASE("ExploreAgent", "[core][agent][builtin][explore_agent]") {
         }
         REQUIRE(has_deny_all);
     }
+}
+
+// ============================================================================
+// Agent Registry Extended Tests (v2.0)
+// ============================================================================
+
+TEST_CASE("AgentRegistry::default_agent", "[core][agent][registry]") {
+    AgentRegistry::instance().clear();
+    
+    SECTION("empty registry returns empty string") {
+        REQUIRE(AgentRegistry::instance().default_agent().empty());
+    }
+    
+    SECTION("returns build agent when available") {
+        AgentRegistry::instance().register_agent(std::make_shared<BuildAgent>());
+        REQUIRE(AgentRegistry::instance().default_agent() == "build");
+    }
+    
+    SECTION("returns first visible primary agent") {
+        auto hidden_agent = std::make_shared<TestAgent>("hidden_agent");
+        hidden_agent->set_hidden(true);
+        AgentRegistry::instance().register_agent(hidden_agent);
+        
+        auto visible_agent = std::make_shared<TestAgent>("visible_agent");
+        AgentRegistry::instance().register_agent(visible_agent);
+        
+        REQUIRE(AgentRegistry::instance().default_agent() == "visible_agent");
+    }
+    
+    SECTION("skips subagent") {
+        auto subagent = std::make_shared<TestAgent>("sub_agent", AgentMode::Subagent);
+        AgentRegistry::instance().register_agent(subagent);
+        
+        auto primary = std::make_shared<TestAgent>("primary_agent");
+        AgentRegistry::instance().register_agent(primary);
+        
+        REQUIRE(AgentRegistry::instance().default_agent() == "primary_agent");
+    }
+    
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("AgentRegistry::list_visible", "[core][agent][registry]") {
+    AgentRegistry::instance().clear();
+    
+    auto visible1 = std::make_shared<TestAgent>("visible1");
+    auto visible2 = std::make_shared<TestAgent>("visible2");
+    auto hidden = std::make_shared<TestAgent>("hidden");
+    hidden->set_hidden(true);
+    
+    AgentRegistry::instance().register_agent(visible1);
+    AgentRegistry::instance().register_agent(visible2);
+    AgentRegistry::instance().register_agent(hidden);
+    
+    auto list = AgentRegistry::instance().list_visible();
+    REQUIRE(list.size() == 2);
+    
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("AgentRegistry::list_primary", "[core][agent][registry]") {
+    AgentRegistry::instance().clear();
+    
+    auto primary1 = std::make_shared<TestAgent>("primary1");
+    auto primary2 = std::make_shared<TestAgent>("primary2");
+    auto subagent = std::make_shared<TestAgent>("subagent", AgentMode::Subagent);
+    auto hidden_primary = std::make_shared<TestAgent>("hidden_primary");
+    hidden_primary->set_hidden(true);
+    
+    AgentRegistry::instance().register_agent(primary1);
+    AgentRegistry::instance().register_agent(primary2);
+    AgentRegistry::instance().register_agent(subagent);
+    AgentRegistry::instance().register_agent(hidden_primary);
+    
+    auto list = AgentRegistry::instance().list_primary();
+    REQUIRE(list.size() == 2);
+    
+    AgentRegistry::instance().clear();
+}
+
+// ============================================================================
+// Agent Loader Tests (v2.0)
+// ============================================================================
+
+TEST_CASE("agent_loader::initialize_builtin_agents", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+    
+    size_t count = agent_loader::initialize_builtin_agents();
+    
+    REQUIRE(count >= 3);  // At least build, plan, explore
+    REQUIRE(AgentRegistry::instance().has("build"));
+    REQUIRE(AgentRegistry::instance().has("plan"));
+    REQUIRE(AgentRegistry::instance().has("explore"));
+    
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::reload", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+    
+    // Add a custom agent
+    AgentRegistry::instance().register_agent(std::make_shared<TestAgent>("custom"));
+    REQUIRE(AgentRegistry::instance().size() == 1);
+    
+    // Reload should clear and reinitialize built-in agents
+    size_t count = agent_loader::reload();
+    REQUIRE(count >= 3);
+    REQUIRE_FALSE(AgentRegistry::instance().has("custom"));
+    REQUIRE(AgentRegistry::instance().has("build"));
+    
+    AgentRegistry::instance().clear();
+}
+
+// ============================================================================
+// Agent Generator Tests (v2.0)
+// ============================================================================
+
+TEST_CASE("agent_generator::generate", "[core][agent][generator]") {
+    agent_generator::GenerateParams params;
+    params.description = "Code review and optimization";
+    
+    auto result = agent_generator::generate(params);
+    
+    REQUIRE_FALSE(result.identifier.empty());
+    REQUIRE_FALSE(result.when_to_use.empty());
+    REQUIRE_FALSE(result.system_prompt.empty());
+    
+    // Check that identifier is slugified
+    REQUIRE(result.identifier.find(' ') == std::string::npos);
+}
+
+TEST_CASE("AgentGenerateResult::to_agent_info", "[core][agent][generator]") {
+    AgentGenerateResult result;
+    result.identifier = "test_agent";
+    result.when_to_use = "For testing purposes";
+    result.system_prompt = "You are a test agent.";
+    
+    auto info = result.to_agent_info();
+    
+    REQUIRE(info.name == "test_agent");
+    REQUIRE(info.description == "For testing purposes");
+    REQUIRE(info.prompt == "You are a test agent.");
+    REQUIRE(info.mode == AgentMode::Primary);
+    REQUIRE(info.native == false);
 }

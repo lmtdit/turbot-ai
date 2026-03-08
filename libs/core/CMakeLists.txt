@@ -38,6 +38,7 @@ set(CORE_SOURCES
     src/tool/builtin/task_tool.cpp
     # Agent module
     src/agent/agent.cpp
+    src/agent/agent_loader.cpp
     src/agent/builtin/build_agent.cpp
     src/agent/builtin/plan_agent.cpp
     src/agent/builtin/explore_agent.cpp

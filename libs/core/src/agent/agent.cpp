@@ -32,6 +32,21 @@ AgentMode string_to_agent_mode(const std::string& str) {
     throw std::invalid_argument(fmt::format("Invalid agent mode: {}", str));
 }
 
+// ModelRef implementation
+nlohmann::json ModelRef::to_json() const {
+    return nlohmann::json{
+        {"model_id", model_id},
+        {"provider_id", provider_id}
+    };
+}
+
+ModelRef ModelRef::from_json(const nlohmann::json& j) {
+    ModelRef ref;
+    ref.model_id = j.at("model_id").get<std::string>();
+    ref.provider_id = j.at("provider_id").get<std::string>();
+    return ref;
+}
+
 // AgentInfo validation
 bool AgentInfo::validate() const noexcept {
     // Validate temperature range
@@ -77,8 +92,8 @@ nlohmann::json AgentInfo::to_json() const {
     }
     j["permission"] = perm_array;
     
-    if (model_id) {
-        j["model_id"] = *model_id;
+    if (model) {
+        j["model"] = model->to_json();
     }
     if (options.is_object() && !options.empty()) {
         j["options"] = options;
@@ -134,8 +149,8 @@ AgentInfo AgentInfo::from_json(const nlohmann::json& j) {
         }
     }
     
-    if (j.contains("model_id") && !j["model_id"].is_null()) {
-        info.model_id = j["model_id"].get<std::string>();
+    if (j.contains("model") && j["model"].is_object()) {
+        info.model = ModelRef::from_json(j["model"]);
     }
     if (j.contains("options") && j["options"].is_object() && !j["options"].empty()) {
         info.options = j["options"];
@@ -189,7 +204,7 @@ bool AgentInfo::operator==(const AgentInfo& other) const noexcept {
            native == other.native &&
            hidden == other.hidden &&
            permission == other.permission &&
-           model_id == other.model_id;
+           model == other.model;
     
     // Extended fields (v2.0)
     bool extended_equal = prompt == other.prompt &&
@@ -293,6 +308,30 @@ std::vector<AgentPtr> AgentRegistry::list_by_mode(AgentMode mode) const {
     return result;
 }
 
+std::vector<AgentPtr> AgentRegistry::list_visible() const {
+    std::shared_lock lock(mutex_);
+    std::vector<AgentPtr> result;
+    result.reserve(agents_.size());
+    for (const auto& [name, agent] : agents_) {
+        if (!agent->is_hidden()) {
+            result.push_back(agent);
+        }
+    }
+    return result;
+}
+
+std::vector<AgentPtr> AgentRegistry::list_primary() const {
+    std::shared_lock lock(mutex_);
+    std::vector<AgentPtr> result;
+    result.reserve(agents_.size());
+    for (const auto& [name, agent] : agents_) {
+        if (agent->mode() == AgentMode::Primary && !agent->is_hidden()) {
+            result.push_back(agent);
+        }
+    }
+    return result;
+}
+
 std::vector<std::string> AgentRegistry::names() const {
     std::shared_lock lock(mutex_);
     std::vector<std::string> result;
@@ -301,6 +340,27 @@ std::vector<std::string> AgentRegistry::names() const {
         result.push_back(name);
     }
     return result;
+}
+
+std::string AgentRegistry::default_agent() const {
+    std::shared_lock lock(mutex_);
+    
+    // First, try to find "build" agent (the default)
+    if (agents_.count("build") > 0) {
+        auto build = agents_.at("build");
+        if (build && build->mode() == AgentMode::Primary && !build->is_hidden()) {
+            return "build";
+        }
+    }
+    
+    // Otherwise, find the first visible primary agent
+    for (const auto& [name, agent] : agents_) {
+        if (agent && agent->mode() == AgentMode::Primary && !agent->is_hidden()) {
+            return name;
+        }
+    }
+    
+    return "";  // No suitable default found
 }
 
 void AgentRegistry::clear() {

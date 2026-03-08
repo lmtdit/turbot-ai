@@ -5,6 +5,10 @@
 #include <turbot/core/agent/agent.hpp>
 #include <turbot/core/tool/tool.hpp>
 #include <turbot/core/message/message.hpp>
+#include <turbot/core/message/token_usage.hpp>
+#include <turbot/core/llm/stream_event.hpp>
+#include <turbot/core/llm/llm.hpp>
+#include <turbot/core/provider/provider.hpp>
 #include <atomic>
 #include <functional>
 #include <memory>
@@ -19,7 +23,8 @@ namespace turbot::core::session {
 enum class LoopResult {
     Continue,   ///< Continue the loop
     Stop,       ///< Stop the loop normally
-    Compact     ///< Need to compact history
+    Compact,    ///< Need to compact history
+    Error       ///< Error occurred
 };
 
 /// Convert LoopResult to string
@@ -31,13 +36,26 @@ struct TURBOT_CORE_API SessionLoopConfig {
     int max_tokens = 128000;            ///< Maximum tokens before compaction
     int compact_threshold = 100000;     ///< Token count threshold for compaction
     bool auto_compact = true;           ///< Automatically compact when threshold reached
+    int doom_loop_threshold = 3;        ///< Max consecutive identical tool calls
+};
+
+/// Step information for callbacks
+struct TURBOT_CORE_API StepInfo {
+    int step_number = 0;
+    std::string message_id;
+    TokenUsage tokens;
+    double cost = 0.0;
+    bool has_tool_calls = false;
+    std::vector<std::string> tool_names;
 };
 
 /// Callback types for the session loop
 using MessageCallback = std::function<void(const core::Message&)>;
-using ToolCallCallback = std::function<void(const std::string& tool_name, const nlohmann::json& input)>;
-using ToolResultCallback = std::function<void(const std::string& tool_name, const tool::ToolResult& result)>;
-using ErrorCallback = std::function<void(const std::string& error)>;
+using ToolCallCallback = std::function<void(const std::string& tool_name, const std::string& call_id, const nlohmann::json& input)>;
+using ToolResultCallback = std::function<void(const std::string& tool_name, const std::string& call_id, const tool::ToolResult& result)>;
+using ErrorCallback = std::function<void(const std::string& error, const std::string& code)>;
+using StreamEventCallback = std::function<void(const StreamEvent& event)>;
+using StepCallback = std::function<void(const StepInfo& info)>;
 
 /// Session loop - manages the main interaction loop for a session
 class TURBOT_CORE_API SessionLoop {
@@ -61,11 +79,19 @@ public:
     /// Set the agent to use
     void set_agent(std::shared_ptr<agent::Agent> agent);
 
+    /// Set the provider to use
+    void set_provider(provider::Provider* provider);
+
+    /// Set the model ID
+    void set_model(const std::string& model_id);
+
     /// Set callbacks
     void set_on_message(MessageCallback callback);
     void set_on_tool_call(ToolCallCallback callback);
     void set_on_tool_result(ToolResultCallback callback);
     void set_on_error(ErrorCallback callback);
+    void set_on_stream_event(StreamEventCallback callback);
+    void set_on_step(StepCallback callback);
 
     /// Run the loop with a user message
     /// @param user_message The user message to process
@@ -94,36 +120,72 @@ public:
     /// Get token count (estimated)
     [[nodiscard]] int token_count() const noexcept { return token_count_.load(std::memory_order_relaxed); }
 
+    /// Get current step number
+    [[nodiscard]] int step_number() const noexcept { return iteration_count_.load(std::memory_order_relaxed); }
+
+    /// Get total token usage
+    [[nodiscard]] TokenUsage total_usage() const noexcept { return total_usage_; }
+
+    /// Get total cost
+    [[nodiscard]] double total_cost() const noexcept { return total_cost_; }
+
 private:
     Session session_;
     std::shared_ptr<agent::Agent> agent_;
+    provider::Provider* provider_ = nullptr;
+    std::string model_id_;
     SessionLoopConfig config_;
-    
+
     std::vector<core::Message> messages_;
     mutable std::mutex messages_mutex_;
-    std::atomic<int>  token_count_{0};
-    std::atomic<int>  iteration_count_{0};
+    std::atomic<int> token_count_{0};
+    std::atomic<int> iteration_count_{0};
     std::atomic<bool> running_{false};
     std::atomic<bool> stop_requested_{false};
-    
+
     mutable std::shared_ptr<std::atomic<bool>> abort_flag_;
-    
+
+    // Token and cost tracking
+    TokenUsage total_usage_;
+    double total_cost_ = 0.0;
+
+    // Doom loop detection
+    std::string last_tool_call_;
+    int same_tool_count_ = 0;
+
     MessageCallback on_message_;
     ToolCallCallback on_tool_call_;
     ToolResultCallback on_tool_result_;
     ErrorCallback on_error_;
+    StreamEventCallback on_stream_event_;
+    StepCallback on_step_;
 
     /// Process a user message
     LoopResult process_user_message(const std::string& content);
 
-    /// Process a tool call
-    LoopResult process_tool_call(const std::string& tool_name, const nlohmann::json& input);
+    /// Process LLM response and handle tool calls
+    LoopResult process_llm_response();
+
+    /// Execute a tool call
+    tool::ToolResult execute_tool(const std::string& tool_name, const std::string& call_id, const nlohmann::json& input);
+
+    /// Check for doom loop (repeated identical tool calls)
+    [[nodiscard]] bool is_doom_loop(const std::string& tool_name, const nlohmann::json& input) const;
+
+    /// Update doom loop tracking
+    void update_doom_loop_tracking(const std::string& tool_name, const nlohmann::json& input);
 
     /// Check if compaction is needed
     [[nodiscard]] bool needs_compaction() const noexcept;
 
     /// Estimate token count for a string
     [[nodiscard]] static int estimate_tokens(const std::string& text) noexcept;
+
+    /// Build LLM messages from conversation history
+    [[nodiscard]] std::vector<turbot::core::llm::LLMMessage> build_llm_messages() const;
+
+    /// Build tool definitions
+    [[nodiscard]] std::vector<turbot::core::llm::LLMToolDefinition> build_tool_definitions() const;
 };
 
 } // namespace turbot::core::session

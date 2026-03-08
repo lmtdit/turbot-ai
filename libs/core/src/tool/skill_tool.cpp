@@ -48,14 +48,30 @@ bool SkillTool::is_skill_accessible(
     const std::string& skill_name,
     const permission::Ruleset& ruleset
 ) const {
-    // Check if there's a specific rule for this skill
-    // If no rule exists, default to allow
-    // If a rule exists with deny action, block access
+    // For skill access, we use a "default allow" policy:
+    // - If no rules match, allow access
+    // - Only deny if there's an explicit deny rule
 
-    // Use PermissionSystem to evaluate skill access
-    // Permission type is "skill", pattern is the skill name
-    auto action = permission::PermissionSystem::evaluate("skill", skill_name, ruleset);
-    return action != permission::PermissionAction::Deny;
+    // Check if there's any rule matching this skill
+    bool has_matching_rule = false;
+    permission::PermissionAction last_action = permission::PermissionAction::Allow;
+
+    for (const auto& rule : ruleset) {
+        // Check if this rule applies to skills
+        if (permission::PermissionSystem::wildcard_match(rule.permission, "skill") &&
+            permission::PermissionSystem::wildcard_match(rule.pattern, skill_name)) {
+            has_matching_rule = true;
+            last_action = rule.action;
+        }
+    }
+
+    // If no rules match, default to allow
+    // If rules match, use the last matching rule's action
+    if (!has_matching_rule) {
+        return true;
+    }
+
+    return last_action != permission::PermissionAction::Deny;
 }
 
 std::vector<Skill> SkillTool::get_accessible_skills(

@@ -75,11 +75,11 @@ int run_session(const std::string& session_id) {
         fmt::print("\n");
     });
     
-    loop.set_on_tool_call([](const std::string& tool_name, const nlohmann::json& /*input*/) {
+    loop.set_on_tool_call([](const std::string& tool_name, const std::string& /*call_id*/, const nlohmann::json& /*input*/) {
         fmt::print("[tool] {} called\n", tool_name);
     });
     
-    loop.set_on_tool_result([](const std::string& tool_name, const core::tool::ToolResult& result) {
+    loop.set_on_tool_result([](const std::string& tool_name, const std::string& /*call_id*/, const core::tool::ToolResult& result) {
         if (result.is_error) {
             fmt::print("[tool] {} error: {}\n", tool_name, result.output);
         } else {
@@ -87,8 +87,8 @@ int run_session(const std::string& session_id) {
         }
     });
     
-    loop.set_on_error([](const std::string& error) {
-        fmt::print(stderr, "[error] {}\n", error);
+    loop.set_on_error([](const std::string& error, const std::string& code) {
+        fmt::print(stderr, "[error] {} ({})\n", error, code);
     });
     
     // Interactive loop

@@ -158,9 +158,9 @@ TEST_CASE("SessionLoop callbacks can be set", "[core][session][session_loop]") {
     bool error_called = false;
     
     loop.set_on_message([&](const Message&) { message_called = true; });
-    loop.set_on_tool_call([&](const std::string&, const nlohmann::json&) { tool_call_called = true; });
-    loop.set_on_tool_result([&](const std::string&, const ToolResult&) { tool_result_called = true; });
-    loop.set_on_error([&](const std::string&) { error_called = true; });
+    loop.set_on_tool_call([&](const std::string&, const std::string&, const nlohmann::json&) { tool_call_called = true; });
+    loop.set_on_tool_result([&](const std::string&, const std::string&, const ToolResult&) { tool_result_called = true; });
+    loop.set_on_error([&](const std::string&, const std::string&) { error_called = true; });
     
     // Callbacks are set successfully if no exception
 }
@@ -310,12 +310,12 @@ TEST_CASE("SessionLoop::step without agent", "[core][session][session_loop]") {
     REQUIRE(session.has_value());
     
     SessionLoop loop(std::move(*session));
-    // No agent set
+    // No agent or provider set
     
     auto result = loop.step();
     
-    // Should continue (nothing to do)
-    REQUIRE((result == LoopResult::Continue || result == LoopResult::Stop));
+    // Should return error since no provider is configured
+    REQUIRE(result == LoopResult::Error);
 }
 
 TEST_CASE("SessionLoop token estimation", "[core][session][session_loop]") {

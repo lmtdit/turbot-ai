@@ -104,22 +104,22 @@ libs/core/
 │   │
 │   │ === v2.0 核心流程完善 ===
 │   │
-│   ├── prompt/              # Prompt生成系统 📋 v2.0
+│   ├── prompt/              # Prompt生成系统 ✓ v2.0
 │   │   ├── system_prompt.hpp    # 系统提示词
 │   │   ├── prompt_builder.hpp   # Prompt构建器
 │   │   └── message_builder.hpp  # 消息构建器
-│   ├── llm/                 # LLM调用层 📋 v2.0
+│   ├── llm/                 # LLM调用层 ✓ v2.0
 │   │   ├── stream_event.hpp     # 流式事件类型
-│   │   ├── llm_stream.hpp       # LLM流式调用
+│   │   ├── llm.hpp              # LLM流式调用
+│   │   ├── provider_adapter.hpp # Provider适配器
 │   │   └── tool_schema.hpp      # 工具Schema定义
-│   ├── session/             # 会话系统扩展 📋 v2.0
-│   │   ├── agent_loop.hpp       # Agent主循环
-│   │   ├── retry.hpp            # 错误重试
-│   │   ├── compaction.hpp       # 会话压缩
-│   │   └── doom_loop.hpp        # 死循环检测
-│   ├── skill/               # Skill系统 📋 v2.0
+│   ├── session/             # 会话系统扩展 ✓ v2.0
+│   │   ├── session_loop.hpp     # Agent主循环（含死循环检测）
+│   │   ├── usage_tracker.hpp    # Token使用追踪
+│   │   ├── retry.hpp            # 错误重试 📋
+│   │   └── compaction.hpp       # 会话压缩 📋
+│   ├── skill/               # Skill系统 ✓ v2.0
 │   │   ├── skill.hpp            # Skill管理器
-│   │   ├── discovery.hpp        # Skill发现
 │   │   └── skill_tool.hpp       # Skill工具
 │   │
 │   │ === v3.0 协议系统 ===
@@ -342,25 +342,22 @@ tests/
 │   ├── task_tool_test.cpp   ✓ task_tool模块测试 (1.8新增)
 │   └── session_loop_test.cpp ✓ session_loop模块测试 (1.8新增)
 │   │
-│   │ === v2.0 计划中 ===
+│   │ === v2.0 已实现 ===
 │   │
-│   ├── prompt/              📋 v2.0
-│   │   ├── system_prompt_test.cpp
-│   │   ├── prompt_builder_test.cpp
-│   │   └── message_builder_test.cpp
-│   ├── llm/                 📋 v2.0
-│   │   ├── stream_event_test.cpp
-│   │   ├── llm_stream_test.cpp
-│   │   └── tool_schema_test.cpp
-│   ├── session/             📋 v2.0
-│   │   ├── agent_loop_test.cpp
-│   │   ├── retry_test.cpp
-│   │   ├── compaction_test.cpp
-│   │   └── doom_loop_test.cpp
-│   └── skill/               📋 v2.0
-│       ├── skill_test.cpp
-│       ├── discovery_test.cpp
-│       └── skill_tool_test.cpp
+│   ├── system_prompt_test.cpp  ✓ system_prompt模块测试
+│   ├── prompt_builder_test.cpp  ✓ prompt_builder模块测试
+│   ├── message_builder_test.cpp ✓ message_builder模块测试
+│   ├── tool_schema_test.cpp     ✓ tool_schema模块测试
+│   ├── stream_event_test.cpp    ✓ stream_event模块测试
+│   ├── llm_test.cpp             ✓ llm模块测试
+│   ├── session_loop_test.cpp    ✓ session_loop模块测试
+│   ├── skill_test.cpp           ✓ skill模块测试
+│   ├── task_tool_test.cpp       ✓ task_tool模块测试
+│   │
+│   │ === v2.0 待实现 ===
+│   │
+│   ├── retry_test.cpp           📋 v2.0
+│   ├── compaction_test.cpp      📋 v2.0
 │   │
 │   │ === v3.0 计划中 ===
 │   │
@@ -486,97 +483,95 @@ Plan 1.8 - 多Agent协作 ✅ 完成
 └── apps/turbot-server/   # Server应用
 ```
 
-#### v2.0 核心流程完善 (📋 计划中)
+#### v2.0 核心流程完善 (✅ 大部分完成)
 
 ```
-Plan 2.1 - Agent字段补充 📋
+Plan 2.1 - Agent字段补充 ✅ 完成
 ├── libs/core/include/turbot/core/agent/agent.hpp
-│   └── 新增字段: prompt, temperature, top_p, steps, color
+│   ├── 新增字段: prompt, temperature, top_p, steps, color, variant
+│   ├── 新增 ModelRef 结构体 (model_id + provider_id)
+│   ├── 新增 AgentRegistry 方法: default_agent(), list_visible(), list_primary()
+│   └── 新增 agent_loader/agent_generator 命名空间
 └── tests/unit/agent_test.cpp
 
-Plan 2.2 - 系统提示词 📋
-├── libs/core/prompt/
-│   └── system_prompt.hpp  # 系统提示词生成
-└── tests/unit/prompt/
+Plan 2.2 - 系统提示词 ✅ 完成
+├── libs/core/include/turbot/core/llm/system_prompt.hpp
+└── tests/unit/system_prompt_test.cpp
 
-Plan 2.3 - 工具Schema 📋
-├── libs/core/llm/
-│   └── tool_schema.hpp    # 工具JSON Schema定义
-└── tests/unit/llm/
+Plan 2.3 - 工具Schema ✅ 完成
+├── libs/core/include/turbot/core/llm/tool_schema.hpp
+└── tests/unit/tool_schema_test.cpp
 
-Plan 2.4 - 消息构建器 📋
-├── libs/core/prompt/
-│   └── message_builder.hpp # 消息格式构建
-└── tests/unit/prompt/
+Plan 2.4 - 消息构建器 ✅ 完成
+├── libs/core/include/turbot/core/llm/message_builder.hpp
+└── tests/unit/message_builder_test.cpp
 
-Plan 2.5 - Prompt构建 📋
-├── libs/core/prompt/
-│   └── prompt_builder.hpp  # 完整Prompt组装
-└── tests/integration/
+Plan 2.5 - Prompt构建 ✅ 完成
+├── libs/core/include/turbot/core/llm/prompt_builder.hpp
+└── tests/unit/prompt_builder_test.cpp
 
-Plan 2.6 - 流式事件类型 📋
-├── libs/core/llm/
-│   └── stream_event.hpp    # StreamEvent类型定义
-└── tests/unit/llm/
+Plan 2.6 - 流式事件类型 ✅ 完成
+├── libs/core/include/turbot/core/llm/stream_event.hpp
+└── tests/unit/stream_event_test.cpp
 
-Plan 2.7 - LLM流式调用 📋
-├── libs/core/llm/
-│   └── llm_stream.hpp      # LLM流式调用接口
-└── tests/unit/llm/
+Plan 2.7 - LLM流式调用 ✅ 完成
+├── libs/core/include/turbot/core/llm/llm.hpp
+├── libs/core/include/turbot/core/llm/provider_adapter.hpp
+└── tests/unit/llm_test.cpp
 
-Plan 2.8 - Agent Loop 📋
-├── libs/core/session/
-│   └── agent_loop.hpp      # Agent主循环
-└── tests/integration/
+Plan 2.8 - Agent Loop ✅ 完成
+├── libs/core/include/turbot/core/session/session_loop.hpp
+│   ├── SessionLoop 主循环
+│   ├── StepInfo 步骤信息
+│   └── Doom Loop 检测（集成）
+└── tests/unit/session_loop_test.cpp
 
-Plan 2.9 - Part系统扩展 📋
-├── libs/core/message/
-│   └── part.hpp            # 扩展Part类型
-└── tests/unit/message/
+Plan 2.9 - Part系统扩展 ✅ 完成
+├── libs/core/include/turbot/core/message/part.hpp
+│   ├── ImagePart 图片附件
+│   ├── ErrorPart 错误信息
+│   └── SourcePart 源码引用
+└── tests/unit/message_test.cpp
 
-Plan 2.10 - Token统计 📋
-├── libs/core/message/
-│   └── token_usage.hpp     # 完善Token统计
-└── tests/unit/message/
+Plan 2.10 - Token统计 ✅ 完成
+├── libs/core/include/turbot/core/session/usage_tracker.hpp
+└── tests/unit/usage_tracker_test.cpp
 
-Plan 2.11 - 死循环检测 📋
-├── libs/core/session/
-│   └── doom_loop.hpp       # 死循环检测
-└── tests/unit/session/
+Plan 2.11 - 死循环检测 ✅ 完成（集成在 2.8）
+├── 集成在 SessionLoop 中
+│   └── doom_loop_threshold 配置项
+└── 无单独测试文件
 
-Plan 2.12 - 错误重试 📋
-├── libs/core/session/
-│   └── retry.hpp           # 错误重试机制
-└── tests/unit/session/
+Plan 2.12 - 错误重试 📋 待实现
+├── libs/core/session/retry.hpp
+└── tests/unit/retry_test.cpp
 
-Plan 2.13 - 会话压缩 📋
-├── libs/core/session/
-│   └── compaction.hpp      # 会话压缩
-└── tests/unit/session/
+Plan 2.13 - 会话压缩 📋 待实现
+├── libs/core/session/compaction.hpp
+└── tests/unit/compaction_test.cpp
 
-Plan 2.14 - Skill发现 📋
-├── libs/core/skill/
-│   ├── skill.hpp           # Skill管理器
-│   └── discovery.hpp       # Skill发现
-└── tests/unit/skill/
+Plan 2.14 - Skill发现 ✅ 完成
+├── libs/core/include/turbot/core/skill/skill.hpp
+└── tests/unit/skill_test.cpp
 
-Plan 2.15 - Skill工具 📋
-├── libs/core/skill/
-│   └── skill_tool.hpp      # Skill工具实现
-└── tests/unit/skill/
+Plan 2.15 - Skill工具 ✅ 完成
+├── libs/core/include/turbot/core/tool/skill_tool.hpp
+└── tests/unit/skill_tool_test.cpp
 
-Plan 2.16 - 内置Agent完善 📋
-├── libs/core/agent/builtin/
-│   ├── general_agent.hpp   # 通用Agent
-│   ├── compaction_agent.hpp
-│   ├── title_agent.hpp
-│   └── summary_agent.hpp
-└── tests/unit/agent/
+Plan 2.16 - 内置Agent完善 ✅ 完成
+├── libs/core/src/agent/builtin/
+│   ├── build_agent.cpp
+│   ├── plan_agent.cpp
+│   └── explore_agent.cpp
+└── tests/unit/agent_test.cpp
 
-Plan 2.17 - Agent动态加载 📋
-├── libs/core/agent/
-│   └── agent_loader.hpp    # Agent动态加载
-└── tests/unit/agent/
+Plan 2.17 - Agent动态加载 ✅ 完成
+├── libs/core/src/agent/agent_loader.cpp
+│   ├── agent_loader::initialize_builtin_agents()
+│   ├── agent_loader::load_from_config()
+│   ├── agent_loader::reload()
+│   └── agent_generator::generate()
+└── tests/unit/agent_test.cpp
 ```
 
 #### v3.0 协议系统开发 (📋 计划中)
@@ -857,15 +852,18 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 | apps/cli        | ✅ 完成 | 命令行应用：交互式会话、命令处理                                              |
 | apps/server     | ✅ 完成 | 服务器应用：HTTP API、会话管理                                                |
 
-### v2.0 核心流程完善 (📋 计划中)
+### v2.0 核心流程完善 (✅ 88% 完成)
 
-| 模块              | 状态      | 说明                                      | 计划编号              |
-| ----------------- | --------- | ----------------------------------------- | --------------------- |
-| core/prompt       | 📋 计划中 | 系统提示词、Prompt 构建器、消息构建器     | 2.2, 2.4, 2.5         |
-| core/llm          | 📋 计划中 | 流式事件、LLM 流式调用、工具 Schema       | 2.3, 2.6, 2.7         |
-| core/session 扩展 | 📋 计划中 | Agent Loop、重试、压缩、死循环检测        | 2.8, 2.11, 2.12, 2.13 |
-| core/skill        | 📋 计划中 | Skill 管理器、发现、工具                  | 2.14, 2.15            |
-| core/agent 扩展   | 📋 计划中 | Agent 字段补充、内置 Agent 完善、动态加载 | 2.1, 2.16, 2.17       |
+| 模块              | 状态      | 说明                                                     | 计划编号        |
+| ----------------- | --------- | -------------------------------------------------------- | --------------- |
+| core/llm          | ✅ 完成   | 流式事件、LLM 流式调用、Provider 适配器、工具 Schema     | 2.3, 2.6, 2.7   |
+| core/prompt       | ✅ 完成   | 系统提示词、Prompt 构建器、消息构建器（集成在 llm 目录） | 2.2, 2.4, 2.5   |
+| core/session 扩展 | ✅ 完成   | SessionLoop（含死循环检测）、UsageTracker                | 2.8, 2.10, 2.11 |
+| core/skill        | ✅ 完成   | Skill 管理器、Skill 工具                                 | 2.14, 2.15      |
+| core/agent 扩展   | ✅ 完成   | Agent 字段补充、内置 Agent 完善、动态加载、生成器        | 2.1, 2.16, 2.17 |
+| core/message 扩展 | ✅ 完成   | Part 系统扩展（Image/Error/Source）                      | 2.9             |
+| core/session 重试 | 📋 待实现 | 错误重试机制                                             | 2.12            |
+| core/session 压缩 | 📋 待实现 | 会话压缩                                                 | 2.13            |
 
 ### v3.0 协议系统开发 (📋 计划中)
 
