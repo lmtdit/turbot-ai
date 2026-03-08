@@ -169,3 +169,9 @@ install(TARGETS ${LIBRARY_NAME}
 install(DIRECTORY include/
     DESTINATION include
 )
+
+# Install prompt templates
+install(DIRECTORY prompts/
+    DESTINATION share/turbot/prompts
+    FILES_MATCHING PATTERN "*.md"
+)

@@ -1,9 +1,65 @@
 #include <turbot/core/llm/system_prompt.hpp>
 #include <turbot/utils/string_utils.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <sstream>
 #include <unordered_map>
+#include <fstream>
+#include <filesystem>
+#include <mutex>
 
 namespace turbot::core::llm {
+
+// ===== Prompt file loading =====
+
+namespace {
+
+std::filesystem::path get_prompts_dir() {
+    static std::filesystem::path prompts_dir = []() {
+        // Try environment variable first
+        if (const char* env_dir = std::getenv("TURBOT_PROMPTS_DIR")) {
+            return std::filesystem::path(env_dir);
+        }
+        // Default: relative to executable or current directory
+        return std::filesystem::current_path() / "prompts";
+    }();
+    return prompts_dir;
+}
+
+std::string load_prompt_file(const std::string& name) {
+    static std::unordered_map<std::string, std::string> cache;
+    static std::mutex cache_mutex;
+    
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    
+    auto it = cache.find(name);
+    if (it != cache.end()) {
+        return it->second;
+    }
+    
+    std::filesystem::path file_path = get_prompts_dir() / (name + ".md");
+    
+    std::ifstream file(file_path);
+    if (!file.is_open()) {
+        TURBOT_LOG_WARN("Prompt file not found: {}, using embedded fallback", file_path.string());
+        return "";
+    }
+    
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    std::string content = buffer.str();
+    
+    // Remove trailing newline if present
+    if (!content.empty() && content.back() == '\n') {
+        content.pop_back();
+    }
+    
+    cache[name] = content;
+    TURBOT_LOG_DEBUG("Loaded prompt file: {} ({} bytes)", file_path.string(), content.size());
+    
+    return content;
+}
+
+} // namespace
 
 // ===== Provider type detection =====
 
@@ -58,130 +114,67 @@ ProviderType get_provider_type(std::string_view provider_id) noexcept {
 // ===== Prompt templates =====
 
 std::string SystemPrompt::prompt_codex() {
-    return R"(You are Turbot, a powerful coding agent.
+    std::string content = load_prompt_file("codex");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
+    return R"(You are Turbot, the best coding agent on the planet.
 
-You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
+You are an interactive CLI tool that helps users with software engineering tasks.)";
+}
 
-## Editing constraints
-- Default to ASCII when editing or creating files. Only introduce non-ASCII or other Unicode characters when there is a clear justification and the file already uses them.
-- Only add comments if they are necessary to make a non-obvious block easier to understand.
-- Try to use apply_patch for single file edits, but it is fine to explore other options to make the edit if it does not work well.
+std::string SystemPrompt::prompt_beast() {
+    std::string content = load_prompt_file("beast");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
+    return R"(You are Turbot, an agent - please keep going until the user's query is completely resolved.
 
-## Tool usage
-- Prefer specialized tools over shell for file operations:
-  - Use Read to view files, Edit to modify files, and Write only when needed.
-  - Use Glob to find files by name and Grep to search file contents.
-- Use Bash for terminal operations (git, cmake, builds, tests, running scripts).
-- Run tool calls in parallel when neither call needs the other's output; otherwise run sequentially.
-
-## Git and workspace hygiene
-- You may be in a dirty git worktree.
-    * NEVER revert existing changes you did not make unless explicitly requested.
-    * If asked to make a commit or code edits and there are unrelated changes, don't revert those changes.
-    * If the changes are in files you've touched recently, read carefully and understand how you can work with the changes.
-- Do not amend commits unless explicitly requested.
-- **NEVER** use destructive commands like `git reset --hard` unless specifically requested.
-
-## Tone and style
-- Only use emojis if the user explicitly requests it.
-- Your output will be displayed on a command line interface. Keep responses short and concise.
-- Output text to communicate with the user; all text outside tool use is displayed to the user.
-- NEVER create files unless they're absolutely necessary. ALWAYS prefer editing an existing file.
-
-## Professional objectivity
-Prioritize technical accuracy and truthfulness over validating the user's beliefs. Focus on facts and problem-solving, providing direct, objective technical info without unnecessary superlatives.
-)";
+You MUST iterate and keep going until the problem is solved.)";
 }
 
 std::string SystemPrompt::prompt_anthropic() {
-    return R"(You are Turbot, a powerful coding agent.
+    std::string content = load_prompt_file("anthropic");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
+    return R"(You are Turbot, the best coding agent on the planet.
 
-You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to assist the user.
-
-IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping with programming.
-
-# Tone and style
-- Only use emojis if the user explicitly requests it. Avoid using emojis in all communication unless asked.
-- Your output will be displayed on a command line interface. Keep responses short and concise.
-- Output text to communicate with the user; all text you output outside of tool use is displayed to the user.
-- NEVER create files unless they're absolutely necessary. ALWAYS prefer editing an existing file.
-
-# Professional objectivity
-Prioritize technical accuracy and truthfulness over validating the user's beliefs. Focus on facts and problem-solving, providing direct, objective technical info without any unnecessary superlatives, praise, or emotional validation.
-
-# Task Management
-You have access to tools to help you manage and plan tasks. Use these tools VERY frequently to ensure that you are tracking your tasks and giving the user visibility into your progress.
-
-It is critical that you mark tasks as completed as soon as you are done with a task. Do not batch up multiple tasks before marking them as completed.
-
-# Tool usage policy
-- When doing file search, prefer to use specialized tools in order to reduce context usage.
-- You can call multiple tools in a single response. Make all independent calls in parallel.
-- Use specialized tools instead of bash commands when possible.
-)";
+You are an interactive CLI tool that helps users with software engineering tasks.)";
 }
 
 std::string SystemPrompt::prompt_openai() {
-    return R"(You are Turbot, a powerful coding agent - please keep going until the user's query is completely resolved, before ending your turn.
+    std::string content = load_prompt_file("openai");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
+    return R"(You are Turbot, a powerful coding agent - please keep going until the user's query is completely resolved.
 
-Your thinking should be thorough and so it's fine if it's very long. However, avoid unnecessary repetition and verbosity. You should be concise, but thorough.
-
-You MUST iterate and keep going until the problem is solved.
-
-You have everything you need to resolve this problem. Fully solve it autonomously before coming back to the user.
-
-Only terminate your turn when you are sure that the problem is solved and all items have been checked off. Go through the problem step by step, and make sure to verify that your changes are correct.
-
-# Workflow
-1. Understand the problem deeply. Carefully read the issue and think critically about what is required.
-2. Investigate the codebase. Explore relevant files, search for key functions, and gather context.
-3. Develop a clear, step-by-step plan. Break down the fix into manageable, incremental steps.
-4. Implement the fix incrementally. Make small, testable code changes.
-5. Debug as needed. Use debugging techniques to isolate and resolve issues.
-6. Test frequently. Run tests after each change to verify correctness.
-7. Iterate until the root cause is fixed and all tests pass.
-
-# Communication Guidelines
-Always communicate clearly and concisely in a casual, friendly yet professional tone.
-- Respond with clear, direct answers. Use bullet points and code blocks for structure.
-- Always write code directly to the correct files.
-- Do not display code to the user unless they specifically ask for it.
-)";
+You MUST iterate and keep going until the problem is solved.)";
 }
 
 std::string SystemPrompt::prompt_gemini() {
-    return R"(You are Turbot, a powerful coding agent.
+    std::string content = load_prompt_file("gemini");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
+    return R"(You are Turbot, an interactive CLI agent specializing in software engineering tasks.
 
-You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to assist the user.
+# Core Mandates
+- Follow existing project conventions.)";
+}
 
-## Tool usage
-- Prefer specialized tools over shell for file operations.
-- Use Bash for terminal operations (git, cmake, builds, tests).
-- Run tool calls in parallel when neither call needs the other's output.
+std::string SystemPrompt::prompt_qwen() {
+    std::string content = load_prompt_file("qwen");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
+    return R"(You are Turbot, an interactive CLI tool that helps users with software engineering tasks.
 
-## Tone and style
-- Only use emojis if the user explicitly requests it.
-- Keep responses short and concise.
-- NEVER create files unless they're absolutely necessary. ALWAYS prefer editing an existing file.
-
-## Professional objectivity
-Prioritize technical accuracy and truthfulness. Focus on facts and problem-solving.
-)";
+You should be concise, direct, and to the point.)";
 }
 
 std::string SystemPrompt::prompt_trinity() {
+    std::string content = load_prompt_file("trinity");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt
     return R"(You are Turbot, a powerful coding agent powered by Trinity.
 
-You are an interactive CLI tool that helps users with software engineering tasks. Use the instructions below and the tools available to assist the user.
-
-## Tone and style
-- Only use emojis if the user explicitly requests it.
-- Keep responses short and concise.
-- NEVER create files unless they're absolutely necessary. ALWAYS prefer editing an existing file.
-
-## Professional objectivity
-Prioritize technical accuracy and truthfulness. Focus on facts and problem-solving.
-)";
+You are an interactive CLI tool that helps users with software engineering tasks.)";
 }
 
 // ===== Core methods =====
@@ -202,11 +195,11 @@ std::string SystemPrompt::provider_prompt(
         return prompt_codex();
     }
     
-    // GPT and O1/O3 models use OpenAI-style prompt
+    // GPT and O1/O3 models use Beast-style prompt
     if (model_lower.contains("gpt-") ||
         model_lower.contains("o1") ||
         model_lower.contains("o3")) {
-        return prompt_openai();
+        return prompt_beast();
     }
     
     // Gemini models
@@ -224,11 +217,17 @@ std::string SystemPrompt::provider_prompt(
         return prompt_trinity();
     }
     
+    // Qwen models
+    if (model_lower.contains("qwen")) {
+        return prompt_qwen();
+    }
+    
     // Fall back to provider type
     ProviderType type = get_provider_type(provider_id);
     switch (type) {
         // OpenAI-style prompts (OpenAI compatible providers)
         case ProviderType::OpenAI:
+            return prompt_beast();  // OpenAI models use beast prompt
         case ProviderType::Azure:
         case ProviderType::OpenRouter:
         case ProviderType::Groq:
@@ -240,7 +239,7 @@ std::string SystemPrompt::provider_prompt(
         case ProviderType::XAI:
         case ProviderType::Perplexity:
         case ProviderType::Mistral:
-            return prompt_openai();
+            return prompt_beast();
         
         // Anthropic-style prompts
         case ProviderType::Anthropic:
@@ -251,16 +250,16 @@ std::string SystemPrompt::provider_prompt(
         case ProviderType::Gemini:
             return prompt_gemini();
         
-        // Cohere has its own style
+        // Cohere uses concise style
         case ProviderType::Cohere:
-            return prompt_openai();  // Cohere is largely OpenAI compatible
+            return prompt_qwen();
         
-        // Chinese providers - use OpenAI style (most are compatible)
+        // Chinese providers - use Qwen-style concise prompt
         case ProviderType::Bailian:
         case ProviderType::Zhipu:
         case ProviderType::Kimi:
         case ProviderType::Minimax:
-            return prompt_openai();
+            return prompt_qwen();
         
         // Legacy
         case ProviderType::Codex:
@@ -269,7 +268,7 @@ std::string SystemPrompt::provider_prompt(
             return prompt_trinity();
         
         default:
-            return prompt_anthropic();  // Default to Anthropic-style prompt
+            return prompt_qwen();  // Default to Qwen-style concise prompt
     }
 }
 

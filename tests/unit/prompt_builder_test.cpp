@@ -320,7 +320,7 @@ TEST_CASE("PromptBuilder::build different providers", "[llm][prompt_builder][pro
         params.model_id = "gemini-2.0-flash";
 
         auto result = builder.build(params);
-        REQUIRE(result.system.find("Tool usage") != std::string::npos);
+        REQUIRE(result.system.find("Core Mandates") != std::string::npos);
     }
 }
 

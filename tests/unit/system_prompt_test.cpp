@@ -97,7 +97,7 @@ TEST_CASE("SystemPrompt::prompt_gemini", "[llm][system_prompt][templates]") {
     
     REQUIRE_FALSE(prompt.empty());
     REQUIRE(prompt.find("Turbot") != std::string::npos);
-    REQUIRE(prompt.find("Tool usage") != std::string::npos);
+    REQUIRE(prompt.find("Core Mandates") != std::string::npos);
 }
 
 TEST_CASE("SystemPrompt::prompt_trinity", "[llm][system_prompt][templates]") {
@@ -146,7 +146,7 @@ TEST_CASE("SystemPrompt::provider_prompt by model", "[llm][system_prompt][provid
 
     SECTION("Gemini models use Gemini prompt") {
         auto prompt = SystemPrompt::provider_prompt("google", "gemini-2.0-flash");
-        REQUIRE(prompt.find("Tool usage") != std::string::npos);
+        REQUIRE(prompt.find("Core Mandates") != std::string::npos);
     }
 
     SECTION("Trinity models use Trinity prompt") {
@@ -173,12 +173,12 @@ TEST_CASE("SystemPrompt::provider_prompt by provider", "[llm][system_prompt][pro
 
     SECTION("Gemini provider") {
         auto prompt = SystemPrompt::provider_prompt("gemini", "unknown-model");
-        REQUIRE(prompt.find("Tool usage") != std::string::npos);
+        REQUIRE(prompt.find("Core Mandates") != std::string::npos);
     }
 
-    SECTION("Unknown provider defaults to Anthropic") {
+    SECTION("Unknown provider defaults to Qwen-style prompt") {
         auto prompt = SystemPrompt::provider_prompt("unknown", "unknown-model");
-        REQUIRE(prompt.find("Task Management") != std::string::npos);
+        REQUIRE(prompt.find("concise") != std::string::npos);
     }
 }
 

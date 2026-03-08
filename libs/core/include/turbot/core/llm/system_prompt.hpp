@@ -103,6 +103,12 @@ public:
 
     // ===== Provider-specific prompt templates =====
 
+    /// Get Codex-style prompt template (GPT-5)
+    [[nodiscard]] static std::string prompt_codex();
+
+    /// Get Beast-style prompt template (GPT-4/o1/o3)
+    [[nodiscard]] static std::string prompt_beast();
+
     /// Get Anthropic Claude prompt template
     [[nodiscard]] static std::string prompt_anthropic();
 
@@ -112,8 +118,8 @@ public:
     /// Get Gemini prompt template
     [[nodiscard]] static std::string prompt_gemini();
 
-    /// Get Codex-style prompt template
-    [[nodiscard]] static std::string prompt_codex();
+    /// Get Qwen-style prompt template (default for other models)
+    [[nodiscard]] static std::string prompt_qwen();
 
     /// Get Trinity prompt template
     [[nodiscard]] static std::string prompt_trinity();
