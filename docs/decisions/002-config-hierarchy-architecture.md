@@ -198,6 +198,105 @@ public:
 | Phase 2 | 扩展加载 (Agent/Skill/Rule 动态加载, 热重载)  | 📋 待实现 |
 | Phase 3 | 高级功能 (Event 定时任务, Extension 插件系统) | 📋 待实现 |
 
+## 配置文件示例
+
+### 项目级配置 (`.turbot/turbot.json`)
+
+```json
+{
+  "version": "1.0",
+  "turbot": {
+    "debug": false,
+    "log_level": "info"
+  },
+  "providers": [
+    {
+      "name": "bailian",
+      "type": "bailian",
+      "api_key": "${DASHSCOPE_API_KEY}",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "default_model": "qwen3-coder-plus",
+      "models": [
+        {
+          "id": "qwen3-coder-plus",
+          "name": "通义千问3-Coder-Plus",
+          "description": "通义千问3代码专用模型，编程能力最强",
+          "context_window": 131072,
+          "capabilities": {
+            "temperature": true,
+            "reasoning": false,
+            "tool_call": true,
+            "streaming": true,
+            "vision": false
+          }
+        }
+      ]
+    }
+  ],
+  "permissions": {
+    "mode": "ask",
+    "rules": [
+      { "pattern": "read_file:*", "action": "allow" },
+      { "pattern": "write_file:*", "action": "ask" },
+      { "pattern": "bash:rm*", "action": "deny" }
+    ]
+  },
+  "agents": {
+    "default": "build",
+    "enabled": ["build", "plan", "explore"]
+  },
+  "session": {
+    "max_history": 100,
+    "auto_save": true,
+    "timeout_seconds": 300,
+    "max_iterations": 50,
+    "compaction_threshold": 0.8
+  },
+  "tools": {
+    "enabled": [
+      "read_file",
+      "write_file",
+      "bash",
+      "search",
+      "grep",
+      "glob",
+      "list_dir"
+    ],
+    "disabled": []
+  }
+}
+```
+
+### 配置字段说明
+
+| 字段                        | 类型   | 说明                                          |
+| --------------------------- | ------ | --------------------------------------------- |
+| `providers`                 | Array  | Provider 配置数组                             |
+| `providers[].name`          | String | Provider 名称标识                             |
+| `providers[].type`          | String | Provider 类型 (bailian, openai, anthropic 等) |
+| `providers[].api_key`       | String | API 密钥，支持 `${ENV_VAR}` 环境变量引用      |
+| `providers[].base_url`      | String | API 基础 URL                                  |
+| `providers[].default_model` | String | 默认模型 ID                                   |
+| `providers[].models`        | Array  | 可用模型列表                                  |
+| `permissions`               | Object | 权限配置                                      |
+| `permissions.mode`          | String | 默认权限模式 (allow/deny/ask)                 |
+| `permissions.rules`         | Array  | 权限规则列表                                  |
+| `agents`                    | Object | Agent 配置                                    |
+| `session`                   | Object | 会话配置                                      |
+| `tools`                     | Object | 工具配置                                      |
+
+### 默认 Provider 配置
+
+项目默认使用阿里云百炼 (Bailian) Provider，模型配置：
+
+| 模型 ID            | 名称                  | 上下文窗口 | 特点                    |
+| ------------------ | --------------------- | ---------- | ----------------------- |
+| `qwen3-coder-plus` | 通义千问 3-Coder-Plus | 128K       | 代码专用，稳定版 (默认) |
+| `qwen3-coder-next` | 通义千问 3-Coder-Next | 128K       | 代码专用，预览版        |
+| `qwen3.5-plus`     | 通义千问 3.5-Plus     | 128K       | 性价比高                |
+| `qwen3-max`        | 通义千问 3-Max        | 32K        | 能力最强                |
+| `qwen3-vl-plus`    | 通义千问 3-VL-Plus    | 128K       | 视觉模型                |
+
 ## 核心接口
 
 ```cpp
