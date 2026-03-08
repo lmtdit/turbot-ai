@@ -10,6 +10,7 @@
 | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------- | ---------- |
 | [1.0-turbot-ai-multi-agent-architecture-implementation-plan.md](./1.0-turbot-ai-multi-agent-architecture-implementation-plan.md) | 多 Agent 架构总体实现方案 | 2026-03-08 |
 | [2.0-turbot-ai-follow-up-development-plan.md](./2.0-turbot-ai-follow-up-development-plan.md)                                     | 后续开发总览              | 2026-03-08 |
+| [3.0-protocol-systems-plan.md](./3.0-protocol-systems-plan.md)                                                                   | 协议系统开发计划          | 2026-03-08 |
 
 ### 2.x 分拆计划（独立可测试）
 
