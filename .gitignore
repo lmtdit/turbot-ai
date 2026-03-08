@@ -74,3 +74,4 @@ docs/latex/
 *.temp
 *.log
 .cache
+turbot.json
