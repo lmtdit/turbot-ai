@@ -35,9 +35,6 @@ public:
     [[nodiscard]] bool validate_input(const nlohmann::json& input) const override;
 
 private:
-    /// Check if file is binary
-    [[nodiscard]] static bool is_binary_file(const std::string& path, size_t file_size);
-
     /// Read directory contents
     [[nodiscard]] static ToolResult read_directory(
         const std::string& path,

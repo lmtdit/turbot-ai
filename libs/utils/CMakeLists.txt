@@ -44,14 +44,14 @@ turbot_configure_coverage(${LIBRARY_NAME})
 
 find_package(fmt REQUIRED)
 target_link_libraries(${LIBRARY_NAME}
-    PUBLIC
+    PRIVATE
         fmt::fmt
 )
 
 # OpenSSL for crypto utilities
 find_package(OpenSSL REQUIRED)
 target_link_libraries(${LIBRARY_NAME}
-    PUBLIC
+    PRIVATE
         OpenSSL::Crypto
         OpenSSL::SSL
 )

@@ -1,6 +1,7 @@
 #include <turbot/core/tool/builtin/write_file_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
 #include <turbot/utils/string_utils.hpp>
+#include "fs_tool_common.hpp"
 #include <fmt/format.h>
 #include <filesystem>
 #include <fstream>
@@ -101,6 +102,22 @@ ToolResult WriteFileTool::execute(const nlohmann::json& input, ToolContext& ctx)
         path = file_path.string();
     }
 
+    // Canonicalize path and enforce workspace boundary to prevent path traversal
+    // (e.g. "/workspace/../../etc/passwd" or symlinks escaping the workspace).
+    // Only canonicalize when a working directory is set; otherwise the raw path
+    // is used as-is (preserves /tmp symlinks and test expectations).
+    if (!ctx.working_directory.empty()) {
+        std::error_code ec;
+        auto canonical_path = fs::weakly_canonical(file_path, ec);
+        if (!ec) {
+            file_path = canonical_path;
+            path = file_path.string();
+        }
+    }
+    if (auto err = check_workspace_boundary(file_path, ctx.working_directory)) {
+        return ToolResult::error(path, *err);
+    }
+
     // Check permission
     const auto action = permission::PermissionSystem::evaluate("edit", path, ctx.ruleset);
 
@@ -109,15 +126,22 @@ ToolResult WriteFileTool::execute(const nlohmann::json& input, ToolContext& ctx)
     }
 
     // Read existing content for diff
+    // W-5: Skip reading the file if it's too large to avoid OOM before the
+    // MAX_DIFF_LINES guard in create_diff can kick in.
     std::string old_content;
     bool file_exists = fs::exists(path);
     
     if (file_exists) {
-        std::ifstream ifs(path);
-        if (ifs) {
-            std::ostringstream oss;
-            oss << ifs.rdbuf();
-            old_content = oss.str();
+        std::error_code size_ec;
+        auto sz = fs::file_size(path, size_ec);
+        constexpr uintmax_t MAX_DIFF_BYTES = 10 * 1024 * 1024;  // 10 MB
+        if (!size_ec && sz <= MAX_DIFF_BYTES) {
+            std::ifstream ifs(path);
+            if (ifs) {
+                std::ostringstream oss;
+                oss << ifs.rdbuf();
+                old_content = oss.str();
+            }
         }
     }
     

@@ -178,7 +178,7 @@ bool GlobTool::matches_glob(std::string_view path, std::string_view pattern) {
     regex_str = "^" + regex_str + "$";
     
     try {
-        std::regex re(regex_str, std::regex::ECMAScript | std::regex::icase);
+        std::regex re(regex_str, std::regex::ECMAScript);  // case-sensitive on case-sensitive filesystems
         return std::regex_match(path.begin(), path.end(), re);
     } catch (const std::regex_error&) {
         // If regex fails, try simple string matching
@@ -286,8 +286,25 @@ ToolResult GlobTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     }
     search_dir = search_path.string();
     
+    // Check workspace boundary (prevent path traversal attacks)
+    if (auto err = check_workspace_boundary(search_path, ctx.working_directory)) {
+        return ToolResult::error("Glob", *err);
+    }
+
+    // Evaluate permission rules (respects Deny rules in ruleset)
+    const auto perm_action = permission::PermissionSystem::evaluate(
+        "glob", search_dir, ctx.ruleset);
+    if (perm_action == permission::PermissionAction::Deny) {
+        return ToolResult::error("Glob",
+            fmt::format("Permission denied for globbing '{}'", search_dir));
+    }
+
     // Request permission
-    if (ctx.ask_permission) {
+    if (perm_action == permission::PermissionAction::Ask) {
+        if (!ctx.ask_permission) {
+            return ToolResult::error("Glob",
+                "Permission requires user confirmation but no callback is set");
+        }
         permission::PermissionRequest req;
         req.id = fmt::format("glob_{}", params.pattern);
         req.permission = "glob";

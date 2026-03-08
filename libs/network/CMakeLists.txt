@@ -37,10 +37,9 @@ turbot_configure_coverage(${LIBRARY_NAME})
 find_package(CURL REQUIRED)
 
 target_link_libraries(${LIBRARY_NAME}
-    PUBLIC
+    PRIVATE
         turbot::core
         turbot::utils
-    PRIVATE
         CURL::libcurl
 )
 

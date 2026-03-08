@@ -41,7 +41,7 @@ namespace turbot::utils::json {
  * @return 值，如果键不存在则返回nullopt
  */
 template<typename T>
-[[nodiscard]] TURBOT_UTILS_API std::optional<T> get_safe(const nlohmann::json& data, const std::string& key) {
+[[nodiscard]] std::optional<T> get_safe(const nlohmann::json& data, const std::string& key) {
     if (!data.contains(key)) {
         return std::nullopt;
     }

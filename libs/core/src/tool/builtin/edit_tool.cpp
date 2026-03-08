@@ -520,11 +520,11 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
             // Enforce workspace boundary: resolve symlinks and verify the
             // canonical path starts with the working directory.
             if (!ctx.working_directory.empty()) {
-                std::error_code canon_ec;
-                auto canonical = std::filesystem::weakly_canonical(file_path, canon_ec);
+                std::error_code canon_ec1, canon_ec2;
+                auto canonical = std::filesystem::weakly_canonical(file_path, canon_ec1);
                 auto root      = std::filesystem::weakly_canonical(
-                                     std::filesystem::path(ctx.working_directory), canon_ec);
-                if (!canon_ec) {
+                                     std::filesystem::path(ctx.working_directory), canon_ec2);
+                if (!canon_ec1 && !canon_ec2) {
                     std::string can_str  = canonical.string();
                     std::string root_str = root.string();
                     // Ensure the resolved path is strictly inside the workspace:
@@ -620,11 +620,11 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
 
     // Enforce workspace boundary for existing files
     if (!ctx.working_directory.empty()) {
-        std::error_code canon_ec;
-        auto canonical = std::filesystem::weakly_canonical(file_path, canon_ec);
+        std::error_code canon_ec1, canon_ec2;
+        auto canonical = std::filesystem::weakly_canonical(file_path, canon_ec1);
         auto root      = std::filesystem::weakly_canonical(
-                             std::filesystem::path(ctx.working_directory), canon_ec);
-        if (!canon_ec) {
+                             std::filesystem::path(ctx.working_directory), canon_ec2);
+        if (!canon_ec1 && !canon_ec2) {
             std::string can_str  = canonical.string();
             std::string root_str = root.string();
             bool is_inside =

@@ -8,6 +8,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -79,13 +80,16 @@ public:
     void stop();
 
     /// Check if the loop is running
-    [[nodiscard]] bool is_running() const noexcept { return running_.load(std::memory_order_relaxed); }
+    [[nodiscard]] bool is_running() const noexcept { return running_.load(std::memory_order_acquire); }
 
     /// Get the session
     [[nodiscard]] const Session& session() const noexcept { return session_; }
 
-    /// Get the messages
-    [[nodiscard]] const std::vector<core::Message>& messages() const noexcept { return messages_; }
+    /// Get the messages (thread-safe copy)
+    [[nodiscard]] std::vector<core::Message> messages() const {
+        std::lock_guard<std::mutex> lock(messages_mutex_);
+        return messages_;
+    }
 
     /// Get token count (estimated)
     [[nodiscard]] int token_count() const noexcept { return token_count_.load(std::memory_order_relaxed); }
@@ -96,6 +100,7 @@ private:
     SessionLoopConfig config_;
     
     std::vector<core::Message> messages_;
+    mutable std::mutex messages_mutex_;
     std::atomic<int>  token_count_{0};
     std::atomic<int>  iteration_count_{0};
     std::atomic<bool> running_{false};

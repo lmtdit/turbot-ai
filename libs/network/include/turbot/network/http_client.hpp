@@ -134,21 +134,17 @@ public:
 
     // === Async API ===
     
-    /// Async GET request
-    /// @warning This method captures 'this' pointer. The caller MUST ensure that
-    ///          the HttpClient object remains alive until the future completes.
-    ///          If HttpClient is destroyed before the future completes, undefined
-    ///          behavior will occur. For safer async usage, manage HttpClient via
-    ///          std::shared_ptr and use a wrapper that extends lifetime.
+    /// Async GET request.
+    /// Lifetime-safe: the internal Impl object is reference-counted (shared_ptr)
+    /// and stays alive until the returned future resolves, even if this HttpClient
+    /// instance is destroyed first.
     [[nodiscard]] std::future<HttpResponse> get_async(std::string_view url, 
                                                       const HttpHeaders& headers = {});
     
-    /// Async POST request
-    /// @warning This method captures 'this' pointer. The caller MUST ensure that
-    ///          the HttpClient object remains alive until the future completes.
-    ///          If HttpClient is destroyed before the future completes, undefined
-    ///          behavior will occur. For safer async usage, manage HttpClient via
-    ///          std::shared_ptr and use a wrapper that extends lifetime.
+    /// Async POST request.
+    /// Lifetime-safe: the internal Impl object is reference-counted (shared_ptr)
+    /// and stays alive until the returned future resolves, even if this HttpClient
+    /// instance is destroyed first.
     [[nodiscard]] std::future<HttpResponse> post_async(std::string_view url, 
                                                        std::string_view body,
                                                        const HttpHeaders& headers = {});

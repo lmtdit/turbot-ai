@@ -16,24 +16,6 @@ namespace {
 constexpr size_t DEFAULT_LIMIT = 100;
 constexpr size_t MAX_LINE_LENGTH = 2000;
 
-/// Check if file is binary by reading first few bytes
-bool is_binary_file(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return true;
-    
-    char buffer[8192];
-    file.read(buffer, sizeof(buffer));
-    std::streamsize bytes_read = file.gcount();
-    
-    for (std::streamsize i = 0; i < bytes_read; ++i) {
-        if (buffer[i] == '\0') {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
 /// Get file extension from path
 std::string get_extension(const std::string& filename) {
     size_t pos = filename.rfind('.');
@@ -262,6 +244,12 @@ std::vector<GrepMatch> GrepTool::search_files(
                     results.push_back(std::move(match));
                     
                     if (results.size() >= limit) {
+                        // Sort before returning truncated results to preserve
+                        // the documented "newest-first" ordering guarantee.
+                        std::sort(results.begin(), results.end(),
+                                  [](const GrepMatch& a, const GrepMatch& b) {
+                                      return a.mod_time > b.mod_time;
+                                  });
                         return results;
                     }
                 }
@@ -334,8 +322,25 @@ ToolResult GrepTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     }
     search_dir = search_path.string();
     
+    // Check workspace boundary (prevent path traversal attacks)
+    if (auto err = check_workspace_boundary(search_path, ctx.working_directory)) {
+        return ToolResult::error("Grep", *err);
+    }
+
+    // Evaluate permission rules (respects Deny rules in ruleset)
+    const auto perm_action = permission::PermissionSystem::evaluate(
+        "grep", search_dir, ctx.ruleset);
+    if (perm_action == permission::PermissionAction::Deny) {
+        return ToolResult::error("Grep",
+            fmt::format("Permission denied for searching '{}'", search_dir));
+    }
+
     // Request permission
-    if (ctx.ask_permission) {
+    if (perm_action == permission::PermissionAction::Ask) {
+        if (!ctx.ask_permission) {
+            return ToolResult::error("Grep",
+                "Permission requires user confirmation but no callback is set");
+        }
         permission::PermissionRequest req;
         req.id = fmt::format("grep_{}", params.pattern);
         req.permission = "grep";

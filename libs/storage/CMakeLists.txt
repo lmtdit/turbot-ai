@@ -45,13 +45,12 @@ find_package(SQLite3 REQUIRED)
 
 target_link_libraries(${LIBRARY_NAME}
     PUBLIC
-        fmt::fmt
-        spdlog::spdlog
         nlohmann_json::nlohmann_json
         SQLite::SQLite3
     PRIVATE
+        fmt::fmt
+        spdlog::spdlog
         turbot::utils
-        turbot::core
 )
 
 # Export macros

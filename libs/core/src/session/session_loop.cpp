@@ -66,7 +66,7 @@ void SessionLoop::set_on_error(ErrorCallback callback) {
 }
 
 LoopResult SessionLoop::run(const std::string& user_message) {
-    running_.store(true, std::memory_order_relaxed);
+    running_.store(true, std::memory_order_release);
     stop_requested_.store(false, std::memory_order_relaxed);
     abort_flag_->store(false, std::memory_order_relaxed);
     iteration_count_.store(0, std::memory_order_relaxed);
@@ -76,11 +76,11 @@ LoopResult SessionLoop::run(const std::string& user_message) {
     
     // Main loop
     while (result == LoopResult::Continue && 
-           !stop_requested_.load(std::memory_order_relaxed) && 
+           !stop_requested_.load(std::memory_order_acquire) && 
            iteration_count_.load(std::memory_order_relaxed) < config_.max_iterations) {
         
         // Check for abort
-        if (abort_flag_->load(std::memory_order_relaxed)) {
+        if (abort_flag_->load(std::memory_order_acquire)) {
             break;
         }
         
@@ -95,7 +95,7 @@ LoopResult SessionLoop::run(const std::string& user_message) {
         }
     }
     
-    running_.store(false, std::memory_order_relaxed);
+    running_.store(false, std::memory_order_release);
     return result;
 }
 
@@ -107,7 +107,7 @@ LoopResult SessionLoop::step() {
     // 3. Execute any tool calls
     // 4. Add results to messages
     
-    if (stop_requested_.load(std::memory_order_relaxed) || 
+    if (stop_requested_.load(std::memory_order_acquire) || 
         iteration_count_.load(std::memory_order_relaxed) >= config_.max_iterations) {
         return LoopResult::Stop;
     }
@@ -140,8 +140,8 @@ LoopResult SessionLoop::step() {
 }
 
 void SessionLoop::stop() {
-    stop_requested_.store(true, std::memory_order_relaxed);
-    abort_flag_->store(true, std::memory_order_relaxed);
+    stop_requested_.store(true, std::memory_order_release);
+    abort_flag_->store(true, std::memory_order_release);
 }
 
 LoopResult SessionLoop::process_user_message(const std::string& content) {
@@ -151,8 +151,11 @@ LoopResult SessionLoop::process_user_message(const std::string& content) {
     // Add text part using factory method
     user_msg.add_part(core::Part::create_text(content));
     
-    // Add to messages
-    messages_.push_back(user_msg);
+    // Add to messages (protected by mutex for thread safety)
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex_);
+        messages_.push_back(user_msg);
+    }
     
     // Update token count
     token_count_.fetch_add(estimate_tokens(content), std::memory_order_relaxed);

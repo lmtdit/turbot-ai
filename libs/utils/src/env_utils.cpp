@@ -1,5 +1,6 @@
 #include <turbot/utils/env_utils.hpp>
 #include <cstdlib>
+#include <optional>
 #include <regex>
 #include <cctype>
 #include <shared_mutex>
@@ -20,17 +21,34 @@ extern char** environ;
 
 namespace turbot::utils {
 
-#ifndef _WIN32
 // POSIX getenv/setenv/unsetenv are not thread-safe; protect with a shared mutex.
-// Readers (get_env, has_env) take a shared lock; writers (set_env, unset_env) take exclusive lock.
+// On Windows, GetEnvironmentVariableA is thread-safe for reads, but _putenv_s
+// modifies the CRT _environ array which is not thread-safe under concurrent access.
+// A single mutex covers all platforms.
 static std::shared_mutex s_env_mutex;
+
+// Atomically check-and-get an environment variable under a single shared lock.
+// Returns nullopt if the variable is not set, or the (possibly empty) value if set.
+static std::optional<std::string> try_get_env_locked(std::string_view name) {
+    std::string name_str(name);
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
+#ifdef _WIN32
+    DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
+    if (size == 0) return std::nullopt;
+    std::string result(size - 1, '\0');
+    GetEnvironmentVariableA(name_str.c_str(), result.data(), size);
+    return result;
+#else
+    const char* val = std::getenv(name_str.c_str());
+    return val ? std::optional<std::string>(val) : std::nullopt;
 #endif
+}
 
 std::string get_env(std::string_view name) {
     // string_view may not be null-terminated; convert to std::string first
     std::string name_str(name);
 #ifdef _WIN32
-    // Windows GetEnvironmentVariableA is internally thread-safe
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
     DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     if (size == 0) {
         return "";
@@ -51,6 +69,7 @@ std::string get_env_or(std::string_view name, std::string_view default_value) {
     // Single lock acquisition to avoid TOCTOU: check and read in one critical section.
     std::string name_str(name);
 #ifdef _WIN32
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
     DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     if (size == 0) return std::string(default_value);
     std::string result(size - 1, '\0');
@@ -67,6 +86,7 @@ void set_env(std::string_view name, std::string_view value) {
     std::string name_str(name);
     std::string value_str(value);
 #ifdef _WIN32
+    std::unique_lock<std::shared_mutex> lock(s_env_mutex);
     _putenv_s(name_str.c_str(), value_str.c_str());
 #else
     std::unique_lock<std::shared_mutex> lock(s_env_mutex);
@@ -78,6 +98,7 @@ void unset_env(std::string_view name) {
     std::string name_str(name);
 #ifdef _WIN32
     // _putenv_s("") only sets the variable to empty; use SetEnvironmentVariableA(nullptr) to truly delete
+    std::unique_lock<std::shared_mutex> lock(s_env_mutex);
     SetEnvironmentVariableA(name_str.c_str(), nullptr);
 #else
     std::unique_lock<std::shared_mutex> lock(s_env_mutex);
@@ -88,6 +109,7 @@ void unset_env(std::string_view name) {
 bool has_env(std::string_view name) {
     std::string name_str(name);
 #ifdef _WIN32
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
     DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     return size != 0;
 #else
@@ -136,10 +158,10 @@ std::string resolve_env_refs(std::string_view value) {
         std::string var_name = match[1].str();
         std::string default_value = match[2].matched ? match[2].str() : "";
 
-        std::string env_value = get_env(var_name);
-        if (env_value.empty()) {
-            env_value = default_value;
-        }
+        // Single-lock check+read to avoid TOCTOU: has_env + get_env would acquire
+        // two separate locks, allowing a concurrent unset_env in between.
+        auto env_val = try_get_env_locked(var_name);
+        std::string env_value = env_val.has_value() ? *env_val : default_value;
 
         result = result.substr(0, match.position()) + env_value +
                  result.substr(match.position() + match.length());

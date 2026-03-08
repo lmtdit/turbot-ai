@@ -70,14 +70,6 @@ private:
     /// Create the migrations tracking table
     void create_migration_table();
 
-    /// Record a migration as executed
-    /// @param migration Migration to record
-    void record_migration(const Migration& migration);
-
-    /// Remove a migration record
-    /// @param name Migration name to remove
-    void remove_migration(const std::string& name);
-
     /// Ensure migrations are sorted by version (lazy sort)
     void ensure_sorted();
 

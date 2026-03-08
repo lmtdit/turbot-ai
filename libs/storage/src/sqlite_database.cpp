@@ -1,5 +1,5 @@
 #include <turbot/storage/sqlite_database.hpp>
-#include <turbot/core/common/logger.hpp>
+#include <spdlog/spdlog.h>
 
 #include <chrono>
 #include <cstring>
@@ -39,7 +39,12 @@ void bind_json_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value)
     } else if (value.is_number_integer()) {
         sqlite3_bind_int64(stmt, index, value.get<int64_t>());
     } else if (value.is_number_unsigned()) {
-        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(value.get<uint64_t>()));
+        auto uval = value.get<uint64_t>();
+        if (uval > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+            throw std::runtime_error(
+                "Unsigned value " + std::to_string(uval) + " exceeds SQLite int64 range");
+        }
+        sqlite3_bind_int64(stmt, index, static_cast<int64_t>(uval));
     } else if (value.is_number_float()) {
         sqlite3_bind_double(stmt, index, value.get<double>());
     } else if (value.is_boolean()) {
@@ -133,7 +138,7 @@ SQLiteDatabase::SQLiteDatabase(const DatabaseConfig& config)
     setup_pragmas();
     ensure_migrations_table();
 
-    TURBOT_LOG_INFO("Opened SQLite database: {}", config.path);
+    spdlog::info("Opened SQLite database: {}", config.path);
 }
 
 SQLiteDatabase::~SQLiteDatabase() {
@@ -303,7 +308,7 @@ void SQLiteDatabase::migrate(const std::string& name, const std::string& sql, in
             {nlohmann::json(name)});
 
         if (existing.has_value()) {
-            TURBOT_LOG_DEBUG("Migration '{}' already applied", name);
+            spdlog::debug("Migration '{}' already applied", name);
             tx->rollback();  // Release transaction
             return;
         }
@@ -312,6 +317,9 @@ void SQLiteDatabase::migrate(const std::string& name, const std::string& sql, in
         // by iterating through all statements using sqlite3_prepare_v2 pzTail
         {
             std::lock_guard<std::mutex> lock(*mutex_);
+            if (!db_) {
+                throw std::runtime_error("Database was closed during migration execution");
+            }
             const char* remaining = sql.c_str();
             while (remaining && *remaining) {
                 sqlite3_stmt* raw_stmt = nullptr;
@@ -346,7 +354,7 @@ void SQLiteDatabase::migrate(const std::string& name, const std::string& sql, in
 
         // Commit transaction - atomic commit of both operations
         tx->commit();
-        TURBOT_LOG_INFO("Applied migration: {} (v{})", name, version);
+        spdlog::info("Applied migration: {} (v{})", name, version);
     } catch (...) {
         // Transaction will auto-rollback in destructor if not committed
         throw;
@@ -371,7 +379,7 @@ void SQLiteDatabase::close() {
         if (alive_flag_) alive_flag_->store(false);
         sqlite3_close_v2(db_);
         db_ = nullptr;
-        TURBOT_LOG_INFO("Closed SQLite database: {}", config_.path);
+        spdlog::info("Closed SQLite database: {}", config_.path);
     }
 }
 
@@ -431,7 +439,7 @@ void SQLiteTransaction::commit() {
     }
 
     active_.store(false);
-    TURBOT_LOG_DEBUG("Transaction committed");
+    spdlog::debug("Transaction committed");
 }
 
 void SQLiteTransaction::rollback() {
@@ -457,7 +465,7 @@ void SQLiteTransaction::rollback() {
     }
 
     active_.store(false);
-    TURBOT_LOG_DEBUG("Transaction rolled back");
+    spdlog::debug("Transaction rolled back");
 }
 
 void SQLiteTransaction::bind_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {

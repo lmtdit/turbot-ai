@@ -204,8 +204,25 @@ ToolResult ListTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     }
     dir_path = abs_path.string();
     
+    // Check workspace boundary (prevent path traversal attacks)
+    if (auto err = check_workspace_boundary(abs_path, ctx.working_directory)) {
+        return ToolResult::error("List", *err);
+    }
+
+    // Evaluate permission rules (respects Deny rules in ruleset)
+    const auto perm_action = permission::PermissionSystem::evaluate(
+        "list", dir_path, ctx.ruleset);
+    if (perm_action == permission::PermissionAction::Deny) {
+        return ToolResult::error("List",
+            fmt::format("Permission denied for listing '{}'", dir_path));
+    }
+
     // Request permission
-    if (ctx.ask_permission) {
+    if (perm_action == permission::PermissionAction::Ask) {
+        if (!ctx.ask_permission) {
+            return ToolResult::error("List",
+                "Permission requires user confirmation but no callback is set");
+        }
         permission::PermissionRequest req;
         req.id = fmt::format("list_{}", dir_path);
         req.permission = "list";
@@ -269,7 +286,9 @@ ToolResult ListTool::execute(const nlohmann::json& input, ToolContext& ctx) {
             for (const auto& [d, _] : files_by_dir) {
                 if (d != dir_path && d.find(dir_path) == 0) {
                     std::string rest = d.substr(dir_path.size());
-                    if (!rest.empty() && rest[0] == '/') rest = rest.substr(1);
+                    // Require a '/' boundary: "src-test" must NOT match as child of "src"
+                    if (rest.empty() || rest[0] != '/') continue;
+                    rest = rest.substr(1);  // strip the leading '/'
                     if (rest.find('/') == std::string::npos) {
                         subdirs.push_back(d);
                     }

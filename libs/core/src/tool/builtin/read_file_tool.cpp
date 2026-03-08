@@ -1,5 +1,6 @@
 #include <turbot/core/tool/builtin/read_file_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include "fs_tool_common.hpp"
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <filesystem>
@@ -17,34 +18,20 @@ namespace {
 constexpr int DEFAULT_READ_LIMIT = 2000;
 constexpr int MAX_LINE_LENGTH = 2000;
 constexpr size_t MAX_BYTES = 50 * 1024;  // 50 KB
-constexpr double BINARY_THRESHOLD = 0.3;  // 30% non-printable chars = binary
 
-/// Get file extension lowercase
-std::string get_extension_lower(const std::string& path) {
-    fs::path p(path);
-    std::string ext = p.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-    return ext;
-}
+// Image extensions for special-cased display (return image metadata instead of raw bytes)
+static const std::vector<std::string> image_exts = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp"
+};
 
-/// Check if extension indicates a binary file
-bool is_binary_extension(const std::string& ext_lower) {
-    static const std::vector<std::string> binary_exts = {
-        ".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".class", ".jar",
-        ".war", ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-        ".odt", ".ods", ".odp", ".bin", ".dat", ".obj", ".o", ".a",
-        ".lib", ".wasm", ".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif",
-        ".ico", ".pdf", ".mp3", ".mp4", ".avi", ".mov", ".wav"
-    };
-    return std::find(binary_exts.begin(), binary_exts.end(), ext_lower) != binary_exts.end();
-}
-
-/// Check if extension indicates an image file
-bool is_image_extension(const std::string& ext_lower) {
-    static const std::vector<std::string> image_exts = {
-        ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp"
-    };
-    return std::find(image_exts.begin(), image_exts.end(), ext_lower) != image_exts.end();
+[[nodiscard]] inline bool is_image_extension(const fs::path& path) noexcept {
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    for (const auto& e : image_exts) {
+        if (ext == e) return true;
+    }
+    return false;
 }
 
 } // anonymous namespace
@@ -112,47 +99,6 @@ bool ReadFileTool::validate_input(const nlohmann::json& input) const {
            !input["filePath"].get<std::string>().empty();
 }
 
-bool ReadFileTool::is_binary_file(const std::string& path, size_t file_size) {
-    std::string ext = get_extension_lower(path);
-    
-    // Check extension first
-    if (is_binary_extension(ext)) {
-        return true;
-    }
-    
-    if (file_size == 0) {
-        return false;
-    }
-    
-    // Sample first 4096 bytes
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return true;
-    
-    constexpr size_t sample_size = 4096;
-    std::vector<char> buffer(std::min(sample_size, file_size));
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    size_t bytes_read = static_cast<size_t>(file.gcount());
-    
-    // Check for null bytes
-    for (size_t i = 0; i < bytes_read; ++i) {
-        if (buffer[i] == '\0') {
-            return true;
-        }
-    }
-    
-    // Count non-printable characters
-    int non_printable = 0;
-    for (size_t i = 0; i < bytes_read; ++i) {
-        unsigned char c = static_cast<unsigned char>(buffer[i]);
-        if (c < 9 || (c > 13 && c < 32)) {
-            non_printable++;
-        }
-    }
-    
-    // If >30% non-printable, consider it binary
-    return static_cast<double>(non_printable) / bytes_read > BINARY_THRESHOLD;
-}
-
 ToolResult ReadFileTool::read_directory(
     const std::string& path,
     int offset,
@@ -215,14 +161,10 @@ ToolResult ReadFileTool::read_file(
 ) {
     std::error_code ec;
     
-    // Check file size
-    auto file_size = fs::file_size(path, ec);
-    if (ec) file_size = 0;
-    
-    // Check if binary
-    if (is_binary_file(path, file_size)) {
-        std::string ext = get_extension_lower(path);
-        if (is_image_extension(ext)) {
+    // Check if binary — delegate to the unified implementation in fs_tool_common.hpp
+    // to ensure consistent behaviour with grep_tool (C-1: eliminate local fork).
+    if (is_binary_file(fs::path(path))) {
+        if (is_image_extension(fs::path(path))) {
             return ToolResult::success(
                 path,
                 fmt::format("Image file: {}", path),
@@ -340,6 +282,11 @@ ToolResult ReadFileTool::execute(const nlohmann::json& input, ToolContext& ctx) 
     if (!file_path.is_absolute()) {
         file_path = fs::path(ctx.working_directory) / file_path;
         path = file_path.string();
+    }
+
+    // Check workspace boundary (prevent path traversal attacks)
+    if (auto err = check_workspace_boundary(file_path, ctx.working_directory)) {
+        return ToolResult::error(path, *err);
     }
 
     // Check permission

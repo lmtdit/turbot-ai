@@ -73,6 +73,17 @@ static bool iequals(std::string_view a, std::string_view b) noexcept {
                       });
 }
 
+// RFC 7230 §3.2: detect characters forbidden in HTTP header names and values.
+// Rejects NUL, CR, LF, all other C0 controls except HT, and DEL (0x7F).
+static bool has_illegal_header_chars(std::string_view s) noexcept {
+    for (unsigned char c : s) {
+        if (c == '\0' || c == '\r' || c == '\n') return true;
+        if (c < 0x20 && c != '\t')               return true;  // other C0 controls
+        if (c == 0x7F)                            return true;  // DEL
+    }
+    return false;
+}
+
 // ============================================================================
 // HttpRequest Implementation
 // ============================================================================
@@ -116,12 +127,21 @@ HttpRequest HttpRequest::del(std::string_view url) {
 }
 
 HttpRequest& HttpRequest::with_header(std::string_view name, std::string_view value) {
+    // Guard against HTTP header injection: RFC 7230 §3.2 forbidden characters.
+    if (name.empty() || has_illegal_header_chars(name) || has_illegal_header_chars(value)) {
+        throw std::invalid_argument(
+            "HTTP header name/value contains illegal control characters (CRLF/NUL/DEL)");
+    }
     headers.emplace_back(std::string(name), std::string(value));
     return *this;
 }
 
 HttpRequest& HttpRequest::with_headers(const HttpHeaders& hdrs) {
-    headers.insert(headers.end(), hdrs.begin(), hdrs.end());
+    // Delegate to with_header to apply the same RFC 7230 injection validation
+    // for every header in the batch (C-1: with_headers must not bypass checks).
+    for (const auto& [name, value] : hdrs) {
+        with_header(name, value);
+    }
     return *this;
 }
 
@@ -137,7 +157,18 @@ HttpRequest& HttpRequest::with_body(std::string_view body_) {
 
 HttpRequest& HttpRequest::with_json_body(std::string_view json) {
     body = json;
-    headers.emplace_back("Content-Type", "application/json");
+    // Add Content-Type only if not already present (prevents duplicate headers)
+    bool has_ct = std::any_of(headers.begin(), headers.end(),
+        [](const auto& h) {
+            return h.first.size() == 12 &&
+                   std::equal(h.first.begin(), h.first.end(), "content-type",
+                              [](unsigned char a, unsigned char b){
+                                  return std::tolower(a) == b;
+                              });
+        });
+    if (!has_ct) {
+        headers.emplace_back("Content-Type", "application/json");
+    }
     return *this;
 }
 
@@ -163,6 +194,8 @@ struct CurlData {
     std::string headers;
     StreamCallback* stream_callback = nullptr;
     bool aborted = false;
+    size_t max_body_size   = 64 * 1024 * 1024;  // 64 MB default limit
+    size_t max_header_size =  1 * 1024 * 1024;  //  1 MB limit (W-1: prevent OOM via headers)
 };
 
 static size_t write_body_callback(void* contents, size_t size, size_t nmemb, void* userp) {
@@ -176,7 +209,11 @@ static size_t write_body_callback(void* contents, size_t size, size_t nmemb, voi
             return 0;  // Abort transfer
         }
     } else {
-        // Buffer mode
+        // Buffer mode — enforce maximum response body size to prevent OOM
+        if (data->body.size() + total_size > data->max_body_size) {
+            data->aborted = true;
+            return 0;  // Abort transfer; caller will see CURLE_WRITE_ERROR
+        }
         data->body.append(static_cast<const char*>(contents), total_size);
     }
     return total_size;
@@ -185,6 +222,20 @@ static size_t write_body_callback(void* contents, size_t size, size_t nmemb, voi
 static size_t write_header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
     size_t total_size = size * nitems;
     auto* data = static_cast<CurlData*>(userdata);
+    // W-3: When following redirects, libcurl calls this callback for every hop.
+    // Detect the start of a new response (HTTP status line) and reset the buffer
+    // so that intermediate hop headers do not pollute the final HttpResponse.
+    if (total_size >= 5) {
+        std::string_view line(buffer, total_size);
+        if (line.substr(0, 5) == "HTTP/") {
+            data->headers.clear();
+        }
+    }
+    // W-1: Enforce a 1 MB cap on accumulated response headers to prevent OOM.
+    if (data->headers.size() + total_size > data->max_header_size) {
+        data->aborted = true;
+        return 0;  // Abort transfer
+    }
     data->headers.append(buffer, total_size);
     return total_size;
 }
@@ -214,8 +265,13 @@ static HttpHeaders parse_headers(const std::string& header_string) {
             
             // Trim leading whitespace from value
             size_t start = value.find_first_not_of(" \t");
-            if (start != std::string::npos) {
-                value = value.substr(start);
+            if (start == std::string::npos) { value.clear(); continue; }
+            value = value.substr(start);
+            
+            // Trim trailing whitespace (RFC 7230 OWS)
+            size_t end = value.find_last_not_of(" \t\r");
+            if (end != std::string::npos) {
+                value = value.substr(0, end + 1);
             }
             
             headers.emplace_back(std::move(key), std::move(value));
@@ -286,22 +342,33 @@ public:
         }
         CURL* curl = curl_handle.get();
         
+        // W-4: Required for safe multi-threaded use. Without this, libcurl may
+        // use SIGALRM for DNS timeouts on some platforms, causing signal races.
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        
         // Set URL
         curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
         
         // Set method - store in local variable to ensure lifetime
         std::string method_str(method_to_string(req.method));
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method_str.c_str());
+
+        // For HEAD requests, tell libcurl not to read a response body.
+        // Without this, libcurl can corrupt the connection state on keep-alive
+        // connections by treating the next response's headers as the body.
+        if (req.method == HttpMethod::HEAD) {
+            curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+        }
         
         // Set timeout
         int timeout = req.timeout_seconds > 0 ? req.timeout_seconds : snapshot_timeout;
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT,        static_cast<long>(timeout));
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(timeout));
         
         // Set redirects
         if (req.follow_redirects) {
             curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-            curl_easy_setopt(curl, CURLOPT_MAXREDIRS, req.max_redirects);
+            curl_easy_setopt(curl, CURLOPT_MAXREDIRS, static_cast<long>(req.max_redirects));
         }
         
         // Build headers list with RAII error handling
@@ -331,29 +398,40 @@ public:
             return true;
         };
         
-        // Add request headers
-        for (const auto& [key, value] : req.headers) {
-            std::string header = key + ": " + value;
-            if (!safe_append_header(header)) {
-                throw std::runtime_error("Failed to append HTTP header (out of memory)");
-            }
-        }
-        
-        // Add default headers (if not already present)
-        for (const auto& [key, value] : snapshot_default_headers) {
-            bool found = false;
-            for (const auto& [k, v] : req.headers) {
-                if (iequals(k, key)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
+        // Wrap header building in try-catch: std::string concatenation can throw
+        // std::bad_alloc before headers_guard is constructed, leaking raw_headers.
+        try {
+            // Add request headers
+            for (const auto& [key, value] : req.headers) {
                 std::string header = key + ": " + value;
                 if (!safe_append_header(header)) {
                     throw std::runtime_error("Failed to append HTTP header (out of memory)");
                 }
             }
+            
+            // Add default headers (if not already present)
+            for (const auto& [key, value] : snapshot_default_headers) {
+                bool found = false;
+                for (const auto& [k, v] : req.headers) {
+                    if (iequals(k, key)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    std::string header = key + ": " + value;
+                    if (!safe_append_header(header)) {
+                        throw std::runtime_error("Failed to append HTTP header (out of memory)");
+                    }
+                }
+            }
+        } catch (...) {
+            // Free raw_headers before re-throwing; RAII guard not yet constructed.
+            if (raw_headers) {
+                curl_slist_free_all(raw_headers);
+                raw_headers = nullptr;
+            }
+            throw;
         }
         
         // Transfer ownership to RAII *once* after all appending is done
@@ -465,8 +543,10 @@ HttpResponse HttpClient::post(std::string_view url, std::string_view body, const
 }
 
 HttpResponse HttpClient::post_json(std::string_view url, std::string_view json_body, const HttpHeaders& headers) {
-    return request(HttpRequest::post(url, json_body)
-                   .with_header("Content-Type", "application/json")
+    // Use with_json_body for Content-Type dedup logic, then add caller headers via
+    // with_headers (which validates each header for injection characters).
+    return request(HttpRequest::post(url)
+                   .with_json_body(json_body)
                    .with_headers(headers));
 }
 
@@ -511,12 +591,21 @@ std::future<HttpResponse> HttpClient::post_async(std::string_view url, std::stri
 }
 
 void HttpClient::set_timeout(int seconds) {
+    if (seconds <= 0) {
+        TURBOT_LOG_WARN("Ignoring invalid timeout value {}; must be > 0", seconds);
+        return;
+    }
     std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->default_timeout_ = seconds;
     TURBOT_LOG_DEBUG("HTTP timeout set to {} seconds", seconds);
 }
 
 void HttpClient::set_default_header(std::string_view name, std::string_view value) {
+    // Guard against HTTP header injection: RFC 7230 §3.2 forbidden characters.
+    if (name.empty() || has_illegal_header_chars(name) || has_illegal_header_chars(value)) {
+        throw std::invalid_argument(
+            "HTTP header name/value contains illegal control characters (CRLF/NUL/DEL)");
+    }
     std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->default_headers_[std::string(name)] = std::string(value);
 }
@@ -538,6 +627,12 @@ void HttpClient::set_ssl_verify(bool verify) {
 }
 
 void HttpClient::set_user_agent(std::string_view user_agent) {
+    // W-2: User-Agent is written to an HTTP header via CURLOPT_USERAGENT;
+    // CRLF/NUL/DEL characters would allow header injection.
+    if (has_illegal_header_chars(user_agent)) {
+        throw std::invalid_argument(
+            "User-Agent contains illegal control characters (CRLF/NUL/DEL)");
+    }
     std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->user_agent_ = std::string(user_agent);
 }

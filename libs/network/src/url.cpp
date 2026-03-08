@@ -45,6 +45,13 @@ void Url::parse(std::string_view url) {
     auto path_start = url.find('/');
     auto host_port = url.substr(0, path_start);
 
+    // Strip userinfo (RFC 3986 §3.2.1): everything up to and including the
+    // last '@' sign.  Using rfind handles passwords that contain '@'.
+    auto at_sign = host_port.rfind('@');
+    if (at_sign != std::string_view::npos) {
+        host_port = host_port.substr(at_sign + 1);
+    }
+
     bool port_parse_error = false;
 
     // Handle IPv6 addresses enclosed in brackets: [::1] or [::1]:8080
@@ -58,12 +65,21 @@ void Url::parse(std::string_view url) {
         auto port_sep = host_port.find(':', bracket_end + 1);
         if (port_sep != std::string_view::npos) {
             try {
-                int parsed_port = std::stoi(std::string(host_port.substr(port_sep + 1)));
-                if (parsed_port > 0 && parsed_port <= 65535) {
-                    port_ = parsed_port;
-                } else {
-                    TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+                auto port_sv = host_port.substr(port_sep + 1);
+                // RFC 3986 §3.2.3: port must be purely decimal digits (no +/-)
+                if (port_sv.empty() || !std::all_of(port_sv.begin(), port_sv.end(),
+                        [](unsigned char c){ return std::isdigit(c); })) {
+                    TURBOT_LOG_WARN("Invalid port (non-digit chars) in IPv6 URL: {}",
+                                   std::string(port_sv));
                     port_parse_error = true;
+                } else {
+                    int parsed_port = std::stoi(std::string(port_sv));
+                    if (parsed_port >= 0 && parsed_port <= 65535) {
+                        port_ = parsed_port;
+                    } else {
+                        TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+                        port_parse_error = true;
+                    }
                 }
             } catch (const std::exception& e) {
                 TURBOT_LOG_WARN("Invalid port in IPv6 URL: {}",
@@ -75,21 +91,25 @@ void Url::parse(std::string_view url) {
         auto port_start = host_port.find(':');
         if (port_start != std::string_view::npos) {
             host_ = std::string(host_port.substr(0, port_start));
-            try {
-                int parsed_port = std::stoi(std::string(host_port.substr(port_start + 1)));
-                // Validate port range
-                if (parsed_port > 0 && parsed_port <= 65535) {
-                    port_ = parsed_port;
-                } else {
-                    TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+            // RFC 3986 §3.2.3: port must be purely decimal digits (no +/-)
+            auto port_sv = host_port.substr(port_start + 1);
+            if (port_sv.empty() || !std::all_of(port_sv.begin(), port_sv.end(),
+                    [](unsigned char c){ return std::isdigit(c); })) {
+                TURBOT_LOG_WARN("Invalid port (non-digit chars) in URL: {}", std::string(port_sv));
+                port_parse_error = true;
+            } else {
+                try {
+                    int parsed_port = std::stoi(std::string(port_sv));
+                    if (parsed_port >= 0 && parsed_port <= 65535) {
+                        port_ = parsed_port;
+                    } else {
+                        TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+                        port_parse_error = true;
+                    }
+                } catch (const std::out_of_range&) {
+                    TURBOT_LOG_WARN("Port out of range in URL: {}", std::string(port_sv));
                     port_parse_error = true;
                 }
-            } catch (const std::invalid_argument& e) {
-                TURBOT_LOG_WARN("Invalid port in URL: {}", std::string(host_port.substr(port_start + 1)));
-                port_parse_error = true;
-            } catch (const std::out_of_range& e) {
-                TURBOT_LOG_WARN("Port out of range in URL: {}", std::string(host_port.substr(port_start + 1)));
-                port_parse_error = true;
             }
         } else {
             host_ = std::string(host_port);
@@ -101,6 +121,10 @@ void Url::parse(std::string_view url) {
         if (scheme_ == "http") port_ = 80;
         else if (scheme_ == "https") port_ = 443;
     }
+
+    // Normalize host to lowercase per RFC 3986 §3.2.2
+    std::transform(host_.begin(), host_.end(), host_.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
 
     // Parse path
     if (path_start != std::string_view::npos) {
@@ -143,12 +167,32 @@ void Url::parse(std::string_view url) {
     if (port_parse_error) {
         valid_ = false;
     }
+
+    // Reject URLs with control characters in host/path/query/fragment to
+    // prevent HTTP header injection via malformed URLs.
+    if (valid_) {
+        // W-5: Also reject DEL (0x7F) per RFC 7230 §3.2.6.
+        auto has_ctrl = [](const std::string& s) noexcept {
+            for (unsigned char c : s)
+                if ((c < 0x20 && c != '\t') || c == 0x7F) return true;
+            return false;
+        };
+        if (has_ctrl(host_) || has_ctrl(path_) ||
+            has_ctrl(query_) || has_ctrl(fragment_)) {
+            valid_ = false;
+        }
+    }
 }
 
 std::string Url::to_string() const {
     std::string result = scheme_ + "://" + host_;
     if (port_.has_value()) {
-        result += ":" + std::to_string(*port_);
+        // Skip default ports to avoid breaking Host headers and round-trip equality
+        bool is_default = (scheme_ == "http"  && *port_ == 80) ||
+                          (scheme_ == "https" && *port_ == 443);
+        if (!is_default) {
+            result += ":" + std::to_string(*port_);
+        }
     }
     result += path_;
     if (!query_.empty()) {

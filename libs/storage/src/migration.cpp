@@ -1,6 +1,6 @@
 #include <turbot/storage/migration.hpp>
 #include <turbot/storage/database.hpp>
-#include <turbot/core/common/logger.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <chrono>
@@ -50,21 +50,6 @@ void MigrationRunner::create_migration_table() {
     )");
 }
 
-void MigrationRunner::record_migration(const Migration& migration) {
-    auto now = std::chrono::system_clock::now().time_since_epoch().count();
-    db_->execute(
-        "INSERT INTO _migrations (name, version, executed_at) VALUES (?, ?, ?)",
-        {nlohmann::json(migration.name()),
-         nlohmann::json(migration.version()),
-         nlohmann::json(now)});
-}
-
-void MigrationRunner::remove_migration(const std::string& name) {
-    db_->execute(
-        "DELETE FROM _migrations WHERE name = ?",
-        {nlohmann::json(name)});
-}
-
 void MigrationRunner::run() {
     create_migration_table();
     ensure_sorted();  // Lazy sort before iteration
@@ -75,26 +60,26 @@ void MigrationRunner::run() {
     for (const auto& migration : migrations_) {
         // Check if already executed
         if (std::find(executed.begin(), executed.end(), migration->name()) != executed.end()) {
-            TURBOT_LOG_DEBUG("Migration '{}' already applied", migration->name());
+            spdlog::debug("Migration '{}' already applied", migration->name());
             continue;
         }
 
-        TURBOT_LOG_INFO("Running migration: {} (v{})", migration->name(), migration->version());
+        spdlog::info("Running migration: {} (v{})", migration->name(), migration->version());
 
         try {
             db_->migrate(migration->name(), migration->up(), migration->version());
             // record_migration is already called inside db_->migrate()
             pending_count++;
         } catch (const std::exception& e) {
-            TURBOT_LOG_ERROR("Migration '{}' failed: {}", migration->name(), e.what());
+            spdlog::error("Migration '{}' failed: {}", migration->name(), e.what());
             throw;
         }
     }
 
     if (pending_count > 0) {
-        TURBOT_LOG_INFO("Applied {} migration(s)", pending_count);
+        spdlog::info("Applied {} migration(s)", pending_count);
     } else {
-        TURBOT_LOG_INFO("No pending migrations");
+        spdlog::info("No pending migrations");
     }
 }
 
@@ -117,13 +102,13 @@ void MigrationRunner::rollback(int steps) {
                                });
 
         if (it == migrations_.end()) {
-            TURBOT_LOG_WARN("Migration '{}' not found in registered migrations", migration_name);
+            spdlog::warn("Migration '{}' not found in registered migrations", migration_name);
             executed.pop_back();
             continue;
         }
 
         const auto& migration = *it;
-        TURBOT_LOG_INFO("Rolling back migration: {}", migration_name);
+        spdlog::info("Rolling back migration: {}", migration_name);
 
         try {
             // Use transaction for atomic rollback - both down() and remove_migration
@@ -141,7 +126,7 @@ void MigrationRunner::rollback(int steps) {
             }
             executed.pop_back();
         } catch (const std::exception& e) {
-            TURBOT_LOG_ERROR("Rollback of migration '{}' failed: {}", migration_name, e.what());
+            spdlog::error("Rollback of migration '{}' failed: {}", migration_name, e.what());
             throw;
         }
     }
@@ -188,7 +173,7 @@ bool MigrationRunner::validate() {
                                });
 
         if (it == migrations_.end()) {
-            TURBOT_LOG_WARN("Executed migration '{}' not found in registered migrations", name);
+            spdlog::warn("Executed migration '{}' not found in registered migrations", name);
             return false;
         }
     }
@@ -205,7 +190,7 @@ bool MigrationRunner::validate() {
         for (const auto& migration : migrations_) {
             if (migration->version() <= max_version) {
                 if (std::find(executed.begin(), executed.end(), migration->name()) == executed.end()) {
-                    TURBOT_LOG_WARN("Migration '{}' (v{}) should have been executed but wasn't",
+                    spdlog::warn("Migration '{}' (v{}) should have been executed but wasn't",
                                     migration->name(), migration->version());
                     return false;
                 }
@@ -213,7 +198,7 @@ bool MigrationRunner::validate() {
         }
     }
 
-    TURBOT_LOG_INFO("Migration state is valid");
+    spdlog::info("Migration state is valid");
     return true;
 }
 

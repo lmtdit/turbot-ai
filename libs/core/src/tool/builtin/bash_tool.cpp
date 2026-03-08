@@ -145,6 +145,19 @@ const std::string& shell_path() {
 } // anonymous namespace
 
 // ============================================================================
+// PipeGuard - RAII wrapper for popen/pclose (shared between normal and sandbox)
+// ============================================================================
+namespace {
+struct PipeGuard {
+    FILE* p;
+    explicit PipeGuard(FILE* f) : p(f) {}
+    ~PipeGuard() { if (p) pclose(p); }
+    PipeGuard(const PipeGuard&) = delete;
+    PipeGuard& operator=(const PipeGuard&) = delete;
+};
+} // anonymous namespace (PipeGuard)
+
+// ============================================================================
 // BashToolParams
 // ============================================================================
 
@@ -359,27 +372,30 @@ ToolResult BashTool::execute_normal(
             : fmt::format("{} {} {} -c {} 2>&1", tc, timeout_sec, shell_path(), escaped_cd_and_run);
     }
 
-    // Execute the command
+    // Execute the command (execute_normal)
     std::string output;
     output.reserve(4096);
 
     std::array<char, 256> buffer{};
-    FILE* pipe = popen(full_command.c_str(), "r");
-    if (!pipe) {
+    // Use RAII wrapper for popen to ensure pclose on all exit paths
+    PipeGuard pipe_guard(popen(full_command.c_str(), "r"));
+    if (!pipe_guard.p) {
         return ToolResult::error(
             fmt::format("Bash: {}", params.command.substr(0, 50)),
             "Failed to execute command: could not open process"
         );
     }
 
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe_guard.p) != nullptr) {
         output += buffer.data();
         if (ctx.should_abort()) {
-            pclose(pipe);
             return ToolResult::error("Bash aborted", "Operation was aborted during execution");
         }
     }
 
+    // Release pipe to get exit status via pclose
+    FILE* pipe = pipe_guard.p;
+    pipe_guard.p = nullptr;
     const int wait_status = pclose(pipe);
     int actual_exit = -1;
     if (wait_status == -1) {
@@ -485,29 +501,38 @@ ToolResult BashTool::execute_sandbox(
         sandbox_cmd = fmt::format("{}{} -c {} 2>&1", sandbox_prefix, shell_path(), inner_cmd);
     }
 
-    // Execute the command
+    // Execute the command (execute_sandbox)
     std::string output;
     output.reserve(4096);
 
     std::array<char, 256> buffer{};
-    FILE* pipe = popen(sandbox_cmd.c_str(), "r");
-    if (!pipe) {
+    // Use RAII wrapper for popen to ensure pclose on all exit paths (including exceptions)
+    PipeGuard pipe_guard(popen(sandbox_cmd.c_str(), "r"));
+    if (!pipe_guard.p) {
         return ToolResult::error(
             fmt::format("Bash (sandbox): {}", params.command.substr(0, 50)),
             "Failed to execute sandboxed command"
         );
     }
 
-    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe_guard.p) != nullptr) {
         output += buffer.data();
         if (ctx.should_abort()) {
-            pclose(pipe);
             return ToolResult::error("Bash aborted", "Operation was aborted during execution");
         }
     }
 
+    // Release pipe to get exit status via pclose
+    FILE* pipe = pipe_guard.p;
+    pipe_guard.p = nullptr;
     const int wait_status = pclose(pipe);
     int actual_exit = -1;
+    if (wait_status == -1) {
+        return ToolResult::error(
+            fmt::format("Bash (sandbox): {}", params.command.substr(0, 50)),
+            fmt::format("pclose failed: {}", strerror(errno))
+        );
+    }
     if (WIFEXITED(wait_status)) {
         actual_exit = WEXITSTATUS(wait_status);
     } else if (WIFSIGNALED(wait_status)) {

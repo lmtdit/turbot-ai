@@ -86,7 +86,8 @@ TEST_CASE("Url::invalid_urls", "[network][url]") {
 TEST_CASE("Url::to_string", "[network][url]") {
     SECTION("reconstruct simple URL") {
         Url url("https://example.com/path");
-        REQUIRE(url.to_string() == "https://example.com:443/path");
+        // RFC 3986 §3.2.3: default ports (80/443) should be omitted in to_string()
+        REQUIRE(url.to_string() == "https://example.com/path");
     }
 
     SECTION("reconstruct URL with port") {

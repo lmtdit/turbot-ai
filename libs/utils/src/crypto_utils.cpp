@@ -358,7 +358,8 @@ std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted, const std::string
 
     // 设置tag - OpenSSL API requires non-const pointer
     std::vector<uint8_t> tag_copy(encrypted.tag.begin(), encrypted.tag.end());
-    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG, encrypted.tag.size(),
+    if (EVP_CIPHER_CTX_ctrl(ctx.get(), EVP_CTRL_GCM_SET_TAG,
+                            static_cast<int>(encrypted.tag.size()),
                             tag_copy.data()) != 1) {
         throw std::runtime_error("Failed to set tag");
     }

@@ -50,10 +50,12 @@ void TransactionGuard::rollback() {
 }
 
 Transaction* TransactionGuard::operator->() {
+    if (!tx_) throw std::logic_error("TransactionGuard: accessing null transaction");
     return tx_.get();
 }
 
 Transaction& TransactionGuard::operator*() {
+    if (!tx_) throw std::logic_error("TransactionGuard: dereferencing null transaction");
     return *tx_;
 }
 

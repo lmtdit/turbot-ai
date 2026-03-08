@@ -127,11 +127,27 @@ std::string base64_decode(const std::string& encoded) {
 }
 
 bool wildcard_match(const std::string& pattern, const std::string& text) {
+    // Pre-process: collapse consecutive '*' into a single '*' to prevent ReDoS.
+    // "***" converted to ".*.*.*" can trigger catastrophic backtracking on long
+    // non-matching strings; collapsing first ensures at most O(n) '.*' groups.
+    std::string collapsed;
+    collapsed.reserve(pattern.size());
+    bool last_star = false;
+    for (char c : pattern) {
+        if (c == '*') {
+            if (!last_star) collapsed += c;
+            last_star = true;
+        } else {
+            collapsed += c;
+            last_star = false;
+        }
+    }
+
     // 将通配符模式转换为正则表达式
     std::string regex_pattern;
-    regex_pattern.reserve(pattern.size() * 2);
+    regex_pattern.reserve(collapsed.size() * 2);
 
-    for (char c : pattern) {
+    for (char c : collapsed) {
         if (c == '*') {
             regex_pattern += ".*";
         } else if (c == '?') {
@@ -145,7 +161,7 @@ bool wildcard_match(const std::string& pattern, const std::string& text) {
     }
 
     try {
-        std::regex regex(regex_pattern);  // case-sensitive: wildcard matching is exact on case-sensitive filesystems
+        std::regex regex(regex_pattern, std::regex_constants::icase);
         return std::regex_match(text, regex);
     } catch (const std::regex_error&) {
         return false;
@@ -154,10 +170,20 @@ bool wildcard_match(const std::string& pattern, const std::string& text) {
 
 std::vector<std::string> split_lines(const std::string& text) {
     std::vector<std::string> lines;
-    std::istringstream stream(text);
-    std::string line;
-    while (std::getline(stream, line)) {
-        lines.push_back(line);
+    if (text.empty()) return lines;
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find('\n', start);
+        if (end == std::string::npos) {
+            // No more newlines — emit remaining text (even if empty, only when
+            // the original string ended with '\n' and start == text.size())
+            if (start < text.size()) {
+                lines.emplace_back(text.substr(start));
+            }
+            break;
+        }
+        lines.emplace_back(text.substr(start, end - start));
+        start = end + 1;
     }
     return lines;
 }
@@ -201,36 +227,52 @@ std::string create_diff(
     auto old_lines = split_lines(normalize_line_endings(old_content));
     auto new_lines = split_lines(normalize_line_endings(new_content));
 
-    size_t old_idx = 0;
-    size_t new_idx = 0;
+    const size_t M = old_lines.size();
+    const size_t N = new_lines.size();
 
-    while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
-        if (old_idx < old_lines.size() && new_idx < new_lines.size()) {
-            if (old_lines[old_idx] == new_lines[new_idx]) {
-                diff << " " << old_lines[old_idx] << "\n";
-                ++old_idx;
-                ++new_idx;
-            } else if (old_idx + 1 < old_lines.size() &&
-                       old_lines[old_idx + 1] == new_lines[new_idx]) {
-                diff << "-" << old_lines[old_idx] << "\n";
-                ++old_idx;
-            } else if (new_idx + 1 < new_lines.size() &&
-                       old_lines[old_idx] == new_lines[new_idx + 1]) {
-                diff << "+" << new_lines[new_idx] << "\n";
-                ++new_idx;
+    // Guard against O(M*N) memory blow-up for very large files.
+    // At 5 K lines each the DP table is ~200 MB; at 50 K it would be ~20 GB.
+    // Fall back to a simple delete-all / add-all diff that at least remains correct.
+    constexpr size_t MAX_DIFF_LINES = 5000;
+    if (M > MAX_DIFF_LINES || N > MAX_DIFF_LINES) {
+        for (const auto& line : old_lines) diff << "-" << line << "\n";
+        for (const auto& line : new_lines) diff << "+" << line << "\n";
+        return diff.str();
+    }
+
+    // Build LCS DP table: dp[i][j] = LCS length of old[0..i-1] and new[0..j-1]
+    std::vector<std::vector<size_t>> dp(M + 1, std::vector<size_t>(N + 1, 0));
+    for (size_t i = 1; i <= M; ++i) {
+        for (size_t j = 1; j <= N; ++j) {
+            if (old_lines[i - 1] == new_lines[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
             } else {
-                diff << "-" << old_lines[old_idx] << "\n";
-                diff << "+" << new_lines[new_idx] << "\n";
-                ++old_idx;
-                ++new_idx;
+                dp[i][j] = std::max(dp[i - 1][j], dp[i][j - 1]);
             }
-        } else if (old_idx < old_lines.size()) {
-            diff << "-" << old_lines[old_idx] << "\n";
-            ++old_idx;
-        } else {
-            diff << "+" << new_lines[new_idx] << "\n";
-            ++new_idx;
         }
+    }
+
+    // Traceback to build the edit list (in reverse order)
+    std::vector<std::pair<char, const std::string*>> ops;
+    ops.reserve(M + N);
+    size_t i = M, j = N;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && old_lines[i - 1] == new_lines[j - 1]) {
+            ops.push_back({' ', &old_lines[i - 1]});
+            --i; --j;
+        } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            ops.push_back({'+', &new_lines[j - 1]});
+            --j;
+        } else {
+            ops.push_back({'-', &old_lines[i - 1]});
+            --i;
+        }
+    }
+
+    // Emit in forward order
+    std::reverse(ops.begin(), ops.end());
+    for (const auto& [op, line_ptr] : ops) {
+        diff << op << *line_ptr << "\n";
     }
 
     return diff.str();

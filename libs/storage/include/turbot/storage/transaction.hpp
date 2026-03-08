@@ -79,7 +79,7 @@ public:
     explicit operator bool() const;
 
     /// Release ownership without rollback
-    std::shared_ptr<Transaction> release();
+    [[nodiscard]] std::shared_ptr<Transaction> release();
 
 private:
     std::shared_ptr<Transaction> tx_;
