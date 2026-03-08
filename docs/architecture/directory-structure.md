@@ -189,27 +189,25 @@ libs/core/
     ├── session/
     │   ├── session.cpp
     │   ├── session_state_machine.cpp
-    │   └── session_loop.cpp
+    │   ├── session_loop.cpp
+    │   └── usage_tracker.cpp
     │
     │ === v2.0 实现 ===
     │
-    ├── prompt/
-    │   ├── system_prompt.cpp
-    │   ├── prompt_builder.cpp
-    │   └── message_builder.cpp
     ├── llm/
     │   ├── stream_event.cpp
-    │   ├── llm_stream.cpp
-    │   └── tool_schema.cpp
-    ├── session/              # 扩展
-    │   ├── agent_loop.cpp
-    │   ├── retry.cpp
-    │   ├── compaction.cpp
-    │   └── doom_loop.cpp
+    │   ├── llm.cpp
+    │   ├── provider_adapter.cpp
+    │   ├── tool_schema.cpp
+    │   ├── message_builder.cpp
+    │   ├── system_prompt.cpp
+    │   └── prompt_builder.cpp
     ├── skill/
-    │   ├── skill.cpp
-    │   ├── discovery.cpp
+    │   └── skill.cpp
+    ├── tool/
     │   └── skill_tool.cpp
+    ├── agent/
+    │   └── agent_loader.cpp
     │
     │ === v3.0 实现 ===
     │

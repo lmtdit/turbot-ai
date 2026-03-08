@@ -47,6 +47,8 @@ set(UNIT_TEST_SOURCES
     unit/llm_test.cpp
     # v2.0 Session module
     unit/usage_tracker_test.cpp
+    unit/retry_manager_test.cpp
+    unit/session_compaction_test.cpp
     # v2.0 Skill module
     unit/skill_test.cpp
     unit/skill_tool_test.cpp

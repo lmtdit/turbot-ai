@@ -47,6 +47,8 @@ set(CORE_SOURCES
     src/session/session_state_machine.cpp
     src/session/session_loop.cpp
     src/session/usage_tracker.cpp
+    src/session/retry_manager.cpp
+    src/session/session_compaction.cpp
     # LLM module (v2.0)
     src/llm/tool_schema.cpp
     src/llm/message_builder.cpp

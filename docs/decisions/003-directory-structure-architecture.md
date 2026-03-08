@@ -116,11 +116,20 @@ libs/core/include/turbot/core/
 ├── agent/               # Agent系统
 ├── session/             # 会话系统
 │
-│ === v2.0 核心流程完善 ===
+│ === v2.0 核心流程完善 (✅ 88% 完成) ===
 │
-├── prompt/              # Prompt生成系统 📋
-├── llm/                 # LLM调用层 📋
-├── skill/               # Skill系统 📋
+├── llm/                 # LLM调用层 ✓
+│   ├── stream_event.hpp
+│   ├── llm.hpp
+│   ├── provider_adapter.hpp
+│   ├── tool_schema.hpp
+│   ├── message_builder.hpp
+│   ├── system_prompt.hpp
+│   └── prompt_builder.hpp
+├── skill/               # Skill系统 ✓
+│   └── skill.hpp
+├── tool/
+│   └── skill_tool.hpp   # Skill工具 ✓
 │
 │ === v3.0 协议系统 ===
 │
@@ -153,11 +162,11 @@ tests/
 
 按版本分阶段实现模块：
 
-| 版本 | 阶段          | 核心模块                                           |
-| ---- | ------------- | -------------------------------------------------- |
-| v1.0 | 多 Agent 架构 | utils, core 基础, storage, network, agent, session |
-| v2.0 | 核心流程完善  | prompt, llm, skill, session 扩展                   |
-| v3.0 | 协议系统开发  | mcp, lsp, acp                                      |
+| 版本 | 阶段          | 核心模块                                                |
+| ---- | ------------- | ------------------------------------------------------- |
+| v1.0 | 多 Agent 架构 | utils, core 基础, storage, network, agent, session      |
+| v2.0 | 核心流程完善  | llm, prompt, session 扩展, skill, agent 扩展 (88% 完成) |
+| v3.0 | 协议系统开发  | mcp, lsp, acp                                           |
 
 ### 7. 模块解耦设计原则
 
