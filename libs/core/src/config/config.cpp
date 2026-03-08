@@ -48,7 +48,7 @@ void Config::load_from_string(const std::string& content) {
         nlohmann::json config = nlohmann::json::parse(content);
 
         std::lock_guard<std::mutex> lock(mutex_);
-        config_ = merge(config_, config);
+        config_ = json::merge(config_, config);
 
         TURBOT_LOG_INFO("Loaded config from string");
     } catch (const nlohmann::json::parse_error& e) {
@@ -221,26 +221,6 @@ void Config::notify_change(const std::string& key,
                 TURBOT_LOG_ERROR("Config change callback error: {}", e.what());
             }
         }
-    }
-}
-
-nlohmann::json Config::merge(const nlohmann::json& a, const nlohmann::json& b) {
-    if (a.is_object() && b.is_object()) {
-        nlohmann::json result = a;
-        for (auto& [key, value] : b.items()) {
-            if (result.contains(key) && result[key].is_object() && value.is_object()) {
-                result[key] = merge(result[key], value);
-            } else {
-                result[key] = value;
-            }
-        }
-        return result;
-    } else if (a.is_array() && b.is_array()) {
-        nlohmann::json result = a;
-        result.insert(result.end(), b.begin(), b.end());
-        return result;
-    } else {
-        return b;
     }
 }
 

@@ -1,6 +1,7 @@
 #include <turbot/core/tool/builtin/edit_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/utils/string_utils.hpp>
 #include <fmt/format.h>
 #include <algorithm>
 #include <filesystem>
@@ -15,53 +16,11 @@ namespace {
 /// Maximum file size for editing (10MB)
 constexpr size_t MAX_FILE_SIZE = 10 * 1024 * 1024;
 
-/// Split string by lines
-std::vector<std::string> split_lines(const std::string& text) {
-    std::vector<std::string> lines;
-    std::istringstream stream(text);
-    std::string line;
-    while (std::getline(stream, line)) {
-        lines.push_back(line);
-    }
-    return lines;
-}
-
-/// Join lines into string
-std::string join_lines(const std::vector<std::string>& lines) {
-    std::string result;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        result += lines[i];
-        if (i < lines.size() - 1) {
-            result += '\n';
-        }
-    }
-    return result;
-}
-
-/// Trim leading and trailing whitespace
-std::string trim(std::string_view str) {
-    auto start = str.find_first_not_of(" \t\r\n");
-    if (start == std::string_view::npos) return "";
-    auto end = str.find_last_not_of(" \t\r\n");
-    return std::string(str.substr(start, end - start + 1));
-}
-
-/// Normalize line endings to \n
-std::string normalize_line_endings(const std::string& text) {
-    std::string result;
-    result.reserve(text.size());
-    for (size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '\r') {
-            if (i + 1 < text.size() && text[i + 1] == '\n') {
-                continue; // Skip \r in \r\n
-            }
-            result += '\n'; // Convert standalone \r to \n
-        } else {
-            result += text[i];
-        }
-    }
-    return result;
-}
+// 使用 turbot::utils 命名空间的字符串工具函数
+using turbot::utils::split_lines;
+using turbot::utils::join_lines;
+using turbot::utils::trim;
+using turbot::utils::normalize_line_endings;
 
 } // anonymous namespace
 

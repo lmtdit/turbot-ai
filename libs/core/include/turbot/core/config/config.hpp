@@ -211,14 +211,6 @@ private:
                        const nlohmann::json& old_value,
                        const nlohmann::json& new_value);
 
-    /**
-     * @brief 深度合并两个JSON对象
-     * @param a 第一个JSON对象
-     * @param b 第二个JSON对象
-     * @return 合并后的JSON对象
-     */
-    static nlohmann::json merge(const nlohmann::json& a, const nlohmann::json& b);
-
     mutable std::mutex mutex_;
     nlohmann::json config_;
 

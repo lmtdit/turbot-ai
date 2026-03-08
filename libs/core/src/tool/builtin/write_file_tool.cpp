@@ -1,5 +1,6 @@
 #include <turbot/core/tool/builtin/write_file_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include <turbot/utils/string_utils.hpp>
 #include <fmt/format.h>
 #include <filesystem>
 #include <fstream>
@@ -11,20 +12,8 @@ namespace turbot::core::tool::builtin {
 
 namespace fs = std::filesystem;
 
-namespace {
-
-/// Split string by lines
-std::vector<std::string> split_lines(const std::string& text) {
-    std::vector<std::string> lines;
-    std::istringstream stream(text);
-    std::string line;
-    while (std::getline(stream, line)) {
-        lines.push_back(line);
-    }
-    return lines;
-}
-
-} // anonymous namespace
+// 使用 turbot::utils 命名空间的字符串工具函数
+using turbot::utils::split_lines;
 
 // ============================================================================
 // WriteFileToolParams

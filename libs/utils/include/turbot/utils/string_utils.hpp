@@ -30,4 +30,26 @@ namespace turbot::utils {
 // 通配符匹配
 [[nodiscard]] TURBOT_UTILS_API bool wildcard_match(const std::string& pattern, const std::string& text);
 
+// 行处理工具
+/**
+ * @brief 按行分割字符串
+ * @param text 输入文本
+ * @return 行列表
+ */
+[[nodiscard]] TURBOT_UTILS_API std::vector<std::string> split_lines(const std::string& text);
+
+/**
+ * @brief 将行列表合并为字符串
+ * @param lines 行列表
+ * @return 合并后的字符串
+ */
+[[nodiscard]] TURBOT_UTILS_API std::string join_lines(const std::vector<std::string>& lines);
+
+/**
+ * @brief 规范化行结束符为 \n
+ * @param text 输入文本
+ * @return 规范化后的文本
+ */
+[[nodiscard]] TURBOT_UTILS_API std::string normalize_line_endings(const std::string& text);
+
 } // namespace turbot::utils

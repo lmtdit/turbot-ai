@@ -152,4 +152,41 @@ bool wildcard_match(const std::string& pattern, const std::string& text) {
     }
 }
 
+std::vector<std::string> split_lines(const std::string& text) {
+    std::vector<std::string> lines;
+    std::istringstream stream(text);
+    std::string line;
+    while (std::getline(stream, line)) {
+        lines.push_back(line);
+    }
+    return lines;
+}
+
+std::string join_lines(const std::vector<std::string>& lines) {
+    std::string result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) {
+            result += '\n';
+        }
+    }
+    return result;
+}
+
+std::string normalize_line_endings(const std::string& text) {
+    std::string result;
+    result.reserve(text.size());
+    for (size_t i = 0; i < text.size(); ++i) {
+        if (text[i] == '\r') {
+            if (i + 1 < text.size() && text[i + 1] == '\n') {
+                continue; // Skip \r in \r\n
+            }
+            result += '\n'; // Convert standalone \r to \n
+        } else {
+            result += text[i];
+        }
+    }
+    return result;
+}
+
 } // namespace turbot::utils
