@@ -49,6 +49,7 @@ set(UNIT_TEST_SOURCES
     unit/usage_tracker_test.cpp
     # v2.0 Skill module
     unit/skill_test.cpp
+    unit/skill_tool_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})

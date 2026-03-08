@@ -52,14 +52,10 @@ bool SkillTool::is_skill_accessible(
     // If no rule exists, default to allow
     // If a rule exists with deny action, block access
 
-    // Create a permission request for skill access
-    permission::PermissionRequest request;
-    request.resource_type = "skill";
-    request.resource = skill_name;
-    request.action = "load";
-
-    auto result = ruleset.evaluate(request);
-    return result.action != permission::PermissionAction::Deny;
+    // Use PermissionSystem to evaluate skill access
+    // Permission type is "skill", pattern is the skill name
+    auto action = permission::PermissionSystem::evaluate("skill", skill_name, ruleset);
+    return action != permission::PermissionAction::Deny;
 }
 
 std::vector<Skill> SkillTool::get_accessible_skills(
