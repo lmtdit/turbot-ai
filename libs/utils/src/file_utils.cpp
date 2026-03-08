@@ -53,6 +53,8 @@ bool write_file(std::string_view path, std::string_view content) {
     }
 
     file.write(content.data(), content.size());
+    // Explicitly flush to ensure kernel buffer errors are detected before close
+    file.flush();
     return file.good();
 }
 
@@ -61,11 +63,15 @@ bool file_exists(std::string_view path) {
 }
 
 std::string get_file_extension(std::string_view path) {
-    auto dot_pos = path.find_last_of('.');
-    if (dot_pos == std::string_view::npos) {
+    // Search only within the filename portion to avoid matching dots in parent dirs
+    // e.g. "/path.to/file" should return "", not "to/file"
+    auto sep = path.find_last_of("/\\");
+    auto filename = (sep == std::string_view::npos) ? path : path.substr(sep + 1);
+    auto dot = filename.find_last_of('.');
+    if (dot == std::string_view::npos) {
         return "";
     }
-    return std::string(path.substr(dot_pos + 1));
+    return std::string(filename.substr(dot + 1));
 }
 
 } // namespace turbot::utils

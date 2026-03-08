@@ -38,8 +38,8 @@ std::string get_env(std::string_view name) {
 }
 
 std::string get_env_or(std::string_view name, std::string_view default_value) {
-    std::string value = get_env(name);
-    return value.empty() ? std::string(default_value) : value;
+    // Use has_env to distinguish "variable not set" from "variable set to empty string"
+    return has_env(name) ? get_env(name) : std::string(default_value);
 }
 
 void set_env(std::string_view name, std::string_view value) {
@@ -55,7 +55,8 @@ void set_env(std::string_view name, std::string_view value) {
 void unset_env(std::string_view name) {
     std::string name_str(name);
 #ifdef _WIN32
-    _putenv_s(name_str.c_str(), "");
+    // _putenv_s("") only sets the variable to empty; use SetEnvironmentVariableA(nullptr) to truly delete
+    SetEnvironmentVariableA(name_str.c_str(), nullptr);
 #else
     unsetenv(name_str.c_str());
 #endif
@@ -96,10 +97,16 @@ std::string resolve_env_refs(std::string_view value) {
     std::string result(value);
 
     // 匹配 ${VAR} 或 ${VAR:-default}
-    std::regex env_pattern(R"(\$\{([^}:]+)(?::-([^}]*))?\})");
+    static const std::regex env_pattern(R"(\$\{([^}:]+)(?::-([^}]*))?\})");
     std::smatch match;
 
-    while (std::regex_search(result, match, env_pattern)) {
+    // Guard against infinite loops caused by circular variable references
+    // (e.g. VAR1=${VAR2} and VAR2=${VAR1}), or variables whose values contain
+    // unexpanded ${...} patterns themselves.
+    constexpr int MAX_ITERATIONS = 32;
+    int iterations = 0;
+
+    while (iterations++ < MAX_ITERATIONS && std::regex_search(result, match, env_pattern)) {
         std::string var_name = match[1].str();
         std::string default_value = match[2].matched ? match[2].str() : "";
 

@@ -86,10 +86,14 @@ nlohmann::json sqlite_row_to_json(sqlite3_stmt* stmt) {
             }
             case SQLITE_BLOB: {
                 int size = sqlite3_column_bytes(stmt, i);
-                const void* blob = sqlite3_column_blob(stmt, i);
-                row[name] = nlohmann::json::binary(
-                    std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
-                                         static_cast<const uint8_t*>(blob) + size));
+                const void* blob = (size > 0) ? sqlite3_column_blob(stmt, i) : nullptr;
+                if (size > 0 && blob) {
+                    row[name] = nlohmann::json::binary(
+                        std::vector<uint8_t>(static_cast<const uint8_t*>(blob),
+                                             static_cast<const uint8_t*>(blob) + size));
+                } else {
+                    row[name] = nlohmann::json::binary({});
+                }
                 break;
             }
             case SQLITE_NULL:
@@ -237,8 +241,11 @@ std::optional<nlohmann::json> SQLiteDatabase::execute_one(
 }
 
 std::shared_ptr<Transaction> SQLiteDatabase::begin_transaction() {
-    if (!db_) {
-        throw std::runtime_error("Database is not open");
+    {
+        std::lock_guard<std::mutex> lock(*mutex_);
+        if (!db_) {
+            throw std::runtime_error("Database is not open");
+        }
     }
     execute("BEGIN IMMEDIATE TRANSACTION;");
     return std::make_shared<SQLiteTransaction>(db_, alive_flag_, mutex_);
@@ -344,13 +351,18 @@ bool SQLiteDatabase::health_check() {
 void SQLiteDatabase::close() {
     std::lock_guard<std::mutex> lock(*mutex_);
     if (db_) {
-        sqlite3_close(db_);
+        // Invalidate outstanding transactions before closing the handle.
+        // This must be done inside the lock so that any transaction that
+        // passes the is_db_alive() check sees db_ == nullptr atomically.
+        if (alive_flag_) *alive_flag_ = false;
+        sqlite3_close_v2(db_);
         db_ = nullptr;
         TURBOT_LOG_INFO("Closed SQLite database: {}", config_.path);
     }
 }
 
 bool SQLiteDatabase::is_open() const {
+    std::lock_guard<std::mutex> lock(*mutex_);
     return db_ != nullptr;
 }
 

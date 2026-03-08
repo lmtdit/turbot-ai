@@ -423,52 +423,8 @@ std::string EditTool::create_diff(
     const std::string& old_content,
     const std::string& new_content
 ) {
-    std::ostringstream diff;
-    diff << "--- " << file_path << "\n";
-    diff << "+++ " << file_path << "\n";
-    
-    auto old_lines = split_lines(normalize_line_endings(old_content));
-    auto new_lines = split_lines(normalize_line_endings(new_content));
-    
-    // Simple line-by-line diff
-    size_t old_idx = 0;
-    size_t new_idx = 0;
-    
-    while (old_idx < old_lines.size() || new_idx < new_lines.size()) {
-        if (old_idx < old_lines.size() && new_idx < new_lines.size()) {
-            if (old_lines[old_idx] == new_lines[new_idx]) {
-                diff << " " << old_lines[old_idx] << "\n";
-                ++old_idx;
-                ++new_idx;
-            } else {
-                // Check if this is an addition
-                if (old_idx + 1 < old_lines.size() && old_lines[old_idx + 1] == new_lines[new_idx]) {
-                    diff << "-" << old_lines[old_idx] << "\n";
-                    ++old_idx;
-                }
-                // Check if this is a deletion
-                else if (new_idx + 1 < new_lines.size() && old_lines[old_idx] == new_lines[new_idx + 1]) {
-                    diff << "+" << new_lines[new_idx] << "\n";
-                    ++new_idx;
-                }
-                // This is a modification
-                else {
-                    diff << "-" << old_lines[old_idx] << "\n";
-                    diff << "+" << new_lines[new_idx] << "\n";
-                    ++old_idx;
-                    ++new_idx;
-                }
-            }
-        } else if (old_idx < old_lines.size()) {
-            diff << "-" << old_lines[old_idx] << "\n";
-            ++old_idx;
-        } else {
-            diff << "+" << new_lines[new_idx] << "\n";
-            ++new_idx;
-        }
-    }
-    
-    return diff.str();
+    // Delegate to the shared utility to avoid duplicate diff logic
+    return turbot::utils::create_diff(file_path, old_content, new_content);
 }
 
 ReplacementResult EditTool::replace(

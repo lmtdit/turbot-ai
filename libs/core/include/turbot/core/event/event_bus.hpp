@@ -115,22 +115,32 @@ public:
     std::future<void> publish_async(const std::string& name, T data, const std::string& source = "turbot") {
         Event<T> event(name, std::move(data), source);
 
-        // 使用 std::async 代替 std::thread().detach() 避免资源泄漏
-        return std::async(std::launch::async, [this, event]() mutable {
+        // Collect handlers under the shared lock, then release the lock before
+        // executing them.  Holding the lock during handler execution would cause
+        // a deadlock if any handler calls subscribe() / unsubscribe() (which
+        // need an exclusive lock on the same mutex).
+        std::vector<AsyncEventHandler<T>> handlers_to_call;
+        {
             std::shared_lock<std::shared_mutex> lock(mutex_);
             auto it = handlers_.find(event.name);
             if (it != handlers_.end()) {
-                for (auto& entry : it->second) {
-                    try {
-                        auto* handler = std::any_cast<AsyncEventHandler<T>>(&entry.handler);
-                        if (handler) {
-                            (*handler)(event).wait();
-                        }
-                    } catch (const std::exception& e) {
-                        // Log the error but continue delivering to other handlers
-                        TURBOT_LOG_ERROR("EventBus: async subscriber threw exception for event '{}': {}",
-                                        event.name, e.what());
+                for (const auto& entry : it->second) {
+                    auto* handler = std::any_cast<AsyncEventHandler<T>>(&entry.handler);
+                    if (handler) {
+                        handlers_to_call.push_back(*handler);
                     }
+                }
+            }
+        }  // lock released here
+
+        return std::async(std::launch::async, [handlers_to_call = std::move(handlers_to_call), event]() mutable {
+            for (auto& handler : handlers_to_call) {
+                try {
+                    handler(event).wait();
+                } catch (const std::exception& e) {
+                    // Log the error but continue delivering to other handlers
+                    TURBOT_LOG_ERROR("EventBus: async subscriber threw exception for event '{}': {}",
+                                    event.name, e.what());
                 }
             }
         });

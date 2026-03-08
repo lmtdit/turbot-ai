@@ -5,6 +5,7 @@
 #include <turbot/core/agent/agent.hpp>
 #include <turbot/core/tool/tool.hpp>
 #include <turbot/core/message/message.hpp>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -78,7 +79,7 @@ public:
     void stop();
 
     /// Check if the loop is running
-    [[nodiscard]] bool is_running() const noexcept { return running_; }
+    [[nodiscard]] bool is_running() const noexcept { return running_.load(std::memory_order_relaxed); }
 
     /// Get the session
     [[nodiscard]] const Session& session() const noexcept { return session_; }
@@ -87,7 +88,7 @@ public:
     [[nodiscard]] const std::vector<core::Message>& messages() const noexcept { return messages_; }
 
     /// Get token count (estimated)
-    [[nodiscard]] int token_count() const noexcept { return token_count_; }
+    [[nodiscard]] int token_count() const noexcept { return token_count_.load(std::memory_order_relaxed); }
 
 private:
     Session session_;
@@ -95,10 +96,10 @@ private:
     SessionLoopConfig config_;
     
     std::vector<core::Message> messages_;
-    int token_count_ = 0;
-    int iteration_count_ = 0;
-    bool running_ = false;
-    bool stop_requested_ = false;
+    std::atomic<int>  token_count_{0};
+    std::atomic<int>  iteration_count_{0};
+    std::atomic<bool> running_{false};
+    std::atomic<bool> stop_requested_{false};
     
     mutable std::shared_ptr<std::atomic<bool>> abort_flag_;
     

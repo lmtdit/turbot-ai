@@ -452,8 +452,8 @@ bool is_valid_uuid(const std::string& uuid) {
         return false;
     }
 
-    // 检查格式：xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
-    std::regex uuid_regex(
+    // Compile the regex only once (it is expensive to construct)
+    static const std::regex uuid_regex(
         "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
     );
 

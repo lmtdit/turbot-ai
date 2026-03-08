@@ -52,4 +52,20 @@ namespace turbot::utils {
  */
 [[nodiscard]] TURBOT_UTILS_API std::string normalize_line_endings(const std::string& text);
 
+/**
+ * @brief Generate a simple line-level diff between two text versions.
+ *
+ * Produces unified-diff-style output ("--- path", "+++ path", "-line",
+ * "+line", " line"). The algorithm normalizes line endings before comparing.
+ *
+ * @param file_path  Path label used in the diff header.
+ * @param old_content Original file content.
+ * @param new_content Modified file content.
+ * @return Diff string.
+ */
+[[nodiscard]] TURBOT_UTILS_API std::string create_diff(
+    const std::string& file_path,
+    const std::string& old_content,
+    const std::string& new_content);
+
 } // namespace turbot::utils

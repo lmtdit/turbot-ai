@@ -118,12 +118,24 @@ const std::string& timeout_command() {
 /// Get shell executable path
 const std::string& shell_path() {
     static const std::string shell = []() -> std::string {
+        // Only allow known-safe shells to prevent $SHELL injection
+        // (e.g. if $SHELL is set to a malicious binary).
+        static const std::array<const char*, 6> ALLOWED_SHELLS = {
+            "/bin/sh", "/bin/bash", "/bin/zsh",
+            "/usr/bin/bash", "/usr/bin/zsh", "/usr/local/bin/zsh"
+        };
         const char* env_shell = std::getenv("SHELL");
         if (env_shell && env_shell[0] != '\0') {
-            return env_shell;
+            std::string candidate(env_shell);
+            for (const auto* allowed : ALLOWED_SHELLS) {
+                if (candidate == allowed && std::filesystem::exists(candidate)) {
+                    return candidate;
+                }
+            }
+            // $SHELL is set but not in the allowlist; fall through to defaults
         }
-        // Fallback
-        if (std::filesystem::exists("/bin/zsh")) return "/bin/zsh";
+        // Fallback to first available preferred shell
+        if (std::filesystem::exists("/bin/zsh"))  return "/bin/zsh";
         if (std::filesystem::exists("/bin/bash")) return "/bin/bash";
         return "/bin/sh";
     }();

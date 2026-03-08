@@ -1,5 +1,6 @@
 #include <turbot/core/tool/builtin/glob_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include "fs_tool_common.hpp"
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <algorithm>
@@ -11,27 +12,6 @@ namespace turbot::core::tool::builtin {
 namespace {
 
 constexpr size_t DEFAULT_LIMIT = 100;
-
-/// Check if a path should be ignored (common ignore patterns)
-bool should_ignore(const std::filesystem::path& path) {
-    static const std::vector<std::string> ignore_patterns = {
-        "node_modules", ".git", "__pycache__", "dist", "build",
-        "target", "vendor", "bin", "obj", ".idea", ".vscode",
-        ".zig-cache", "zig-out", ".coverage", "coverage",
-        "tmp", "temp", ".cache", "cache", "logs",
-        ".venv", "venv", "env"
-    };
-    
-    for (const auto& part : path) {
-        std::string part_str = part.string();
-        for (const auto& pattern : ignore_patterns) {
-            if (part_str == pattern) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
 
 } // anonymous namespace
 

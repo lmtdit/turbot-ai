@@ -14,23 +14,34 @@ bool validate_schema(const nlohmann::json& data, const nlohmann::json& schema) {
 
     // 检查type
     if (schema.contains("type")) {
-        std::string type = schema["type"];
-        bool type_valid = false;
+        // JSON Schema allows "type" to be a string OR an array of strings.
+        // Guard against type_error when the value is not a plain string.
+        if (!schema["type"].is_string() && !schema["type"].is_array()) {
+            return false;  // malformed schema
+        }
 
-        if (type == "string" && data.is_string()) {
-            type_valid = true;
-        } else if (type == "number" && (data.is_number_integer() || data.is_number_float())) {
-            type_valid = true;
-        } else if (type == "integer" && data.is_number_integer()) {
-            type_valid = true;
-        } else if (type == "boolean" && data.is_boolean()) {
-            type_valid = true;
-        } else if (type == "array" && data.is_array()) {
-            type_valid = true;
-        } else if (type == "object" && data.is_object()) {
-            type_valid = true;
-        } else if (type == "null" && data.is_null()) {
-            type_valid = true;
+        auto check_single_type = [&](const std::string& type) -> bool {
+            if (type == "string")  return data.is_string();
+            if (type == "number")  return data.is_number_integer() || data.is_number_float();
+            if (type == "integer") return data.is_number_integer();
+            if (type == "boolean") return data.is_boolean();
+            if (type == "array")   return data.is_array();
+            if (type == "object")  return data.is_object();
+            if (type == "null")    return data.is_null();
+            return false;
+        };
+
+        bool type_valid = false;
+        if (schema["type"].is_string()) {
+            type_valid = check_single_type(schema["type"].get<std::string>());
+        } else {
+            // array of types: valid if data matches any
+            for (const auto& t : schema["type"]) {
+                if (t.is_string() && check_single_type(t.get<std::string>())) {
+                    type_valid = true;
+                    break;
+                }
+            }
         }
 
         if (!type_valid) {

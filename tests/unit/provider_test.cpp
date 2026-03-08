@@ -509,7 +509,8 @@ TEST_CASE("ProviderConfig::to_json", "[provider][config]") {
 
     auto j = config.to_json();
 
-    REQUIRE(j["api_key"] == "sk-test");
+    // api_key is masked in to_json() output to prevent credential leakage
+    REQUIRE(j["api_key"] == "***");
     REQUIRE(j["base_url"] == "https://api.test.com");
     REQUIRE(j["organization"] == "org-123");
     REQUIRE(j["timeout_seconds"] == 30);

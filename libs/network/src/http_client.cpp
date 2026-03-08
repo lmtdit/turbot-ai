@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstring>
 #include <mutex>
+#include <shared_mutex>
 #include <sstream>
 #include <unordered_map>
 
@@ -17,20 +18,30 @@ namespace turbot::network {
 
 namespace {
 
-std::once_flag curl_init_flag;
-
-void ensure_curl_initialized() {
-    std::call_once(curl_init_flag, []() {
+// RAII guard for curl_global_init / curl_global_cleanup.
+// Using a function-local static ensures that:
+//   1. Initialization happens exactly once (thread-safe in C++11).
+//   2. The destructor runs at the end of static-storage lifetime, AFTER all
+//      other static objects that were constructed after this one – the exact
+//      opposite order from std::atexit(), which fires BEFORE static dtors.
+//      This means any static/global HttpClient will be destroyed first, then
+//      curl_global_cleanup() is called, avoiding use-after-free.
+struct CurlGlobalGuard {
+    CurlGlobalGuard() {
         CURLcode res = curl_global_init(CURL_GLOBAL_DEFAULT);
         if (res != CURLE_OK) {
             throw std::runtime_error(std::string("Failed to initialize libcurl: ") +
                                      curl_easy_strerror(res));
         }
-        // Register cleanup at program exit
-        std::atexit([]() {
-            curl_global_cleanup();
-        });
-    });
+    }
+    ~CurlGlobalGuard() { curl_global_cleanup(); }
+};
+
+void ensure_curl_initialized() {
+    // The static local is initialized once and destroyed in reverse construction
+    // order relative to other static locals, giving deterministic cleanup.
+    static CurlGlobalGuard guard;
+    (void)guard;
 }
 
 } // anonymous namespace
@@ -220,6 +231,11 @@ static HttpHeaders parse_headers(const std::string& header_string) {
 
 class HttpClient::Impl {
 public:
+    // Config mutex: protects all configuration members below.
+    // Use shared_mutex so concurrent reads (do_request) don't block each other;
+    // writes (set_timeout, set_default_header, etc.) take an exclusive lock.
+    mutable std::shared_mutex config_mutex_;
+
     int default_timeout_ = 30;
     bool ssl_verify_ = true;
     std::string user_agent_ = "TurbotAI/1.0";
@@ -239,6 +255,21 @@ public:
     HttpResponse do_request(const HttpRequest& req, StreamCallback* stream_callback = nullptr) {
         auto start_time = std::chrono::steady_clock::now();
         
+        // Snapshot configuration under a shared lock so that concurrent
+        // set_timeout() / set_default_header() calls don't race with the read.
+        int snapshot_timeout;
+        bool snapshot_ssl_verify;
+        std::string snapshot_user_agent;
+        std::string snapshot_proxy;
+        std::unordered_map<std::string, std::string> snapshot_default_headers;
+        {
+            std::shared_lock<std::shared_mutex> cfg_lock(config_mutex_);
+            snapshot_timeout        = default_timeout_;
+            snapshot_ssl_verify     = ssl_verify_;
+            snapshot_user_agent     = user_agent_;
+            snapshot_proxy          = proxy_;
+            snapshot_default_headers = default_headers_;
+        }
         HttpResponse response;
         CurlData curl_data;
         curl_data.stream_callback = stream_callback;
@@ -263,7 +294,7 @@ public:
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method_str.c_str());
         
         // Set timeout
-        int timeout = req.timeout_seconds > 0 ? req.timeout_seconds : default_timeout_;
+        int timeout = req.timeout_seconds > 0 ? req.timeout_seconds : snapshot_timeout;
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout);
         
@@ -309,7 +340,7 @@ public:
         }
         
         // Add default headers (if not already present)
-        for (const auto& [key, value] : default_headers_) {
+        for (const auto& [key, value] : snapshot_default_headers) {
             bool found = false;
             for (const auto& [k, v] : req.headers) {
                 if (iequals(k, key)) {
@@ -330,7 +361,7 @@ public:
         raw_headers = nullptr;
         
         // Set User-Agent
-        curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent_.c_str());
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, snapshot_user_agent.c_str());
         
         // Set headers
         if (headers_guard) {
@@ -348,13 +379,13 @@ public:
         }
         
         // Set proxy
-        if (!proxy_.empty()) {
-            curl_easy_setopt(curl, CURLOPT_PROXY, proxy_.c_str());
+        if (!snapshot_proxy.empty()) {
+            curl_easy_setopt(curl, CURLOPT_PROXY, snapshot_proxy.c_str());
         }
         
         // Set SSL verification
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, ssl_verify_ ? 1L : 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, ssl_verify_ ? 2L : 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, snapshot_ssl_verify ? 1L : 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, snapshot_ssl_verify ? 2L : 0L);
         
         // Set callbacks
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body_callback);
@@ -479,25 +510,34 @@ std::future<HttpResponse> HttpClient::post_async(std::string_view url, std::stri
 }
 
 void HttpClient::set_timeout(int seconds) {
+    std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->default_timeout_ = seconds;
     TURBOT_LOG_DEBUG("HTTP timeout set to {} seconds", seconds);
 }
 
 void HttpClient::set_default_header(std::string_view name, std::string_view value) {
+    std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->default_headers_[std::string(name)] = std::string(value);
 }
 
 void HttpClient::set_proxy(std::string_view proxy) {
+    std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->proxy_ = std::string(proxy);
     TURBOT_LOG_DEBUG("HTTP proxy set to: {}", proxy);
 }
 
 void HttpClient::set_ssl_verify(bool verify) {
+    std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->ssl_verify_ = verify;
-    TURBOT_LOG_DEBUG("SSL verification set to: {}", verify);
+    if (!verify) {
+        TURBOT_LOG_WARN("SSL certificate verification DISABLED – do NOT use in production!");
+    } else {
+        TURBOT_LOG_DEBUG("SSL verification enabled");
+    }
 }
 
 void HttpClient::set_user_agent(std::string_view user_agent) {
+    std::unique_lock<std::shared_mutex> lock(impl_->config_mutex_);
     impl_->user_agent_ = std::string(user_agent);
 }
 

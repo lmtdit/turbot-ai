@@ -66,18 +66,18 @@ void SessionLoop::set_on_error(ErrorCallback callback) {
 }
 
 LoopResult SessionLoop::run(const std::string& user_message) {
-    running_ = true;
-    stop_requested_ = false;
+    running_.store(true, std::memory_order_relaxed);
+    stop_requested_.store(false, std::memory_order_relaxed);
     abort_flag_->store(false, std::memory_order_relaxed);
-    iteration_count_ = 0;
+    iteration_count_.store(0, std::memory_order_relaxed);
     
     // Process the user message
     LoopResult result = process_user_message(user_message);
     
     // Main loop
     while (result == LoopResult::Continue && 
-           !stop_requested_ && 
-           iteration_count_ < config_.max_iterations) {
+           !stop_requested_.load(std::memory_order_relaxed) && 
+           iteration_count_.load(std::memory_order_relaxed) < config_.max_iterations) {
         
         // Check for abort
         if (abort_flag_->load(std::memory_order_relaxed)) {
@@ -85,17 +85,17 @@ LoopResult SessionLoop::run(const std::string& user_message) {
         }
         
         result = step();
-        iteration_count_++;
+        iteration_count_.fetch_add(1, std::memory_order_relaxed);
         
         // Check for compaction
         if (result == LoopResult::Compact && config_.auto_compact) {
             session_.compact();
-            token_count_ = 0;  // Reset token count after compaction
+            token_count_.store(0, std::memory_order_relaxed);  // Reset token count after compaction
             result = LoopResult::Continue;
         }
     }
     
-    running_ = false;
+    running_.store(false, std::memory_order_relaxed);
     return result;
 }
 
@@ -107,7 +107,8 @@ LoopResult SessionLoop::step() {
     // 3. Execute any tool calls
     // 4. Add results to messages
     
-    if (stop_requested_ || iteration_count_ >= config_.max_iterations) {
+    if (stop_requested_.load(std::memory_order_relaxed) || 
+        iteration_count_.load(std::memory_order_relaxed) >= config_.max_iterations) {
         return LoopResult::Stop;
     }
     
@@ -132,14 +133,14 @@ LoopResult SessionLoop::step() {
         }
         
         // Update token count
-        token_count_ += estimate_tokens(result.output);
+        token_count_.fetch_add(estimate_tokens(result.output), std::memory_order_relaxed);
     }
     
     return LoopResult::Continue;
 }
 
 void SessionLoop::stop() {
-    stop_requested_ = true;
+    stop_requested_.store(true, std::memory_order_relaxed);
     abort_flag_->store(true, std::memory_order_relaxed);
 }
 
@@ -154,7 +155,7 @@ LoopResult SessionLoop::process_user_message(const std::string& content) {
     messages_.push_back(user_msg);
     
     // Update token count
-    token_count_ += estimate_tokens(content);
+    token_count_.fetch_add(estimate_tokens(content), std::memory_order_relaxed);
     
     // Callback
     if (on_message_) {
@@ -185,7 +186,7 @@ LoopResult SessionLoop::process_tool_call(const std::string& tool_name, const nl
     // Build execution context
     tool::ToolContext ctx;
     ctx.session_id = session_.id();
-    ctx.message_id = fmt::format("msg_{}", iteration_count_);
+    ctx.message_id = fmt::format("msg_{}", iteration_count_.load(std::memory_order_relaxed));
     ctx.agent = agent_ ? agent_->name() : "unknown";
     ctx.abort_flag = abort_flag_;
     
@@ -198,13 +199,13 @@ LoopResult SessionLoop::process_tool_call(const std::string& tool_name, const nl
     }
     
     // Update token count
-    token_count_ += estimate_tokens(result.output);
+    token_count_.fetch_add(estimate_tokens(result.output), std::memory_order_relaxed);
     
     return LoopResult::Continue;
 }
 
 bool SessionLoop::needs_compaction() const noexcept {
-    return token_count_ >= config_.compact_threshold;
+    return token_count_.load(std::memory_order_relaxed) >= config_.compact_threshold;
 }
 
 int SessionLoop::estimate_tokens(const std::string& text) noexcept {

@@ -398,7 +398,8 @@ bool ChatResponse::has_tool_calls() const {
 
 nlohmann::json ProviderConfig::to_json() const {
     nlohmann::json j = {
-        {"api_key", api_key},
+        // Mask api_key to prevent accidental credential leakage in logs/responses
+        {"api_key", api_key.empty() ? "" : "***"},
         {"base_url", base_url},
         {"organization", organization},
         {"timeout_seconds", timeout_seconds},
