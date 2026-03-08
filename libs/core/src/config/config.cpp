@@ -1,7 +1,9 @@
 #include <turbot/core/config/config.hpp>
 #include <turbot/core/common/logger.hpp>
-#include "turbot/utils/json_utils.hpp"
-#include "turbot/utils/string_utils.hpp"
+#include <turbot/utils/json_utils.hpp>
+#include <turbot/utils/string_utils.hpp>
+#include <turbot/utils/crypto_utils.hpp>
+#include <turbot/utils/env_utils.hpp>
 
 #include <fstream>
 #include <algorithm>
@@ -20,34 +22,7 @@ using namespace turbot::utils;
 
 namespace turbot::core {
 
-namespace {
-    /**
-     * @brief 转换环境变量键为配置键
-     * @param env_key 环境变量键（如"TURBOT_DATABASE_HOST"）
-     * @param prefix 前缀（如"TURBOT_"）
-     * @return 配置键（如"database.host"）
-     */
-    std::string env_key_to_config_key(const std::string& env_key, const std::string& prefix) {
-        if (env_key.size() <= prefix.size()) {
-            return "";
-        }
-
-        std::string key = env_key.substr(prefix.size());
-        std::string result;
-
-        for (char c : key) {
-            if (c == '_') {
-                result += '.';
-            } else if (std::isupper(c)) {
-                result += static_cast<char>(std::tolower(c));
-            } else {
-                result += c;
-            }
-        }
-
-        return result;
-    }
-}
+// 直接使用 utils 命名空间的 env_key_to_config_key 函数
 
 Config& Config::instance() {
     static Config instance;
@@ -100,7 +75,7 @@ void Config::load_from_env(const std::string& prefix) {
         // 检查是否匹配前缀
         if (key.size() > prefix.size() &&
             key.substr(0, prefix.size()) == prefix) {
-            std::string config_key = env_key_to_config_key(key, prefix);
+            std::string config_key = utils::env_key_to_config_key(key, prefix);
             if (!config_key.empty()) {
                 // 尝试解析值
                 nlohmann::json json_value;
@@ -111,7 +86,7 @@ void Config::load_from_env(const std::string& prefix) {
                 }
 
                 // 设置值
-                auto parts = split_key(config_key);
+                auto parts = json::split_path(config_key);
                 nlohmann::json* target = &config_;
 
                 for (size_t j = 0; j < parts.size() - 1; ++j) {
@@ -148,7 +123,7 @@ void Config::save(const std::string& file_path) {
 std::string Config::watch(const std::string& key, ChangeCallback callback) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    std::string watch_id = generate_uuid();
+    std::string watch_id = crypto::generate_uuid();
     watchers_[key].emplace_back(watch_id, callback);
 
     TURBOT_LOG_DEBUG("Registered watcher for key: {}", key);
@@ -181,7 +156,7 @@ bool Config::has(const std::string& key) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     nlohmann::json value = config_;
-    auto parts = split_key(key);
+    auto parts = json::split_path(key);
 
     for (const auto& part : parts) {
         if (value.contains(part)) {
@@ -197,7 +172,7 @@ bool Config::has(const std::string& key) const {
 bool Config::remove(const std::string& key) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    auto parts = split_key(key);
+    auto parts = json::split_path(key);
     if (parts.empty()) {
         return false;
     }
@@ -232,28 +207,6 @@ void Config::clear() {
     config_.clear();
     watchers_.clear();
     TURBOT_LOG_INFO("Cleared all config");
-}
-
-std::vector<std::string> Config::split_key(const std::string& key) {
-    std::vector<std::string> parts;
-    std::string current;
-
-    for (char c : key) {
-        if (c == '.') {
-            if (!current.empty()) {
-                parts.push_back(current);
-                current.clear();
-            }
-        } else {
-            current += c;
-        }
-    }
-
-    if (!current.empty()) {
-        parts.push_back(current);
-    }
-
-    return parts;
 }
 
 void Config::notify_change(const std::string& key,

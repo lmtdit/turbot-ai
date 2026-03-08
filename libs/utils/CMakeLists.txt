@@ -8,6 +8,7 @@ set(UTILS_SOURCES
     src/file_utils.cpp
     src/json_utils.cpp
     src/crypto_utils.cpp
+    src/env_utils.cpp
 )
 
 # Header files
@@ -16,6 +17,7 @@ set(UTILS_HEADERS
     include/turbot/utils/file_utils.hpp
     include/turbot/utils/json_utils.hpp
     include/turbot/utils/crypto_utils.hpp
+    include/turbot/utils/env_utils.hpp
     include/turbot/utils/export.hpp
 )
 
@@ -37,11 +39,8 @@ turbot_configure_target(${LIBRARY_NAME})
 turbot_configure_sanitizers(${LIBRARY_NAME})
 turbot_configure_coverage(${LIBRARY_NAME})
 
-# Dependencies
-target_link_libraries(${LIBRARY_NAME}
-    PUBLIC
-        turbot::core
-)
+# Dependencies - 注意：utils 是基础库，不依赖 turbot::core 避免循环依赖
+# 如果需要 core 中的功能，应在 core 层实现
 
 find_package(fmt REQUIRED)
 target_link_libraries(${LIBRARY_NAME}

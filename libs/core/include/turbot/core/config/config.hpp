@@ -2,6 +2,8 @@
 
 #include <turbot/core/common/export.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/utils/json_utils.hpp>
+#include <turbot/utils/crypto_utils.hpp>
 #include <nlohmann/json.hpp>
 #include <functional>
 #include <optional>
@@ -71,7 +73,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
 
         nlohmann::json value = config_;
-        auto parts = split_key(key);
+        auto parts = utils::json::split_path(key);
 
         for (const auto& part : parts) {
             if (value.contains(part)) {
@@ -117,7 +119,7 @@ public:
             std::lock_guard<std::mutex> lock(mutex_);
 
             nlohmann::json current = config_;
-            auto parts = split_key(key);
+            auto parts = utils::json::split_path(key);
 
             nlohmann::json* target = &current;
             for (size_t i = 0; i < parts.size() - 1; ++i) {
@@ -198,13 +200,6 @@ public:
 private:
     Config() = default;
     ~Config() = default;
-
-    /**
-     * @brief 分割配置键
-     * @param key 配置键
-     * @return 分割后的键部分
-     */
-    static std::vector<std::string> split_key(const std::string& key);
 
     /**
      * @brief 通知配置变化

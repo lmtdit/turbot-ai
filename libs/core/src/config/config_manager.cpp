@@ -1,5 +1,8 @@
 #include <turbot/core/config/config_manager.hpp>
 #include <turbot/utils/string_utils.hpp>
+#include <turbot/utils/json_utils.hpp>
+#include <turbot/utils/crypto_utils.hpp>
+#include <turbot/utils/env_utils.hpp>
 #include <fstream>
 #include <sstream>
 #include <random>
@@ -172,26 +175,14 @@ nlohmann::json parse_simple_yaml(const std::string& yaml_content) {
     return result;
 }
 
-// ========== 环境变量辅助函数 ==========
+// ========== 环境变量辅助函数（已移至 turbot::utils::env_utils） ==========
 
-/**
- * @brief 获取环境变量值
- */
-std::string get_env_var(const std::string& name) {
-    const char* value = std::getenv(name.c_str());
-    return value ? std::string(value) : "";
-}
-
-/**
- * @brief 设置环境变量
- */
-void set_env_var(const std::string& name, const std::string& value) {
-#ifdef _WIN32
-    _putenv_s(name.c_str(), value.c_str());
-#else
-    setenv(name.c_str(), value.c_str(), 1);
-#endif
-}
+// 使用 using 引入 utils 命名空间的函数
+using turbot::utils::get_env;
+using turbot::utils::json::merge;
+using turbot::utils::json::split_path;
+using turbot::utils::crypto::generate_uuid;
+using turbot::utils::resolve_env_refs;
 
 } // namespace
 
@@ -220,7 +211,7 @@ std::vector<LoadResult> ConfigManager::initialize() {
     LoadResult user_result = load_config_internal(ConfigLevel::User);
     if (user_result.success) {
         user_config_ = load_json_content(user_result.path);
-        merged_config_ = deep_merge(merged_config_, user_config_);
+        merged_config_ = merge_config_with_append(merged_config_, user_config_);
     }
     results.push_back(user_result);
 
@@ -228,7 +219,7 @@ std::vector<LoadResult> ConfigManager::initialize() {
     LoadResult project_result = load_config_internal(ConfigLevel::Project);
     if (project_result.success) {
         project_config_ = load_json_content(project_result.path);
-        merged_config_ = deep_merge(merged_config_, project_config_);
+        merged_config_ = merge_config_with_append(merged_config_, project_config_);
     }
     results.push_back(project_result);
 
@@ -328,7 +319,7 @@ void ConfigManager::load_env_overrides() {
     };
 
     for (const auto& [env_name, config_path] : env_mappings) {
-        std::string value = get_env_var(env_name);
+        std::string value = get_env(env_name);
         if (!value.empty()) {
             // 尝试解析为 JSON（支持布尔值和数字）
             try {
@@ -379,7 +370,7 @@ void ConfigManager::load_env_overrides() {
 }
 
 void ConfigManager::set_by_path(nlohmann::json& config, const std::string& path, const nlohmann::json& value) {
-    auto parts = split_key(path);
+    auto parts = split_path(path);
     if (parts.empty()) {
         return;
     }
@@ -465,11 +456,11 @@ void ConfigManager::reload() {
     merged_config_ = default_config_;
 
     if (!user_config_.is_null()) {
-        merged_config_ = deep_merge(merged_config_, user_config_);
+        merged_config_ = merge_config_with_append(merged_config_, user_config_);
     }
 
     if (!project_config_.is_null()) {
-        merged_config_ = deep_merge(merged_config_, project_config_);
+        merged_config_ = merge_config_with_append(merged_config_, project_config_);
     }
 
     load_env_overrides();
@@ -491,7 +482,7 @@ std::string ConfigManager::get_config_path(ConfigLevel level) const {
         case ConfigLevel::Default:
             return "(compiled-in)";
         case ConfigLevel::User: {
-            std::string env_path = get_env_var("TURBOT_USER_CONFIG_PATH");
+            std::string env_path = get_env("TURBOT_USER_CONFIG_PATH");
             if (!env_path.empty()) {
                 return env_path + "/turbot.json";
             }
@@ -502,7 +493,7 @@ std::string ConfigManager::get_config_path(ConfigLevel level) const {
             return std::string(home ? home : "") + "/.turbot/turbot.json";
         }
         case ConfigLevel::Project: {
-            std::string env_path = get_env_var("TURBOT_PROJECT_CONFIG_PATH");
+            std::string env_path = get_env("TURBOT_PROJECT_CONFIG_PATH");
             if (!env_path.empty()) {
                 return env_path + "/turbot.json";
             }
@@ -519,7 +510,7 @@ std::string ConfigManager::get_extension_path(ConfigLevel level, ExtensionType t
 
     switch (level) {
         case ConfigLevel::User: {
-            std::string env_path = get_env_var("TURBOT_USER_CONFIG_PATH");
+            std::string env_path = get_env("TURBOT_USER_CONFIG_PATH");
             if (!env_path.empty()) {
                 base_path = env_path;
             } else {
@@ -532,7 +523,7 @@ std::string ConfigManager::get_extension_path(ConfigLevel level, ExtensionType t
             break;
         }
         case ConfigLevel::Project: {
-            std::string env_path = get_env_var("TURBOT_PROJECT_CONFIG_PATH");
+            std::string env_path = get_env("TURBOT_PROJECT_CONFIG_PATH");
             if (!env_path.empty()) {
                 base_path = env_path;
             } else {
@@ -607,7 +598,7 @@ bool ConfigManager::has(const std::string& key) const {
     std::lock_guard<std::mutex> lock(mutex_);
 
     nlohmann::json value = merged_config_;
-    auto parts = split_key(key);
+    auto parts = split_path(key);
 
     for (const auto& part : parts) {
         if (value.contains(part)) {
@@ -761,7 +752,7 @@ std::string ConfigManager::resolve_env_vars(const std::string& value) const {
         std::string var_name = match[1].str();
         std::string default_value = match[2].matched ? match[2].str() : "";
 
-        std::string env_value = get_env_var(var_name);
+        std::string env_value = get_env(var_name);
         if (env_value.empty()) {
             env_value = default_value;
         }
@@ -806,19 +797,19 @@ void ConfigManager::merge_config(const nlohmann::json& config, ConfigLevel level
 
     switch (level) {
         case ConfigLevel::User:
-            user_config_ = deep_merge(user_config_, config);
+            user_config_ = merge_config_with_append(user_config_, config);
             break;
         case ConfigLevel::Project:
-            project_config_ = deep_merge(project_config_, config);
+            project_config_ = merge_config_with_append(project_config_, config);
             break;
         default:
             break;
     }
 
-    merged_config_ = deep_merge(merged_config_, config);
+    merged_config_ = merge_config_with_append(merged_config_, config);
 }
 
-nlohmann::json ConfigManager::deep_merge(const nlohmann::json& base, const nlohmann::json& override) {
+nlohmann::json ConfigManager::merge_config_with_append(const nlohmann::json& base, const nlohmann::json& override) {
     if (!base.is_object() || !override.is_object()) {
         return override;
     }
@@ -836,7 +827,7 @@ nlohmann::json ConfigManager::deep_merge(const nlohmann::json& base, const nlohm
             }
         } else if (result.contains(key) && result[key].is_object() && value.is_object()) {
             // 递归合并对象
-            result[key] = deep_merge(result[key], value);
+            result[key] = merge_config_with_append(result[key], value);
         } else {
             // 直接替换
             result[key] = value;
@@ -844,61 +835,6 @@ nlohmann::json ConfigManager::deep_merge(const nlohmann::json& base, const nlohm
     }
 
     return result;
-}
-
-std::vector<std::string> ConfigManager::split_key(const std::string& key) {
-    std::vector<std::string> parts;
-    std::string current;
-
-    for (char c : key) {
-        if (c == '.') {
-            if (!current.empty()) {
-                parts.push_back(current);
-                current.clear();
-            }
-        } else {
-            current += c;
-        }
-    }
-
-    if (!current.empty()) {
-        parts.push_back(current);
-    }
-
-    return parts;
-}
-
-std::string ConfigManager::generate_uuid() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0, 15);
-    static std::uniform_int_distribution<> dis2(8, 11);
-
-    std::stringstream ss;
-    ss << std::hex;
-
-    for (int i = 0; i < 8; i++) {
-        ss << dis(gen);
-    }
-    ss << "-";
-    for (int i = 0; i < 4; i++) {
-        ss << dis(gen);
-    }
-    ss << "-4";  // UUID version 4
-    for (int i = 0; i < 3; i++) {
-        ss << dis(gen);
-    }
-    ss << "-";
-    ss << dis2(gen);  // UUID variant
-    for (int i = 0; i < 3; i++) {
-        ss << dis(gen);
-    }
-    ss << "-";
-    for (int i = 0; i < 12; i++) {
-        ss << dis(gen);
-    }
-
-    return ss.str();
 }
 
 std::string ConfigManager::extension_type_to_dir(ExtensionType type) {

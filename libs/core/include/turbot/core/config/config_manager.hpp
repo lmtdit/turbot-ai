@@ -2,6 +2,7 @@
 
 #include <turbot/core/common/export.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/utils/json_utils.hpp>
 #include <nlohmann/json.hpp>
 #include <functional>
 #include <optional>
@@ -165,7 +166,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
 
         nlohmann::json value = merged_config_;
-        auto parts = split_key(key);
+        auto parts = utils::json::split_path(key);
 
         for (const auto& part : parts) {
             if (value.contains(part)) {
@@ -221,7 +222,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
 
         nlohmann::json current = merged_config_;
-        auto parts = split_key(key);
+        auto parts = utils::json::split_path(key);
 
         nlohmann::json* target = &current;
         for (size_t i = 0; i < parts.size() - 1; ++i) {
@@ -294,14 +295,8 @@ private:
     /// 合并配置到当前配置
     void merge_config(const nlohmann::json& config, ConfigLevel level);
 
-    /// 深度合并两个 JSON 对象
-    static nlohmann::json deep_merge(const nlohmann::json& base, const nlohmann::json& override);
-
-    /// 分割配置键
-    static std::vector<std::string> split_key(const std::string& key);
-
-    /// 生成 UUID
-    static std::string generate_uuid();
+    /// 深度合并两个 JSON 对象（支持 _append 后缀的数组追加）
+    static nlohmann::json merge_config_with_append(const nlohmann::json& base, const nlohmann::json& override);
 
     /// 获取扩展类型目录名
     static std::string extension_type_to_dir(ExtensionType type);

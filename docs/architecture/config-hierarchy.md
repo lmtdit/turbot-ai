@@ -150,22 +150,26 @@ std::string project_config_path() {
 
 ```json
 {
-  "region_config": {
-    "preferred_inference_node": {
-      "endpoint": "https://api.turbot.ai",
-      "latency": 0
+  "$schema": "https://turbot.ai/config.json",
+  "model": "anthropic/claude-sonnet-4",
+  "small_model": "anthropic/claude-haiku-4",
+  "provider": {
+    "anthropic": {
+      "name": "Anthropic",
+      "env": ["ANTHROPIC_API_KEY"],
+      "options": {
+        "baseURL": "https://api.anthropic.com/v1",
+        "timeout": 300000
+      }
     },
-    "fallback_endpoints": {}
-  },
-  "ui": {
-    "locale": "zh-cn",
-    "theme": "dark"
-  },
-  "telemetry": {
-    "enabled": true,
-    "crash_reporter_id": "uuid"
-  },
-  "providers": []
+    "openai": {
+      "name": "OpenAI",
+      "env": ["OPENAI_API_KEY"],
+      "options": {
+        "baseURL": "https://api.openai.com/v1"
+      }
+    }
+  }
 }
 ```
 
@@ -173,85 +177,142 @@ std::string project_config_path() {
 
 ```json
 {
-  "version": "1.0",
-  "turbot": {
-    "debug": false,
-    "log_level": "info"
-  },
-  "providers": [
-    {
-      "name": "openai",
-      "type": "openai",
-      "api_key": "${OPENAI_API_KEY}",
-      "base_url": "https://api.openai.com/v1",
-      "models": ["gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"],
-      "default_model": "gpt-4",
-      "enabled": true
-    },
-    {
-      "name": "anthropic",
-      "type": "anthropic",
-      "api_key": "${ANTHROPIC_API_KEY}",
-      "models": ["claude-3-opus", "claude-3-sonnet"],
-      "default_model": "claude-3-sonnet",
-      "enabled": true
-    },
-    {
-      "name": "azure",
-      "type": "azure",
-      "api_key": "${AZURE_OPENAI_API_KEY}",
-      "base_url": "${AZURE_OPENAI_ENDPOINT}",
-      "api_version": "2024-02-15-preview",
-      "enabled": true
-    },
-    {
-      "name": "ollama",
-      "type": "ollama",
-      "base_url": "http://localhost:11434",
-      "models": ["llama2", "codellama"],
-      "enabled": true
-    },
-    {
-      "name": "zhipu",
-      "type": "zhipu",
-      "api_key": "${ZHIPU_API_KEY}",
-      "models": ["glm-4", "glm-4-flash"],
-      "enabled": false
-    }
-  ],
-  "permissions": {
-    "mode": "ask",
-    "rules": [
-      {
-        "pattern": "read:*",
-        "action": "allow"
+  "$schema": "https://turbot.ai/config.json",
+  "model": "openai/gpt-4o",
+  "small_model": "openai/gpt-4o-mini",
+  "provider": {
+    "openai": {
+      "name": "OpenAI",
+      "env": ["OPENAI_API_KEY"],
+      "whitelist": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"],
+      "options": {
+        "baseURL": "https://api.openai.com/v1",
+        "timeout": 300000
       },
-      {
-        "pattern": "write:./**",
-        "action": "allow"
-      },
-      {
-        "pattern": "bash:npm install*",
-        "action": "allow"
-      },
-      {
-        "pattern": "bash:rm -rf*",
-        "action": "deny"
+      "models": {
+        "gpt-4o": {
+          "name": "GPT-4o",
+          "tool_call": true,
+          "attachment": true,
+          "temperature": true,
+          "reasoning": false,
+          "limit": { "context": 128000, "output": 16384 }
+        },
+        "gpt-4o-mini": {
+          "name": "GPT-4o Mini",
+          "tool_call": true,
+          "limit": { "context": 128000, "output": 16384 }
+        }
       }
-    ]
+    },
+    "anthropic": {
+      "name": "Anthropic",
+      "env": ["ANTHROPIC_API_KEY"],
+      "options": {
+        "baseURL": "https://api.anthropic.com/v1"
+      }
+    },
+    "azure": {
+      "name": "Azure OpenAI",
+      "env": ["AZURE_OPENAI_API_KEY"],
+      "options": {
+        "apiKey": "${AZURE_OPENAI_API_KEY}",
+        "baseURL": "${AZURE_OPENAI_ENDPOINT}",
+        "useCompletionUrls": true
+      }
+    },
+    "ollama": {
+      "name": "Ollama (Local)",
+      "env": [],
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "llama3.1": {
+          "name": "Llama 3.1",
+          "tool_call": true,
+          "limit": { "context": 128000, "output": 4096 }
+        },
+        "codellama": {
+          "name": "Code Llama",
+          "tool_call": false,
+          "limit": { "context": 16384, "output": 4096 }
+        }
+      }
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "env": ["DEEPSEEK_API_KEY"],
+      "options": {
+        "baseURL": "https://api.deepseek.com/v1",
+        "apiKey": "${DEEPSEEK_API_KEY}"
+      },
+      "models": {
+        "deepseek-chat": {
+          "name": "DeepSeek Chat",
+          "tool_call": true,
+          "limit": { "context": 64000, "output": 4096 }
+        },
+        "deepseek-reasoner": {
+          "name": "DeepSeek Reasoner",
+          "tool_call": true,
+          "reasoning": true,
+          "limit": { "context": 64000, "output": 8192 }
+        }
+      }
+    },
+    "zhipu": {
+      "name": "智谱 AI",
+      "env": ["ZHIPU_API_KEY"],
+      "options": {
+        "baseURL": "https://open.bigmodel.cn/api/paas/v4",
+        "apiKey": "${ZHIPU_API_KEY}"
+      }
+    },
+    "bailian": {
+      "name": "阿里云百炼",
+      "env": ["DASHSCOPE_API_KEY"],
+      "options": {
+        "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "apiKey": "${DASHSCOPE_API_KEY}"
+      }
+    },
+    "kimi": {
+      "name": "Kimi (月之暗面)",
+      "env": ["MOONSHOT_API_KEY"],
+      "options": {
+        "baseURL": "https://api.moonshot.cn/v1",
+        "apiKey": "${MOONSHOT_API_KEY}"
+      }
+    },
+    "minimax": {
+      "name": "MiniMax",
+      "env": ["MINIMAX_API_KEY", "MINIMAX_GROUP_ID"],
+      "options": {
+        "baseURL": "https://api.minimax.chat/v1",
+        "apiKey": "${MINIMAX_API_KEY}",
+        "groupId": "${MINIMAX_GROUP_ID}"
+      }
+    }
   },
-  "agents": {
-    "default": "build",
-    "enabled": ["build", "plan", "explore", "custom_*"]
+  "agent": {
+    "build": {
+      "model": "anthropic/claude-sonnet-4",
+      "steps": 50,
+      "permission": { "edit": "allow", "bash": "ask" }
+    },
+    "plan": {
+      "model": "anthropic/claude-sonnet-4",
+      "steps": 20
+    },
+    "title": {
+      "model": "openai/gpt-4o-mini"
+    }
   },
-  "session": {
-    "max_history": 100,
-    "auto_save": true,
-    "timeout_seconds": 300
-  },
-  "tools": {
-    "enabled": ["read_file", "write_file", "bash", "search"],
-    "disabled": []
+  "permission": {
+    "edit": "ask",
+    "bash": "ask",
+    "read": "allow"
   }
 }
 ```
@@ -636,38 +697,91 @@ private:
 ```cpp
 nlohmann::json ConfigManager::get_default_config() const {
     return {
-        {"version", "1.0"},
-        {"turbot", {
-            {"debug", false},
-            {"log_level", "info"},
-            {"log_path", "$PROJECT/.turbot/logs"}
+        {"$schema", "https://turbot.ai/config.json"},
+        {"model", nullptr},  // 需用户配置
+        {"small_model", nullptr},
+        {"provider", {
+            // Anthropic (Claude)
+            {"anthropic", {
+                {"name", "Anthropic"},
+                {"env", {"ANTHROPIC_API_KEY"}},
+                {"options", {
+                    {"baseURL", "https://api.anthropic.com/v1"},
+                    {"timeout", 300000}
+                }}
+            }},
+            // OpenAI (GPT)
+            {"openai", {
+                {"name", "OpenAI"},
+                {"env", {"OPENAI_API_KEY"}},
+                {"options", {
+                    {"baseURL", "https://api.openai.com/v1"},
+                    {"timeout", 300000}
+                }}
+            }},
+            // Google AI (Gemini)
+            {"google", {
+                {"name", "Google AI"},
+                {"env", {"GOOGLE_API_KEY"}},
+                {"options", {
+                    {"baseURL", "https://generativelanguage.googleapis.com/v1beta"}
+                }}
+            }},
+            // Azure OpenAI
+            {"azure", {
+                {"name", "Azure OpenAI"},
+                {"env", {"AZURE_OPENAI_API_KEY"}},
+                {"options", {
+                    {"baseURL", nullptr}  // 需配置
+                }}
+            }},
+            // DeepSeek
+            {"deepseek", {
+                {"name", "DeepSeek"},
+                {"env", {"DEEPSEEK_API_KEY"}},
+                {"options", {
+                    {"baseURL", "https://api.deepseek.com/v1"}
+                }}
+            }},
+            // OpenRouter
+            {"openrouter", {
+                {"name", "OpenRouter"},
+                {"env", {"OPENROUTER_API_KEY"}},
+                {"options", {
+                    {"baseURL", "https://openrouter.ai/api/v1"},
+                    {"headers", {
+                        {"HTTP-Referer", "https://turbot.ai/"},
+                        {"X-Title", "turbot"}
+                    }}
+                }}
+            }},
+            // Ollama (本地)
+            {"ollama", {
+                {"name", "Ollama"},
+                {"env", nlohmann::json::array()},
+                {"options", {
+                    {"baseURL", "http://localhost:11434/v1"}
+                }}
+            }}
         }},
-        {"providers", {
-            {
-                {"name", "openai"},
-                {"type", "openai"},
-                {"api_key", "${OPENAI_API_KEY}"},
-                {"base_url", "https://api.openai.com/v1"},
-                {"default_model", "gpt-4"},
-                {"enabled", true}
-            }
+        {"agent", {
+            {"build", {
+                {"steps", 50},
+                {"mode", "primary"}
+            }},
+            {"plan", {
+                {"steps", 20},
+                {"mode", "primary"}
+            }},
+            {"explore", {
+                {"mode", "subagent"},
+                {"hidden", false}
+            }}
         }},
-        {"permissions", {
-            {"mode", "ask"},
-            {"rules", nlohmann::json::array()}
-        }},
-        {"agents", {
-            {"default", "build"},
-            {"enabled", {"build", "plan", "explore"}}
-        }},
-        {"session", {
-            {"max_history", 100},
-            {"auto_save", true},
-            {"timeout_seconds", 300}
-        }},
-        {"tools", {
-            {"enabled", {"read_file", "write_file", "bash", "search"}},
-            {"disabled", nlohmann::json::array()}
+        {"permission", {
+            {"read", "allow"},
+            {"edit", "ask"},
+            {"bash", "ask"}
         }}
     };
 }
@@ -675,12 +789,12 @@ nlohmann::json ConfigManager::get_default_config() const {
 
 ### 7.2 安全默认值
 
-| 配置项              | 默认值   | 说明                     |
-| ------------------- | -------- | ------------------------ |
-| `permissions.mode`  | `"ask"`  | 默认询问用户确认         |
-| `permissions.rules` | `[]`     | 无额外规则，由 mode 控制 |
-| `turbot.debug`      | `false`  | 生产环境安全             |
-| `turbot.log_level`  | `"info"` | 合理的日志级别           |
+| 配置项              | 默认值  | 说明                    |
+| ------------------- | ------- | ----------------------- |
+| `permission.read`   | `allow` | 读取操作默认允许        |
+| `permission.edit`   | `ask`   | 编辑操作默认询问        |
+| `permission.bash`   | `ask`   | Bash 命令默认询问       |
+| `agent.build.steps` | `50`    | 构建 Agent 最大迭代次数 |
 
 ## 8. 配置合并策略
 
@@ -746,22 +860,36 @@ nlohmann::json merge_config(const nlohmann::json& base, const nlohmann::json& ov
 | `TURBOT_CONFIG_PATH`         | -                  | 自定义配置根目录 |
 | `TURBOT_USER_CONFIG_PATH`    | -                  | 用户配置目录     |
 | `TURBOT_PROJECT_CONFIG_PATH` | -                  | 项目配置目录     |
-| `TURBOT_PERMISSIONS_MODE`    | `permissions.mode` | 权限模式         |
+| `TURBOT_PERMISSIONS_MODE`    | `permission.mode`  | 权限模式         |
 
 #### AI Provider API 密钥
 
-| 环境变量                | 配置路径                            | 说明                     |
-| ----------------------- | ----------------------------------- | ------------------------ |
-| `OPENAI_API_KEY`        | `providers[name=openai].api_key`    | OpenAI API 密钥          |
-| `ANTHROPIC_API_KEY`     | `providers[name=anthropic].api_key` | Anthropic API 密钥       |
-| `AZURE_OPENAI_API_KEY`  | `providers[name=azure].api_key`     | Azure OpenAI API 密钥    |
-| `AZURE_OPENAI_ENDPOINT` | `providers[name=azure].base_url`    | Azure OpenAI 端点        |
-| `DASHSCOPE_API_KEY`     | `providers[name=bailian].api_key`   | 阿里云百炼 API 密钥      |
-| `ZHIPU_API_KEY`         | `providers[name=zhipu].api_key`     | 智谱 AI API 密钥         |
-| `DEEPSEEK_API_KEY`      | `providers[name=deepseek].api_key`  | DeepSeek API 密钥        |
-| `MOONSHOT_API_KEY`      | `providers[name=kimi].api_key`      | Kimi (月之暗面) API 密钥 |
-| `MINIMAX_API_KEY`       | `providers[name=minimax].api_key`   | Minimax API 密钥         |
-| `MINIMAX_GROUP_ID`      | `providers[name=minimax].group_id`  | Minimax Group ID         |
+| 环境变量                | Provider ID      | 说明                     |
+| ----------------------- | ---------------- | ------------------------ |
+| `ANTHROPIC_API_KEY`     | `anthropic`      | Anthropic API 密钥       |
+| `OPENAI_API_KEY`        | `openai`         | OpenAI API 密钥          |
+| `AZURE_OPENAI_API_KEY`  | `azure`          | Azure OpenAI API 密钥    |
+| `AZURE_OPENAI_ENDPOINT` | `azure`          | Azure OpenAI 端点        |
+| `GOOGLE_API_KEY`        | `google`         | Google AI API 密钥       |
+| `GOOGLE_CLOUD_PROJECT`  | `google-vertex`  | Google Cloud 项目        |
+| `AWS_ACCESS_KEY_ID`     | `amazon-bedrock` | AWS 访问密钥 ID          |
+| `AWS_REGION`            | `amazon-bedrock` | AWS 区域                 |
+| `DASHSCOPE_API_KEY`     | `bailian`        | 阿里云百炼 API 密钥      |
+| `ZHIPU_API_KEY`         | `zhipu`          | 智谱 AI API 密钥         |
+| `DEEPSEEK_API_KEY`      | `deepseek`       | DeepSeek API 密钥        |
+| `MOONSHOT_API_KEY`      | `kimi`           | Kimi (月之暗面) API 密钥 |
+| `MINIMAX_API_KEY`       | `minimax`        | Minimax API 密钥         |
+| `MINIMAX_GROUP_ID`      | `minimax`        | Minimax Group ID         |
+| `OPENROUTER_API_KEY`    | `openrouter`     | OpenRouter API 密钥      |
+| `GROQ_API_KEY`          | `groq`           | Groq API 密钥            |
+| `MISTRAL_API_KEY`       | `mistral`        | Mistral API 密钥         |
+| `XAI_API_KEY`           | `xai`            | xAI API 密钥             |
+| `COHERE_API_KEY`        | `cohere`         | Cohere API 密钥          |
+| `PERPLEXITY_API_KEY`    | `perplexity`     | Perplexity API 密钥      |
+| `CEREBRAS_API_KEY`      | `cerebras`       | Cerebras API 密钥        |
+| `DEEPINFRA_API_KEY`     | `deepinfra`      | DeepInfra API 密钥       |
+| `TOGETHER_API_KEY`      | `togetherai`     | Together AI API 密钥     |
+| `GITHUB_TOKEN`          | `github-copilot` | GitHub Token (Copilot)   |
 
 ### 9.2 配置值中的环境变量引用
 
@@ -946,62 +1074,396 @@ void RuleRegistry::load_rules(const std::string& path) {
 }
 ```
 
-## 12. 配置验证
+## 12. Provider 与 Model 配置规范
 
-### 12.1 JSON Schema 验证
+### 12.1 Provider 配置结构
+
+与 OpenCode 保持一致，Provider 配置采用 Record 结构：
+
+```typescript
+interface ProviderConfig {
+  // 提供商名称（显示用）
+  name?: string
+
+  // API Key 环境变量名列表
+  env?: string[]
+
+  // NPM 包名（用于动态加载 SDK）
+  npm?: string
+
+  // API 端点
+  api?: string
+
+  // 配置选项
+  options?: {
+    apiKey?: string
+    baseURL?: string
+    timeout?: number | false // 毫秒，false 表示禁用超时
+    headers?: Record<string, string>
+    [key: string]: any
+  }
+
+  // 模型白名单（可选）
+  whitelist?: string[]
+
+  // 模型黑名单（可选）
+  blacklist?: string[]
+
+  // 模型配置覆盖
+  models?: Record<string, ModelConfig>
+}
+```
+
+### 12.2 Model 配置结构
+
+```typescript
+interface ModelConfig {
+  // 模型 ID（API 调用用）
+  id?: string
+
+  // 模型名称（显示用）
+  name?: string
+
+  // 模型家族
+  family?: string
+
+  // 能力配置
+  tool_call?: boolean // 支持工具调用
+  reasoning?: boolean // 支持推理/思维链
+  attachment?: boolean // 支持附件（图片等）
+  temperature?: boolean // 支持 temperature 参数
+  interleaved?: boolean | { field: string } // 支持交错输出
+
+  // 输入输出模态
+  modalities?: {
+    input?: ('text' | 'audio' | 'image' | 'video' | 'pdf')[]
+    output?: ('text' | 'audio' | 'image' | 'video' | 'pdf')[]
+  }
+
+  // 成本配置
+  cost?: {
+    input: number // 输入每百万 token 价格（美元）
+    output: number // 输出每百万 token 价格（美元）
+    cache_read?: number // 缓存读取价格
+    cache_write?: number // 缓存写入价格
+  }
+
+  // 上下文限制
+  limit: {
+    context: number // 最大上下文长度
+    input?: number // 最大输入长度
+    output: number // 最大输出长度
+  }
+
+  // 模型状态
+  status?: 'alpha' | 'beta' | 'deprecated' | 'active'
+
+  // 发布日期
+  release_date?: string
+
+  // 模型变体
+  variants?: Record<string, Record<string, any>>
+
+  // 自定义选项
+  options?: Record<string, any>
+  headers?: Record<string, string>
+}
+```
+
+### 12.3 支持的 Provider 列表
+
+#### 主流云服务
+
+| Provider ID      | 名称             | 环境变量               | 默认端点                                  |
+| ---------------- | ---------------- | ---------------------- | ----------------------------------------- |
+| `anthropic`      | Anthropic        | `ANTHROPIC_API_KEY`    | https://api.anthropic.com                 |
+| `openai`         | OpenAI           | `OPENAI_API_KEY`       | https://api.openai.com                    |
+| `google`         | Google AI        | `GOOGLE_API_KEY`       | https://generativelanguage.googleapis.com |
+| `google-vertex`  | Google Vertex AI | `GOOGLE_CLOUD_PROJECT` | https://aiplatform.googleapis.com         |
+| `azure`          | Azure OpenAI     | `AZURE_OPENAI_API_KEY` | (需配置)                                  |
+| `amazon-bedrock` | Amazon Bedrock   | `AWS_ACCESS_KEY_ID`    | (按区域)                                  |
+
+#### 国内服务商
+
+| Provider ID | 名称            | 环境变量            | 默认端点                       |
+| ----------- | --------------- | ------------------- | ------------------------------ |
+| `deepseek`  | DeepSeek        | `DEEPSEEK_API_KEY`  | https://api.deepseek.com       |
+| `zhipu`     | 智谱 AI         | `ZHIPU_API_KEY`     | https://open.bigmodel.cn       |
+| `bailian`   | 阿里云百炼      | `DASHSCOPE_API_KEY` | https://dashscope.aliyuncs.com |
+| `kimi`      | Kimi (月之暗面) | `MOONSHOT_API_KEY`  | https://api.moonshot.cn        |
+| `minimax`   | MiniMax         | `MINIMAX_API_KEY`   | https://api.minimax.chat       |
+| `qwen`      | 通义千问        | `DASHSCOPE_API_KEY` | https://dashscope.aliyuncs.com |
+
+#### 聚合平台
+
+| Provider ID  | 名称           | 环境变量             | 说明                  |
+| ------------ | -------------- | -------------------- | --------------------- |
+| `openrouter` | OpenRouter     | `OPENROUTER_API_KEY` | 多提供商聚合          |
+| `vercel`     | Vercel AI      | `VERCEL_API_KEY`     | Vercel AI Gateway     |
+| `gateway`    | AI SDK Gateway | -                    | Vercel AI SDK Gateway |
+
+#### 其他服务商
+
+| Provider ID  | 名称        | 环境变量             |
+| ------------ | ----------- | -------------------- |
+| `mistral`    | Mistral AI  | `MISTRAL_API_KEY`    |
+| `groq`       | Groq        | `GROQ_API_KEY`       |
+| `xai`        | xAI         | `XAI_API_KEY`        |
+| `cohere`     | Cohere      | `COHERE_API_KEY`     |
+| `perplexity` | Perplexity  | `PERPLEXITY_API_KEY` |
+| `cerebras`   | Cerebras    | `CEREBRAS_API_KEY`   |
+| `deepinfra`  | DeepInfra   | `DEEPINFRA_API_KEY`  |
+| `togetherai` | Together AI | `TOGETHER_API_KEY`   |
+
+#### 本地部署
+
+| Provider ID | 名称      | 说明                |
+| ----------- | --------- | ------------------- |
+| `ollama`    | Ollama    | 本地模型运行        |
+| `lmstudio`  | LM Studio | 本地模型运行        |
+| `localai`   | LocalAI   | OpenAI 兼容本地服务 |
+
+#### 企业服务
+
+| Provider ID                 | 名称                      | 环境变量             |
+| --------------------------- | ------------------------- | -------------------- |
+| `github-copilot`            | GitHub Copilot            | `GITHUB_TOKEN`       |
+| `github-copilot-enterprise` | GitHub Copilot Enterprise | (OAuth)              |
+| `gitlab`                    | GitLab Duo                | `GITLAB_TOKEN`       |
+| `sap-ai-core`               | SAP AI Core               | `AICORE_SERVICE_KEY` |
+
+### 12.4 模型选择语法
+
+模型选择使用 `{provider_id}/{model_id}` 格式：
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4",
+  "small_model": "openai/gpt-4o-mini"
+}
+```
+
+支持模型变体（variants）：
+
+```json
+{
+  "model": "anthropic/claude-sonnet-4/high" // high 变体
+}
+```
+
+### 12.5 自定义 Provider 配置示例
+
+添加一个全新的自定义 Provider：
+
+```json
+{
+  "provider": {
+    "my-custom-provider": {
+      "name": "My Custom Provider",
+      "npm": "@ai-sdk/openai-compatible",
+      "env": ["MY_CUSTOM_API_KEY"],
+      "api": "https://api.custom.com/v1",
+      "options": {
+        "apiKey": "${MY_CUSTOM_API_KEY}",
+        "baseURL": "https://api.custom.com/v1"
+      },
+      "models": {
+        "custom-model-1": {
+          "name": "Custom Model 1",
+          "tool_call": true,
+          "reasoning": true,
+          "attachment": true,
+          "limit": { "context": 32000, "output": 4096 }
+        }
+      }
+    }
+  }
+}
+```
+
+## 13. 配置验证
+
+### 13.1 JSON Schema 验证
 
 ```json
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
-  "required": ["version"],
   "properties": {
-    "version": {
+    "$schema": { "type": "string" },
+    "model": {
       "type": "string",
-      "pattern": "^\\d+\\.\\d+$"
+      "description": "默认模型，格式: provider/model"
     },
-    "providers": {
-      "type": "array",
-      "items": {
+    "small_model": {
+      "type": "string",
+      "description": "小型模型，用于简单任务"
+    },
+    "default_agent": {
+      "type": "string",
+      "description": "默认 Agent"
+    },
+    "provider": {
+      "type": "object",
+      "description": "Provider 配置",
+      "additionalProperties": {
         "type": "object",
-        "required": ["name", "type"],
         "properties": {
           "name": { "type": "string" },
-          "type": {
-            "type": "string",
-            "enum": [
-              "openai",
-              "anthropic",
-              "azure",
-              "ollama",
-              "zhipu",
-              "kimi",
-              "bailian",
-              "iflow",
-              "custom"
-            ]
-          },
-          "api_key": { "type": "string" },
-          "base_url": { "type": "string", "format": "uri" },
-          "enabled": { "type": "boolean" }
-        }
-      }
-    },
-    "permissions": {
-      "type": "object",
-      "properties": {
-        "mode": { "type": "string", "enum": ["allow", "deny", "ask"] },
-        "rules": {
-          "type": "array",
-          "items": {
+          "env": { "type": "array", "items": { "type": "string" } },
+          "npm": { "type": "string" },
+          "api": { "type": "string", "format": "uri" },
+          "whitelist": { "type": "array", "items": { "type": "string" } },
+          "blacklist": { "type": "array", "items": { "type": "string" } },
+          "options": {
             "type": "object",
-            "required": ["pattern", "action"],
             "properties": {
-              "pattern": { "type": "string" },
-              "action": { "type": "string", "enum": ["allow", "deny", "ask"] }
+              "apiKey": { "type": "string" },
+              "baseURL": { "type": "string", "format": "uri" },
+              "timeout": {
+                "oneOf": [
+                  { "type": "integer", "minimum": 1 },
+                  { "type": "boolean", "const": false }
+                ]
+              },
+              "headers": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              }
+            },
+            "additionalProperties": true
+          },
+          "models": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "required": ["limit"],
+              "properties": {
+                "id": { "type": "string" },
+                "name": { "type": "string" },
+                "family": { "type": "string" },
+                "tool_call": { "type": "boolean", "default": true },
+                "reasoning": { "type": "boolean", "default": false },
+                "attachment": { "type": "boolean", "default": false },
+                "temperature": { "type": "boolean", "default": true },
+                "modalities": {
+                  "type": "object",
+                  "properties": {
+                    "input": { "type": "array", "items": { "type": "string" } },
+                    "output": { "type": "array", "items": { "type": "string" } }
+                  }
+                },
+                "cost": {
+                  "type": "object",
+                  "properties": {
+                    "input": { "type": "number" },
+                    "output": { "type": "number" },
+                    "cache_read": { "type": "number" },
+                    "cache_write": { "type": "number" }
+                  }
+                },
+                "limit": {
+                  "type": "object",
+                  "required": ["context", "output"],
+                  "properties": {
+                    "context": { "type": "integer", "minimum": 1 },
+                    "input": { "type": "integer", "minimum": 1 },
+                    "output": { "type": "integer", "minimum": 1 }
+                  }
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["alpha", "beta", "deprecated", "active"],
+                  "default": "active"
+                }
+              }
             }
           }
         }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "description": "Agent 配置",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "model": { "type": "string" },
+          "steps": { "type": "integer", "minimum": 1 },
+          "temperature": { "type": "number", "minimum": 0, "maximum": 2 },
+          "prompt": { "type": "string" },
+          "mode": { "type": "string", "enum": ["primary", "subagent", "all"] },
+          "permission": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": ["ask", "allow", "deny"]
+            }
+          }
+        }
+      }
+    },
+    "permission": {
+      "type": "object",
+      "description": "权限配置",
+      "properties": {
+        "read": { "type": "string", "enum": ["ask", "allow", "deny"] },
+        "edit": { "type": "string", "enum": ["ask", "allow", "deny"] },
+        "bash": { "type": "string", "enum": ["ask", "allow", "deny"] }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          { "type": "string", "enum": ["ask", "allow", "deny"] },
+          {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": ["ask", "allow", "deny"]
+            }
+          }
+        ]
+      }
+    },
+    "mcp": {
+      "type": "object",
+      "description": "MCP 服务器配置",
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "const": "local" },
+              "command": { "type": "array", "items": { "type": "string" } },
+              "environment": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "enabled": { "type": "boolean" },
+              "timeout": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["type", "command"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": { "type": "string", "const": "remote" },
+              "url": { "type": "string", "format": "uri" },
+              "headers": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "enabled": { "type": "boolean" },
+              "timeout": { "type": "integer", "minimum": 1 }
+            },
+            "required": ["type", "url"]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "enabled": { "type": "boolean" }
+            }
+          }
+        ]
       }
     }
   }
@@ -1012,29 +1474,38 @@ void RuleRegistry::load_rules(const std::string& path) {
 
 ```cpp
 bool ConfigManager::validate_config(const nlohmann::json& config) const {
-    // 检查版本兼容性
-    if (!config.contains("version")) {
-        TURBOT_LOG_ERROR("Config missing required field: version");
-        return false;
-    }
-
     // 验证 provider 配置
-    if (config.contains("providers")) {
-        for (const auto& provider : config["providers"]) {
-            if (!provider.contains("name") || !provider.contains("type")) {
-                TURBOT_LOG_ERROR("Provider config missing required fields");
-                return false;
+    if (config.contains("provider")) {
+        for (const auto& [provider_id, provider] : config["provider"].items()) {
+            // 验证 provider 有名称
+            if (!provider.contains("name")) {
+                TURBOT_LOG_WARN("Provider {} missing name field", provider_id);
+            }
+
+            // 验证模型配置
+            if (provider.contains("models")) {
+                for (const auto& [model_id, model] : provider["models"].items()) {
+                    if (!model.contains("limit")) {
+                        TURBOT_LOG_ERROR("Model {}/{} missing required field: limit",
+                                        provider_id, model_id);
+                        return false;
+                    }
+                }
             }
         }
     }
 
-    // 验证权限规则
-    if (config.contains("permissions")) {
-        auto& perms = config["permissions"];
-        if (!perms["mode"].is_string() ||
-            !std::set{"allow", "deny", "ask"}.contains(perms["mode"])) {
-            TURBOT_LOG_ERROR("Invalid permission mode: {}", perms["mode"]);
-            return false;
+    // 验证权限配置
+    if (config.contains("permission")) {
+        auto& perms = config["permission"];
+        for (const auto& [key, value] : perms.items()) {
+            if (value.is_string()) {
+                std::string mode = value.get<std::string>();
+                if (mode != "allow" && mode != "deny" && mode != "ask") {
+                    TURBOT_LOG_ERROR("Invalid permission mode for {}: {}", key, mode);
+                    return false;
+                }
+            }
         }
     }
 
@@ -1083,53 +1554,123 @@ private:
 
 ```json
 {
-  "version": "1.0"
+  "$schema": "https://turbot.ai/config.json",
+  "model": "anthropic/claude-sonnet-4"
 }
 ```
 
-### 14.2 完整项目配置
+### 14.2 使用 OpenRouter 聚合多个 Provider
 
 ```json
 {
-  "version": "1.0",
-  "turbot": {
-    "debug": true,
-    "log_level": "debug"
-  },
-  "providers": [
-    {
-      "name": "openai",
-      "type": "openai",
-      "api_key": "${OPENAI_API_KEY}",
-      "default_model": "gpt-4-turbo",
-      "enabled": true
+  "$schema": "https://turbot.ai/config.json",
+  "model": "openrouter/anthropic/claude-sonnet-4",
+  "provider": {
+    "openrouter": {
+      "options": {
+        "apiKey": "${OPENROUTER_API_KEY}",
+        "baseURL": "https://openrouter.ai/api/v1"
+      }
+    }
+  }
+}
+```
+
+### 14.3 完整项目配置（含国内服务商）
+
+```json
+{
+  "$schema": "https://turbot.ai/config.json",
+  "model": "anthropic/claude-sonnet-4",
+  "small_model": "deepseek/deepseek-chat",
+  "default_agent": "build",
+  "provider": {
+    "anthropic": {
+      "name": "Anthropic",
+      "whitelist": ["claude-sonnet-4", "claude-haiku-4", "claude-opus-4"]
     },
-    {
-      "name": "local",
-      "type": "ollama",
-      "base_url": "http://localhost:11434",
-      "default_model": "codellama",
+    "openai": {
+      "name": "OpenAI",
+      "options": {
+        "timeout": 600000
+      },
+      "blacklist": ["gpt-3.5-turbo"]
+    },
+    "deepseek": {
+      "name": "DeepSeek",
+      "env": ["DEEPSEEK_API_KEY"],
+      "options": {
+        "apiKey": "${DEEPSEEK_API_KEY}",
+        "baseURL": "https://api.deepseek.com/v1"
+      },
+      "models": {
+        "deepseek-chat": {
+          "name": "DeepSeek Chat",
+          "tool_call": true,
+          "limit": { "context": 64000, "output": 8192 }
+        },
+        "deepseek-reasoner": {
+          "name": "DeepSeek Reasoner",
+          "tool_call": true,
+          "reasoning": true,
+          "limit": { "context": 64000, "output": 8192 }
+        }
+      }
+    },
+    "zhipu": {
+      "name": "智谱 AI",
+      "env": ["ZHIPU_API_KEY"],
+      "options": {
+        "apiKey": "${ZHIPU_API_KEY}",
+        "baseURL": "https://open.bigmodel.cn/api/paas/v4"
+      }
+    },
+    "ollama": {
+      "name": "Ollama (Local)",
+      "options": {
+        "baseURL": "http://localhost:11434/v1"
+      },
+      "models": {
+        "llama3.1:latest": {
+          "name": "Llama 3.1",
+          "tool_call": true,
+          "limit": { "context": 128000, "output": 4096 }
+        }
+      }
+    }
+  },
+  "agent": {
+    "build": {
+      "model": "anthropic/claude-sonnet-4",
+      "steps": 50,
+      "permission": { "edit": "allow", "bash": "ask" }
+    },
+    "plan": {
+      "model": "anthropic/claude-sonnet-4",
+      "steps": 20
+    },
+    "explore": {
+      "model": "deepseek/deepseek-chat",
+      "mode": "subagent",
+      "hidden": false
+    },
+    "title": {
+      "model": "deepseek/deepseek-chat",
+      "steps": 5
+    }
+  },
+  "permission": {
+    "read": "allow",
+    "edit": "ask",
+    "bash": "ask",
+    "webfetch": "allow"
+  },
+  "mcp": {
+    "filesystem": {
+      "type": "local",
+      "command": ["mcp-server-filesystem", "/path/to/allowed/dir"],
       "enabled": true
     }
-  ],
-  "permissions": {
-    "mode": "ask",
-    "rules": [
-      { "pattern": "read:*", "action": "allow" },
-      { "pattern": "write:./src/**", "action": "allow" },
-      { "pattern": "write:./**", "action": "ask" },
-      { "pattern": "bash:npm*", "action": "allow" },
-      { "pattern": "bash:rm*", "action": "deny" }
-    ]
-  },
-  "agents": {
-    "default": "custom_builder",
-    "enabled": ["build", "plan", "explore", "custom_*"]
-  },
-  "session": {
-    "max_history": 200,
-    "auto_save": true,
-    "timeout_seconds": 600
   }
 }
 ```
@@ -1188,8 +1729,8 @@ ConfigManager::instance().save_config(ConfigLevel::Project);
    - `libs/core/include/turbot/core/config/config_manager.hpp`
    - `libs/core/src/config/config_manager.cpp`
 2. ✅ 实现三级配置加载逻辑（Default → User → Project → 环境变量）
-3. ✅ 实现配置合并策略（深度合并、_append 后缀数组追加）
-4. ✅ 实现环境变量覆盖（TURBOT_*, API Key 映射）
+3. ✅ 实现配置合并策略（深度合并、\_append 后缀数组追加）
+4. ✅ 实现环境变量覆盖（TURBOT\_\*, API Key 映射）
 5. ✅ 实现配置验证（version, providers, permissions）
 6. ✅ 实现 YAML Frontmatter 解析
 7. ✅ 实现扩展模块加载（Agent, Skill, Rule, Event, Extension）
@@ -1214,18 +1755,18 @@ ConfigManager::instance().save_config(ConfigLevel::Project);
 
 **已实现文件：**
 
-| 文件路径 | 说明 |
-|---------|------|
+| 文件路径                                                  | 说明                 |
+| --------------------------------------------------------- | -------------------- |
 | `libs/core/include/turbot/core/config/config_manager.hpp` | ConfigManager 头文件 |
-| `libs/core/src/config/config_manager.cpp` | ConfigManager 实现 |
-| `tests/unit/config_manager_test.cpp` | 单元测试 |
+| `libs/core/src/config/config_manager.cpp`                 | ConfigManager 实现   |
+| `tests/unit/config_manager_test.cpp`                      | 单元测试             |
 
 **修改文件：**
 
-| 文件路径 | 说明 |
-|---------|------|
-| `libs/core/CMakeLists.txt` | 添加新源文件 |
-| `tests/CMakeLists.txt` | 添加独立测试目标 |
+| 文件路径                   | 说明             |
+| -------------------------- | ---------------- |
+| `libs/core/CMakeLists.txt` | 添加新源文件     |
+| `tests/CMakeLists.txt`     | 添加独立测试目标 |
 
 ## 17. 相关文档
 
