@@ -64,7 +64,8 @@ libs/core/
 │   │   ├── logger.hpp       # 日志系统
 │   │   └── version.hpp      # 版本信息
 │   ├── config/              # 配置模块 ✓ 已实现
-│   │   └── config.hpp       # 配置管理
+│   │   ├── config.hpp       # 配置管理
+│   │   └── config_manager.hpp # 配置分级管理
 │   ├── event/               # 事件模块 ✓ 已实现
 │   │   └── event_bus.hpp    # 事件总线
 │   ├── message/             # 消息系统 ✓ 已实现
@@ -96,16 +97,66 @@ libs/core/
 │   │       ├── build_agent.hpp
 │   │       ├── plan_agent.hpp
 │   │       └── explore_agent.hpp
-│   └── session/             # 会话系统 ✓ 已实现
-│       ├── session.hpp      # Session、SessionInfo、SessionState
-│       ├── session_state_machine.hpp
-│       └── session_loop.hpp # SessionLoop（会话主循环）
+│   ├── session/             # 会话系统 ✓ 已实现
+│   │   ├── session.hpp      # Session、SessionInfo、SessionState
+│   │   ├── session_state_machine.hpp
+│   │   └── session_loop.hpp # SessionLoop（会话主循环）
+│   │
+│   │ === v2.0 核心流程完善 ===
+│   │
+│   ├── prompt/              # Prompt生成系统 📋 v2.0
+│   │   ├── system_prompt.hpp    # 系统提示词
+│   │   ├── prompt_builder.hpp   # Prompt构建器
+│   │   └── message_builder.hpp  # 消息构建器
+│   ├── llm/                 # LLM调用层 📋 v2.0
+│   │   ├── stream_event.hpp     # 流式事件类型
+│   │   ├── llm_stream.hpp       # LLM流式调用
+│   │   └── tool_schema.hpp      # 工具Schema定义
+│   ├── session/             # 会话系统扩展 📋 v2.0
+│   │   ├── agent_loop.hpp       # Agent主循环
+│   │   ├── retry.hpp            # 错误重试
+│   │   ├── compaction.hpp       # 会话压缩
+│   │   └── doom_loop.hpp        # 死循环检测
+│   ├── skill/               # Skill系统 📋 v2.0
+│   │   ├── skill.hpp            # Skill管理器
+│   │   ├── discovery.hpp        # Skill发现
+│   │   └── skill_tool.hpp       # Skill工具
+│   │
+│   │ === v3.0 协议系统 ===
+│   │
+│   ├── mcp/                 # MCP协议 📋 v3.0
+│   │   ├── mcp.hpp              # MCP核心
+│   │   ├── client.hpp           # MCP客户端
+│   │   ├── resource.hpp         # 资源定义
+│   │   ├── transport/           # 传输层
+│   │   │   ├── transport.hpp
+│   │   │   ├── stdio_transport.hpp
+│   │   │   ├── sse_transport.hpp
+│   │   │   └── http_transport.hpp
+│   │   └── auth/                # 认证
+│   │       ├── oauth_provider.hpp
+│   │       └── auth_manager.hpp
+│   ├── lsp/                 # LSP协议 📋 v3.0
+│   │   ├── lsp.hpp              # LSP核心
+│   │   ├── client.hpp           # LSP客户端
+│   │   ├── server.hpp           # LSP服务器管理
+│   │   └── builtin/             # 内置LSP服务器
+│   │       ├── typescript_server.hpp
+│   │       ├── python_server.hpp
+│   │       └── clangd_server.hpp
+│   └── acp/                 # ACP协议 📋 v3.0
+│       ├── acp.hpp              # ACP核心
+│       ├── agent.hpp            # ACP Agent
+│       ├── session.hpp          # ACP会话
+│       └── server.hpp           # ACP服务器
+│
 └── src/
     ├── common/
     │   ├── logger.cpp
     │   └── version.cpp
     ├── config/
-    │   └── config.cpp
+    │   ├── config.cpp
+    │   └── config_manager.cpp
     ├── event/
     │   └── event_bus.cpp
     ├── message/
@@ -128,17 +179,63 @@ libs/core/
     │       ├── read_file_tool.cpp
     │       ├── write_file_tool.cpp
     │       ├── bash_tool.cpp
-    │       └── task_tool.cpp    # Task工具实现
+    │       └── task_tool.cpp
     ├── agent/
     │   ├── agent.cpp
     │   └── builtin/
     │       ├── build_agent.cpp
     │       ├── plan_agent.cpp
     │       └── explore_agent.cpp
-    └── session/
+    ├── session/
+    │   ├── session.cpp
+    │   ├── session_state_machine.cpp
+    │   └── session_loop.cpp
+    │
+    │ === v2.0 实现 ===
+    │
+    ├── prompt/
+    │   ├── system_prompt.cpp
+    │   ├── prompt_builder.cpp
+    │   └── message_builder.cpp
+    ├── llm/
+    │   ├── stream_event.cpp
+    │   ├── llm_stream.cpp
+    │   └── tool_schema.cpp
+    ├── session/              # 扩展
+    │   ├── agent_loop.cpp
+    │   ├── retry.cpp
+    │   ├── compaction.cpp
+    │   └── doom_loop.cpp
+    ├── skill/
+    │   ├── skill.cpp
+    │   ├── discovery.cpp
+    │   └── skill_tool.cpp
+    │
+    │ === v3.0 实现 ===
+    │
+    ├── mcp/
+    │   ├── mcp.cpp
+    │   ├── client.cpp
+    │   ├── transport/
+    │   │   ├── stdio_transport.cpp
+    │   │   ├── sse_transport.cpp
+    │   │   └── http_transport.cpp
+    │   └── auth/
+    │       ├── oauth_provider.cpp
+    │       └── auth_manager.cpp
+    ├── lsp/
+    │   ├── lsp.cpp
+    │   ├── client.cpp
+    │   ├── server.cpp
+    │   └── builtin/
+    │       ├── typescript_server.cpp
+    │       ├── python_server.cpp
+    │       └── clangd_server.cpp
+    └── acp/
+        ├── acp.cpp
+        ├── agent.cpp
         ├── session.cpp
-        ├── session_state_machine.cpp
-        └── session_loop.cpp  # SessionLoop实现
+        └── server.cpp
 ```
 
 ### 3.2 storage - 存储层
@@ -222,6 +319,9 @@ apps/
 tests/
 ├── CMakeLists.txt
 ├── unit/                    # 单元测试
+│   │
+│   │ === v1.0 已实现 ===
+│   │
 │   ├── config_test.cpp      ✓ config模块测试
 │   ├── event_bus_test.cpp   ✓ event_bus模块测试
 │   ├── logger_test.cpp      ✓ logger模块测试
@@ -241,8 +341,49 @@ tests/
 │   ├── session_test.cpp     ✓ session模块测试
 │   ├── task_tool_test.cpp   ✓ task_tool模块测试 (1.8新增)
 │   └── session_loop_test.cpp ✓ session_loop模块测试 (1.8新增)
-├── integration/             # 集成测试 (计划中)
-│   └── ...
+│   │
+│   │ === v2.0 计划中 ===
+│   │
+│   ├── prompt/              📋 v2.0
+│   │   ├── system_prompt_test.cpp
+│   │   ├── prompt_builder_test.cpp
+│   │   └── message_builder_test.cpp
+│   ├── llm/                 📋 v2.0
+│   │   ├── stream_event_test.cpp
+│   │   ├── llm_stream_test.cpp
+│   │   └── tool_schema_test.cpp
+│   ├── session/             📋 v2.0
+│   │   ├── agent_loop_test.cpp
+│   │   ├── retry_test.cpp
+│   │   ├── compaction_test.cpp
+│   │   └── doom_loop_test.cpp
+│   └── skill/               📋 v2.0
+│       ├── skill_test.cpp
+│       ├── discovery_test.cpp
+│       └── skill_tool_test.cpp
+│   │
+│   │ === v3.0 计划中 ===
+│   │
+│   ├── mcp/                 📋 v3.0
+│   │   ├── mcp_test.cpp
+│   │   ├── client_test.cpp
+│   │   ├── transport_test.cpp
+│   │   └── auth_test.cpp
+│   ├── lsp/                 📋 v3.0
+│   │   ├── lsp_test.cpp
+│   │   ├── client_test.cpp
+│   │   └── server_test.cpp
+│   └── acp/                 📋 v3.0
+│       ├── acp_test.cpp
+│       ├── agent_test.cpp
+│       └── session_test.cpp
+│
+├── integration/             # 集成测试
+│   ├── agent_loop_integration_test.cpp  📋 v2.0
+│   ├── prompt_integration_test.cpp      📋 v2.0
+│   ├── mcp_playwright_test.cpp          📋 v3.0
+│   └── acp_ide_test.cpp                 📋 v3.0
+│
 └── test_integration.cpp     # 测试入口
 ```
 
@@ -283,6 +424,8 @@ docs/
 
 ### 7.2 Plan 与模块映射
 
+#### v1.0 已完成
+
 ```
 Plan 1.1 - 基础架构 ✅ 完成
 ├── libs/utils/           # 独立模块，无外部依赖
@@ -298,14 +441,6 @@ Plan 1.1 - 基础架构 ✅ 完成
 │   ├── config/           # 配置管理
 │   └── event/            # 事件总线
 └── tests/unit/           # 配套单元测试
-    ├── crypto_utils_test.cpp
-    ├── file_utils_test.cpp
-    ├── json_utils_test.cpp
-    ├── string_utils_test.cpp
-    ├── config_test.cpp
-    ├── event_bus_test.cpp
-    ├── logger_test.cpp
-    └── version_test.cpp
 
 Plan 1.2 - 存储层 ✅ 完成
 ├── libs/storage/         # 独立存储模块
@@ -314,15 +449,12 @@ Plan 1.2 - 存储层 ✅ 完成
 │   ├── transaction.hpp   # 事务接口
 │   └── migration.hpp     # 迁移系统
 └── tests/unit/
-    └── storage_test.cpp
 
 Plan 1.3 - 网络层 ✅ 完成
 ├── libs/network/
 │   ├── http_client.hpp   # HTTP客户端
 │   └── url.hpp           # URL解析
 └── tests/unit/
-    ├── http_client_test.cpp
-    └── url_test.cpp
 
 Plan 1.4 - 核心数据模型 ✅ 完成
 ├── libs/core/message/    # 消息系统（独立子模块）
@@ -330,54 +462,183 @@ Plan 1.4 - 核心数据模型 ✅ 完成
 │   ├── part.hpp
 │   └── token_usage.hpp
 └── tests/unit/
-    └── message_test.cpp
 
 Plan 1.5 - Provider系统 ✅ 完成
 ├── libs/core/provider/   # AI提供商（依赖 network）
 │   ├── provider.hpp      # 抽象接口
 │   ├── provider_manager.hpp
 │   └── impl/             # Provider实现
-│       ├── openai_provider.hpp
-│       ├── bailian_provider.hpp
-│       ├── zhipu_provider.hpp
-│       ├── kimi_provider.hpp
-│       └── iflow_provider.hpp
 └── tests/unit/
-    └── provider_test.cpp
 
 Plan 1.6 - 权限和工具系统 ✅ 完成
 ├── libs/core/permission/ # 权限系统（独立）
-│   └── permission.hpp    # PermissionSystem, PermissionRule, Ruleset, PermissionReply
 ├── libs/core/tool/       # 工具系统（独立）
-│   ├── tool.hpp          # Tool接口, ToolResult, ToolContext
-│   ├── tool_registry.hpp # ToolRegistry 注册表
-│   └── builtin/          # 内置工具实现
-│       ├── read_file_tool.hpp
-│       ├── write_file_tool.hpp
-│       └── bash_tool.hpp
 └── tests/unit/
-    ├── permission_test.cpp
-    └── tool_test.cpp
 
 Plan 1.7 - Agent和会话系统 ✅ 完成
 ├── libs/core/agent/      # Agent系统
-│   ├── agent.hpp
-│   └── builtin/
-│       ├── build_agent.hpp
-│       ├── plan_agent.hpp
-│       └── explore_agent.hpp
 ├── libs/core/session/    # 会话系统
-│   ├── session.hpp
-│   └── session_state_machine.hpp
 └── tests/unit/
-    ├── agent_test.cpp
-    └── session_test.cpp
 
-Plan 1.8 - 多Agent协作
+Plan 1.8 - 多Agent协作 ✅ 完成
 ├── libs/core/session/    # 扩展会话循环
-│   └── sub_session.hpp
 ├── apps/turbot-cli/      # CLI应用
 └── apps/turbot-server/   # Server应用
+```
+
+#### v2.0 核心流程完善 (📋 计划中)
+
+```
+Plan 2.1 - Agent字段补充 📋
+├── libs/core/include/turbot/core/agent/agent.hpp
+│   └── 新增字段: prompt, temperature, top_p, steps, color
+└── tests/unit/agent_test.cpp
+
+Plan 2.2 - 系统提示词 📋
+├── libs/core/prompt/
+│   └── system_prompt.hpp  # 系统提示词生成
+└── tests/unit/prompt/
+
+Plan 2.3 - 工具Schema 📋
+├── libs/core/llm/
+│   └── tool_schema.hpp    # 工具JSON Schema定义
+└── tests/unit/llm/
+
+Plan 2.4 - 消息构建器 📋
+├── libs/core/prompt/
+│   └── message_builder.hpp # 消息格式构建
+└── tests/unit/prompt/
+
+Plan 2.5 - Prompt构建 📋
+├── libs/core/prompt/
+│   └── prompt_builder.hpp  # 完整Prompt组装
+└── tests/integration/
+
+Plan 2.6 - 流式事件类型 📋
+├── libs/core/llm/
+│   └── stream_event.hpp    # StreamEvent类型定义
+└── tests/unit/llm/
+
+Plan 2.7 - LLM流式调用 📋
+├── libs/core/llm/
+│   └── llm_stream.hpp      # LLM流式调用接口
+└── tests/unit/llm/
+
+Plan 2.8 - Agent Loop 📋
+├── libs/core/session/
+│   └── agent_loop.hpp      # Agent主循环
+└── tests/integration/
+
+Plan 2.9 - Part系统扩展 📋
+├── libs/core/message/
+│   └── part.hpp            # 扩展Part类型
+└── tests/unit/message/
+
+Plan 2.10 - Token统计 📋
+├── libs/core/message/
+│   └── token_usage.hpp     # 完善Token统计
+└── tests/unit/message/
+
+Plan 2.11 - 死循环检测 📋
+├── libs/core/session/
+│   └── doom_loop.hpp       # 死循环检测
+└── tests/unit/session/
+
+Plan 2.12 - 错误重试 📋
+├── libs/core/session/
+│   └── retry.hpp           # 错误重试机制
+└── tests/unit/session/
+
+Plan 2.13 - 会话压缩 📋
+├── libs/core/session/
+│   └── compaction.hpp      # 会话压缩
+└── tests/unit/session/
+
+Plan 2.14 - Skill发现 📋
+├── libs/core/skill/
+│   ├── skill.hpp           # Skill管理器
+│   └── discovery.hpp       # Skill发现
+└── tests/unit/skill/
+
+Plan 2.15 - Skill工具 📋
+├── libs/core/skill/
+│   └── skill_tool.hpp      # Skill工具实现
+└── tests/unit/skill/
+
+Plan 2.16 - 内置Agent完善 📋
+├── libs/core/agent/builtin/
+│   ├── general_agent.hpp   # 通用Agent
+│   ├── compaction_agent.hpp
+│   ├── title_agent.hpp
+│   └── summary_agent.hpp
+└── tests/unit/agent/
+
+Plan 2.17 - Agent动态加载 📋
+├── libs/core/agent/
+│   └── agent_loader.hpp    # Agent动态加载
+└── tests/unit/agent/
+```
+
+#### v3.0 协议系统开发 (📋 计划中)
+
+```
+Plan 3.1 - MCP核心框架 📋
+├── libs/core/mcp/
+│   ├── mcp.hpp             # MCP核心
+│   ├── client.hpp          # MCP客户端
+│   └── resource.hpp        # 资源定义
+└── tests/unit/mcp/
+
+Plan 3.2 - MCP传输层 📋
+├── libs/core/mcp/transport/
+│   ├── stdio_transport.hpp
+│   ├── sse_transport.hpp
+│   └── http_transport.hpp
+└── tests/unit/mcp/
+
+Plan 3.3 - MCP OAuth认证 📋
+├── libs/core/mcp/auth/
+│   ├── oauth_provider.hpp
+│   └── auth_manager.hpp
+└── tests/unit/mcp/
+
+Plan 3.4 - MCP Playwright集成 📋
+├── config/mcp.json         # Playwright MCP配置
+└── tests/integration/mcp_playwright_test.cpp
+
+Plan 3.5 - LSP Client 📋
+├── libs/core/lsp/
+│   ├── lsp.hpp             # LSP核心
+│   └── client.hpp          # LSP客户端
+└── tests/unit/lsp/
+
+Plan 3.6 - LSP Server管理 📋
+├── libs/core/lsp/
+│   └── server.hpp          # LSP服务器管理
+└── tests/unit/lsp/
+
+Plan 3.7 - LSP内置服务器 📋
+├── libs/core/lsp/builtin/
+│   ├── typescript_server.hpp
+│   ├── python_server.hpp
+│   └── clangd_server.hpp
+└── tests/integration/
+
+Plan 3.8 - ACP Agent 📋
+├── libs/core/acp/
+│   ├── acp.hpp             # ACP核心
+│   └── agent.hpp           # ACP Agent
+└── tests/unit/acp/
+
+Plan 3.9 - ACP Session 📋
+├── libs/core/acp/
+│   └── session.hpp         # ACP会话管理
+└── tests/unit/acp/
+
+Plan 3.10 - ACP IDE集成 📋
+├── libs/core/acp/
+│   └── server.hpp          # ACP服务器
+└── tests/e2e/acp_ide_test.cpp
 ```
 
 ### 7.3 模块依赖隔离策略
@@ -444,6 +705,8 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 
 ## 8. 依赖关系
 
+### 8.1 库依赖关系
+
 ```
                     ┌─────────────┐
                     │    apps     │
@@ -473,6 +736,88 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 - `apps` 可依赖所有库
 - 库之间尽量避免横向依赖
 
+### 8.2 Core 内部模块依赖
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         core 模块依赖                            │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────┐     ┌─────────┐     ┌─────────┐                   │
+│  │ common  │     │ config  │     │  event  │                   │
+│  │ (基础)  │     │ (配置)  │     │ (事件)  │                   │
+│  └────┬────┘     └────┬────┘     └────┬────┘                   │
+│       │               │               │                         │
+│       └───────────────┼───────────────┘                         │
+│                       │                                          │
+│                       ▼                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    message (消息)                        │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                       │                                          │
+│       ┌───────────────┼───────────────┐                         │
+│       │               │               │                         │
+│       ▼               ▼               ▼                         │
+│  ┌─────────┐    ┌──────────┐    ┌──────────┐                   │
+│  │provider │    │permission│    │   tool   │                   │
+│  │(AI提供) │    │ (权限)   │    │ (工具)   │                   │
+│  └────┬────┘    └────┬─────┘    └────┬─────┘                   │
+│       │              │               │                          │
+│       └──────────────┼───────────────┘                          │
+│                      │                                          │
+│                      ▼                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                    agent (代理)                          │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                      │                                          │
+│                      ▼                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │                   session (会话)                         │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  ════════════════ v2.0 新增依赖 ════════════════                │
+│                                                                  │
+│                      ▼                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              prompt (提示词生成) 📋                      │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │    │
+│  │  │system_prompt│  │  message_   │  │   prompt_   │      │    │
+│  │  │             │  │  builder    │  │   builder   │      │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                      │                                          │
+│                      ▼                                          │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │               llm (LLM调用层) 📋                         │    │
+│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │    │
+│  │  │stream_event │  │ llm_stream  │  │ tool_schema │      │    │
+│  │  └─────────────┘  └─────────────┘  └─────────────┘      │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              skill (技能系统) 📋                         │    │
+│  │  ┌─────────────┐  ┌─────────────┐                       │    │
+│  │  │    skill    │  │  discovery  │                       │    │
+│  │  └─────────────┘  └─────────────┘                       │    │
+│  └─────────────────────────────────────────────────────────┘    │
+│                                                                  │
+│  ════════════════ v3.0 新增依赖 ════════════════                │
+│                                                                  │
+│  ┌───────────┐  ┌───────────┐  ┌───────────┐                   │
+│  │    mcp    │  │    lsp    │  │    acp    │  📋              │
+│  │(工具协议) │  │(语言协议) │  │(IDE协议)  │                   │
+│  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘                   │
+│        │              │              │                          │
+│        └──────────────┼──────────────┘                          │
+│                       │                                          │
+│                       ▼                                          │
+│              ┌─────────────┐                                     │
+│              │   session   │ (扩展)                              │
+│              └─────────────┘                                     │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ## 9. CMake 目标命名
 
 | 库      | CMake 目标       | 命名空间          |
@@ -493,25 +838,50 @@ TEST_CASE("Provider::chat", "[core][provider]") {
 
 ## 11. 实现状态
 
-| 模块              | 状态      | 说明                                                                          |
-| ----------------- | --------- | ----------------------------------------------------------------------------- |
-| utils             | ✅ 完成   | crypto_utils, file_utils, json_utils, string_utils                            |
-| core/common       | ✅ 完成   | export, logger, version                                                       |
-| core/config       | ✅ 完成   | 配置管理                                                                      |
-| core/event        | ✅ 完成   | 事件总线                                                                      |
-| core/message      | ✅ 完成   | message, part, token_usage                                                    |
-| core/provider     | ✅ 完成   | provider, provider_manager, 5 个 provider 实现                                |
-| storage           | ✅ 完成   | database, sqlite_database, transaction, migration                             |
-| network           | ✅ 完成   | http_client, url                                                              |
-| core/permission   | ✅ 完成   | 权限系统：PermissionRule、Ruleset、PermissionSystem                           |
-| core/tool         | ✅ 完成   | 工具系统：Tool、ToolRegistry、ReadFileTool、WriteFileTool、BashTool、TaskTool |
-| core/agent        | ✅ 完成   | Agent 系统：Agent、AgentRegistry、BuildAgent、PlanAgent、ExploreAgent         |
-| core/session      | ✅ 完成   | 会话系统：Session、SessionStateMachine、SessionState、SessionLoop             |
-| apps/cli          | ✅ 完成   | 命令行应用：交互式会话、命令处理                                              |
-| apps/server       | ✅ 完成   | 服务器应用：HTTP API、会话管理                                                |
-| network/websocket | 📋 计划中 | WebSocket 客户端                                                              |
-| network/async     | 📋 计划中 | 异步 IO                                                                       |
-| storage/pool      | 📋 计划中 | 连接池                                                                        |
+### v1.0 多 Agent 架构实现 (✅ 已完成)
+
+| 模块            | 状态    | 说明                                                                          |
+| --------------- | ------- | ----------------------------------------------------------------------------- |
+| utils           | ✅ 完成 | crypto_utils, file_utils, json_utils, string_utils                            |
+| core/common     | ✅ 完成 | export, logger, version                                                       |
+| core/config     | ✅ 完成 | 配置管理、配置分级                                                            |
+| core/event      | ✅ 完成 | 事件总线                                                                      |
+| core/message    | ✅ 完成 | message, part, token_usage                                                    |
+| core/provider   | ✅ 完成 | provider, provider_manager, 5 个 provider 实现                                |
+| storage         | ✅ 完成 | database, sqlite_database, transaction, migration                             |
+| network         | ✅ 完成 | http_client, url                                                              |
+| core/permission | ✅ 完成 | 权限系统：PermissionRule、Ruleset、PermissionSystem                           |
+| core/tool       | ✅ 完成 | 工具系统：Tool、ToolRegistry、ReadFileTool、WriteFileTool、BashTool、TaskTool |
+| core/agent      | ✅ 完成 | Agent 系统：Agent、AgentRegistry、BuildAgent、PlanAgent、ExploreAgent         |
+| core/session    | ✅ 完成 | 会话系统：Session、SessionStateMachine、SessionState、SessionLoop             |
+| apps/cli        | ✅ 完成 | 命令行应用：交互式会话、命令处理                                              |
+| apps/server     | ✅ 完成 | 服务器应用：HTTP API、会话管理                                                |
+
+### v2.0 核心流程完善 (📋 计划中)
+
+| 模块              | 状态      | 说明                                      | 计划编号              |
+| ----------------- | --------- | ----------------------------------------- | --------------------- |
+| core/prompt       | 📋 计划中 | 系统提示词、Prompt 构建器、消息构建器     | 2.2, 2.4, 2.5         |
+| core/llm          | 📋 计划中 | 流式事件、LLM 流式调用、工具 Schema       | 2.3, 2.6, 2.7         |
+| core/session 扩展 | 📋 计划中 | Agent Loop、重试、压缩、死循环检测        | 2.8, 2.11, 2.12, 2.13 |
+| core/skill        | 📋 计划中 | Skill 管理器、发现、工具                  | 2.14, 2.15            |
+| core/agent 扩展   | 📋 计划中 | Agent 字段补充、内置 Agent 完善、动态加载 | 2.1, 2.16, 2.17       |
+
+### v3.0 协议系统开发 (📋 计划中)
+
+| 模块     | 状态      | 说明                                 | 计划编号 |
+| -------- | --------- | ------------------------------------ | -------- |
+| core/mcp | 📋 计划中 | MCP 协议：客户端、传输层、OAuth 认证 | 3.1-3.4  |
+| core/lsp | 📋 计划中 | LSP 协议：客户端、服务器管理         | 3.5-3.7  |
+| core/acp | 📋 计划中 | ACP 协议：Agent、Session、IDE 集成   | 3.8-3.10 |
+
+### 网络层扩展 (📋 计划中)
+
+| 模块              | 状态      | 说明             |
+| ----------------- | --------- | ---------------- |
+| network/websocket | 📋 计划中 | WebSocket 客户端 |
+| network/async     | 📋 计划中 | 异步 IO          |
+| storage/pool      | 📋 计划中 | 连接池           |
 
 **状态图例**：
 
