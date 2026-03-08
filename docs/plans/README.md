@@ -32,6 +32,21 @@
 | [2.14-skill-discovery-plan.md](./2.14-skill-discovery-plan.md) | Skill 发现     | 无            | 1 天   |
 | [2.15-skill-tool-plan.md](./2.15-skill-tool-plan.md)           | Skill 工具     | 2.14, 2.3     | 0.5 天 |
 
+### 3.x 分拆计划（协议系统）
+
+| 文档 | 描述 | 依赖 | 工时 |
+| ---- | ---- | ---- | ---- |
+| 3.1-mcp-core-plan.md | MCP 核心框架 | 无 | 2 天 |
+| 3.2-mcp-transport-plan.md | MCP 传输层 | 3.1 | 1.5 天 |
+| 3.3-mcp-oauth-plan.md | MCP OAuth 认证 | 3.1 | 1 天 |
+| 3.4-mcp-playwright-plan.md | MCP Playwright 集成 | 3.2 | 1 天 |
+| 3.5-lsp-client-plan.md | LSP Client 实现 | 无 | 2 天 |
+| 3.6-lsp-server-plan.md | LSP Server 管理 | 3.5 | 1.5 天 |
+| 3.7-lsp-builtin-plan.md | LSP 内置服务器 | 3.6 | 1 天 |
+| 3.8-acp-agent-plan.md | ACP Agent 实现 | 2.x 完成 | 2 天 |
+| 3.9-acp-session-plan.md | ACP Session 管理 | 3.8 | 1 天 |
+| 3.10-acp-ide-plan.md | ACP IDE 集成 | 3.8, 3.9 | 1 天 |
+
 ### 归档文档
 
 已完成的阶段性计划文档，详见 [archive/](./archive/) 目录：
