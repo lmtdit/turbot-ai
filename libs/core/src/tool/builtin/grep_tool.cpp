@@ -145,13 +145,11 @@ bool GrepTool::matches_include(const std::string& filename, const std::optional<
     // Handle simple patterns
     if (pat == "*") return true;
     
-    // Default: check if filename contains pattern (after removing *)
-    std::string simplified = pat;
-    size_t star_pos;
-    while ((star_pos = simplified.find('*')) != std::string::npos) {
-        simplified.erase(star_pos, 1);
-    }
-    return filename.find(simplified) != std::string::npos;
+    // W-1: The previous "strip '*' then substring search" fallback produced wrong
+    // results for patterns like "src/*/test.cpp" (became "src//test.cpp" substring
+    // search on just the filename).  For unsupported complex patterns, return false
+    // (conservative: skip file) rather than silently mismatching.
+    return false;
 }
 
 std::vector<GrepMatch> GrepTool::search_files(

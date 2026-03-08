@@ -181,8 +181,9 @@ bool GlobTool::matches_glob(std::string_view path, std::string_view pattern) {
         std::regex re(regex_str, std::regex::ECMAScript);  // case-sensitive on case-sensitive filesystems
         return std::regex_match(path.begin(), path.end(), re);
     } catch (const std::regex_error&) {
-        // If regex fails, try simple string matching
-        return path.find(pattern) != std::string_view::npos;
+        // W-2: Fallback to false (no match) on invalid regex so that a malformed
+        // glob never silently becomes a substring search that could match anything.
+        return false;
     }
 }
 
@@ -225,8 +226,9 @@ std::vector<GlobFileEntry> GlobTool::scan_directory(
             
             std::string relative_str = relative.string();
             
-            // Check pattern match
-            if (matches_glob(relative_str, pattern) || matches_glob(entry.path().string(), pattern)) {
+            // Check pattern match using only the relative path (W-3: using the
+            // absolute path could cause "*.cpp" to match on directory names).
+            if (matches_glob(relative_str, pattern)) {
                 GlobFileEntry file_entry;
                 file_entry.path = entry.path().string();
                 
