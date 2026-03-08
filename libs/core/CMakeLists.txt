@@ -44,10 +44,15 @@ set(CORE_SOURCES
     src/session/session.cpp
     src/session/session_state_machine.cpp
     src/session/session_loop.cpp
+    src/session/usage_tracker.cpp
     # LLM module (v2.0)
     src/llm/tool_schema.cpp
     src/llm/message_builder.cpp
     src/llm/stream_event.cpp
+    src/llm/system_prompt.cpp
+    src/llm/prompt_builder.cpp
+    src/llm/llm.cpp
+    src/llm/provider_adapter.cpp
     # Skill module (v2.0)
     src/skill/skill.cpp
 )
@@ -101,6 +106,10 @@ set(CORE_HEADERS
     include/turbot/core/llm/tool_schema.hpp
     include/turbot/core/llm/message_builder.hpp
     include/turbot/core/llm/stream_event.hpp
+    include/turbot/core/llm/system_prompt.hpp
+    include/turbot/core/llm/prompt_builder.hpp
+    include/turbot/core/llm/llm.hpp
+    include/turbot/core/llm/provider_adapter.hpp
     # Skill module (v2.0)
     include/turbot/core/skill/skill.hpp
 )

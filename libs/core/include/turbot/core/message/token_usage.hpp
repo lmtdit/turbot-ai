@@ -46,6 +46,16 @@ struct TURBOT_CORE_API TokenUsage {
         return *this;
     }
 
+    /// Subtract another TokenUsage from this one
+    TokenUsage& operator-=(const TokenUsage& other) noexcept {
+        input -= other.input;
+        output -= other.output;
+        reasoning -= other.reasoning;
+        cache.read -= other.cache.read;
+        cache.write -= other.cache.write;
+        return *this;
+    }
+
     /// Create a combined TokenUsage
     [[nodiscard]] TokenUsage operator+(const TokenUsage& other) const noexcept {
         TokenUsage result = *this;

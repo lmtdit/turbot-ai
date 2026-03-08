@@ -42,6 +42,11 @@ set(UNIT_TEST_SOURCES
     unit/tool_schema_test.cpp
     unit/message_builder_test.cpp
     unit/stream_event_test.cpp
+    unit/system_prompt_test.cpp
+    unit/prompt_builder_test.cpp
+    unit/llm_test.cpp
+    # v2.0 Session module
+    unit/usage_tracker_test.cpp
     # v2.0 Skill module
     unit/skill_test.cpp
 )
