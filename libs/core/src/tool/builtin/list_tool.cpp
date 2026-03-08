@@ -1,5 +1,6 @@
 #include <turbot/core/tool/builtin/list_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include "fs_tool_common.hpp"
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <filesystem>
@@ -81,31 +82,10 @@ bool ListTool::validate_input(const nlohmann::json& input) const {
 }
 
 std::vector<std::string> ListTool::default_ignore_patterns() {
-    return {
-        "node_modules",
-        "__pycache__",
-        ".git",
-        "dist",
-        "build",
-        "target",
-        "vendor",
-        "bin",
-        "obj",
-        ".idea",
-        ".vscode",
-        ".zig-cache",
-        "zig-out",
-        ".coverage",
-        "coverage",
-        "tmp",
-        "temp",
-        ".cache",
-        "cache",
-        "logs",
-        ".venv",
-        "venv",
-        "env"
-    };
+    // Delegate to the shared implementation in fs_tool_common.hpp so that
+    // all three filesystem tools (glob, grep, list) stay in sync.
+    const auto& patterns = turbot::core::tool::builtin::default_ignore_patterns();
+    return std::vector<std::string>(patterns.begin(), patterns.end());
 }
 
 bool ListTool::should_ignore(const std::string& name, const std::vector<std::string>& ignore_patterns) {

@@ -145,7 +145,7 @@ bool wildcard_match(const std::string& pattern, const std::string& text) {
     }
 
     try {
-        std::regex regex(regex_pattern, std::regex_constants::icase);
+        std::regex regex(regex_pattern);  // case-sensitive: wildcard matching is exact on case-sensitive filesystems
         return std::regex_match(text, regex);
     } catch (const std::regex_error&) {
         return false;

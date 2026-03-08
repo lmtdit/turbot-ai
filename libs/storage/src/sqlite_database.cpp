@@ -137,9 +137,10 @@ SQLiteDatabase::SQLiteDatabase(const DatabaseConfig& config)
 }
 
 SQLiteDatabase::~SQLiteDatabase() {
-    // 标记数据库已销毁
+    // Mark destroyed first (atomic store — no lock needed for atomic<bool>).
+    // close() will also set it inside the mutex for full synchronisation.
     if (alive_flag_) {
-        *alive_flag_ = false;
+        alive_flag_->store(false);
     }
     close();
 }
@@ -217,7 +218,7 @@ QueryResult SQLiteDatabase::execute(
         query_result.rows.push_back(row_to_json(stmt.get()));
     }
 
-    if (result != SQLITE_DONE && result != SQLITE_ROW) {
+    if (result != SQLITE_DONE) {
         std::string err = sqlite3_errmsg(db_);
         // stmt 会通过 RAII 自动释放
         throw std::runtime_error("Query execution failed: " + err);
@@ -241,13 +242,26 @@ std::optional<nlohmann::json> SQLiteDatabase::execute_one(
 }
 
 std::shared_ptr<Transaction> SQLiteDatabase::begin_transaction() {
-    {
-        std::lock_guard<std::mutex> lock(*mutex_);
-        if (!db_) {
-            throw std::runtime_error("Database is not open");
-        }
+    std::lock_guard<std::mutex> lock(*mutex_);
+    if (!db_) {
+        throw std::runtime_error("Database is not open");
     }
-    execute("BEGIN IMMEDIATE TRANSACTION;");
+
+    // Execute BEGIN IMMEDIATE TRANSACTION while holding the lock to avoid
+    // TOCTOU: db_ cannot be closed between the check above and here.
+    sqlite3_stmt* raw_stmt = nullptr;
+    const char* begin_sql = "BEGIN IMMEDIATE TRANSACTION;";
+    int result = sqlite3_prepare_v2(db_, begin_sql, -1, &raw_stmt, nullptr);
+    if (result != SQLITE_OK) {
+        throw std::runtime_error("Failed to begin transaction: " +
+                                 std::string(sqlite3_errmsg(db_)));
+    }
+    StmtPtr stmt(raw_stmt);
+    result = sqlite3_step(stmt.get());
+    if (result != SQLITE_DONE) {
+        throw std::runtime_error("Failed to begin transaction: " +
+                                 std::string(sqlite3_errmsg(db_)));
+    }
     return std::make_shared<SQLiteTransaction>(db_, alive_flag_, mutex_);
 }
 
@@ -354,7 +368,7 @@ void SQLiteDatabase::close() {
         // Invalidate outstanding transactions before closing the handle.
         // This must be done inside the lock so that any transaction that
         // passes the is_db_alive() check sees db_ == nullptr atomically.
-        if (alive_flag_) *alive_flag_ = false;
+        if (alive_flag_) alive_flag_->store(false);
         sqlite3_close_v2(db_);
         db_ = nullptr;
         TURBOT_LOG_INFO("Closed SQLite database: {}", config_.path);
@@ -371,7 +385,7 @@ bool SQLiteDatabase::is_open() const {
 // ============================================================================
 
 SQLiteTransaction::SQLiteTransaction(sqlite3* db,
-                                     std::shared_ptr<bool> alive_flag,
+                                     std::shared_ptr<std::atomic<bool>> alive_flag,
                                      std::shared_ptr<std::mutex> shared_mutex)
     : db_(db)
     , alive_flag_(std::move(alive_flag))
@@ -385,7 +399,7 @@ SQLiteTransaction::SQLiteTransaction(sqlite3* db,
 }
 
 SQLiteTransaction::~SQLiteTransaction() {
-    if (active_ && is_db_alive() && db_) {
+    if (active_.load() && is_db_alive() && db_) {
         try {
             rollback();
         } catch (...) {
@@ -395,15 +409,18 @@ SQLiteTransaction::~SQLiteTransaction() {
 }
 
 void SQLiteTransaction::commit() {
-    if (!is_db_alive()) {
-        active_ = false;
-        throw std::runtime_error("Database has been destroyed");
-    }
-    if (!active_) {
+    if (!active_.load()) {
         throw std::runtime_error("Transaction is not active");
     }
 
     std::lock_guard<std::mutex> lock(*mutex_);
+    // Re-check db_ inside the lock to close the TOCTOU window between
+    // is_db_alive() and the sqlite3_exec call.
+    if (!db_) {
+        active_.store(false);
+        throw std::runtime_error("Database has been destroyed");
+    }
+
     char* err_msg = nullptr;
     int result = sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &err_msg);
 
@@ -413,21 +430,23 @@ void SQLiteTransaction::commit() {
         throw std::runtime_error("Failed to commit transaction: " + err);
     }
 
-    active_ = false;
+    active_.store(false);
     TURBOT_LOG_DEBUG("Transaction committed");
 }
 
 void SQLiteTransaction::rollback() {
-    if (!active_) {
+    if (!active_.load()) {
         return;  // Already rolled back
-    }
-    
-    if (!is_db_alive()) {
-        active_ = false;
-        return;  // 数据库已销毁，无需 rollback
     }
 
     std::lock_guard<std::mutex> lock(*mutex_);
+    // Re-check db_ inside the lock; if the database was closed while we waited
+    // for the lock, there is nothing to roll back.
+    if (!db_) {
+        active_.store(false);
+        return;
+    }
+
     char* err_msg = nullptr;
     int result = sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, &err_msg);
 
@@ -437,7 +456,7 @@ void SQLiteTransaction::rollback() {
         throw std::runtime_error("Failed to rollback transaction: " + err);
     }
 
-    active_ = false;
+    active_.store(false);
     TURBOT_LOG_DEBUG("Transaction rolled back");
 }
 
@@ -453,15 +472,16 @@ QueryResult SQLiteTransaction::execute(
     const std::string& sql,
     const std::vector<nlohmann::json>& params) {
 
-    if (!is_db_alive()) {
-        active_ = false;
-        throw std::runtime_error("Database has been destroyed");
-    }
-    if (!active_) {
+    if (!active_.load()) {
         throw std::runtime_error("Transaction is not active");
     }
 
     std::lock_guard<std::mutex> lock(*mutex_);
+    // Re-check db_ inside the lock to close the TOCTOU window.
+    if (!db_) {
+        active_.store(false);
+        throw std::runtime_error("Database has been destroyed");
+    }
 
     sqlite3_stmt* raw_stmt = nullptr;
     int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw_stmt, nullptr);
@@ -484,7 +504,7 @@ QueryResult SQLiteTransaction::execute(
         query_result.rows.push_back(row_to_json(stmt.get()));
     }
 
-    if (result != SQLITE_DONE && result != SQLITE_ROW) {
+    if (result != SQLITE_DONE) {
         std::string err = sqlite3_errmsg(db_);
         // stmt 会通过 RAII 自动释放
         throw std::runtime_error("Query execution failed: " + err);

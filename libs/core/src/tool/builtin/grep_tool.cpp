@@ -188,9 +188,12 @@ std::vector<GrepMatch> GrepTool::search_files(
     }
     
     // Compile regex pattern
+    // Use case-sensitive matching (std::regex::ECMAScript default) — icase was
+    // removed because it can allow security-relevant pattern bypasses on
+    // case-sensitive file systems and increases backtracking risk.
     std::regex re;
     try {
-        re = std::regex(pattern, std::regex::ECMAScript | std::regex::icase);
+        re = std::regex(pattern, std::regex::ECMAScript);
     } catch (const std::regex_error& e) {
         // Return empty results for invalid regex
         return results;
@@ -230,12 +233,7 @@ std::vector<GrepMatch> GrepTool::search_files(
             int64_t mod_time = 0;
             auto ftime = std::filesystem::last_write_time(entry.path(), ec);
             if (!ec) {
-                auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                    ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now()
-                );
-                mod_time = std::chrono::duration_cast<std::chrono::seconds>(
-                    sctp.time_since_epoch()
-                ).count();
+                mod_time = file_time_to_unix_sec(ftime);
             }
             
             // Search in file
@@ -301,6 +299,22 @@ ToolResult GrepTool::execute(const nlohmann::json& input, ToolContext& ctx) {
         std::regex test(params.pattern, std::regex::ECMAScript);
     } catch (const std::regex_error& e) {
         return ToolResult::error("Grep", fmt::format("Invalid regex pattern: {}", e.what()));
+    }
+
+    // Basic ReDoS mitigation: reject patterns with highly-nested quantifiers that
+    // are the hallmark of catastrophic-backtracking patterns (e.g. (a+)+ or (a*)*)
+    {
+        static const std::regex redos_pattern(R"((\([^)]*[+*][^)]*\)[+*]|\{[0-9,]+\}[+*]|\([^)]*\)\{[0-9]{3,}\}))");
+        if (std::regex_search(params.pattern, redos_pattern)) {
+            return ToolResult::error("Grep",
+                "Pattern rejected: nested quantifiers detected (potential ReDoS risk). "
+                "Simplify the pattern.");
+        }
+        // Also reject patterns that are unreasonably long
+        if (params.pattern.size() > 512) {
+            return ToolResult::error("Grep",
+                "Pattern too long (max 512 characters).");
+        }
     }
     
     // Determine search directory

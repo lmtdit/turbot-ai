@@ -447,7 +447,7 @@ public:
 // HttpClient Implementation
 // ============================================================================
 
-HttpClient::HttpClient() : impl_(std::make_unique<Impl>()) {
+HttpClient::HttpClient() : impl_(std::make_shared<Impl>()) {
     TURBOT_LOG_INFO("HttpClient initialized");
 }
 
@@ -491,21 +491,22 @@ HttpResponse HttpClient::request_stream(const HttpRequest& req, StreamCallback c
 }
 
 std::future<HttpResponse> HttpClient::get_async(std::string_view url, const HttpHeaders& headers) {
-    // WARNING: Caller must ensure HttpClient remains valid until the future completes.
-    // The lambda captures 'this' pointer. If HttpClient is destroyed before the
-    // async operation completes, undefined behavior will occur.
-    return std::async(std::launch::async, [this, url_str = std::string(url), headers]() {
-        return this->get(url_str, headers);
+    // Capture a shared_ptr copy so that Impl stays alive even if this HttpClient
+    // is moved-from or destroyed before the future completes.
+    auto impl = impl_;
+    auto req = HttpRequest::get(url).with_headers(headers);
+    return std::async(std::launch::async, [impl, req = std::move(req)]() {
+        return impl->do_request(req);
     });
 }
 
 std::future<HttpResponse> HttpClient::post_async(std::string_view url, std::string_view body, const HttpHeaders& headers) {
-    // WARNING: Caller must ensure HttpClient remains valid until the future completes.
-    // The lambda captures 'this' pointer. If HttpClient is destroyed before the
-    // async operation completes, undefined behavior will occur.
-    return std::async(std::launch::async, [this, url_str = std::string(url), 
-                                           body_str = std::string(body), headers]() {
-        return this->post(url_str, body_str, headers);
+    // Capture a shared_ptr copy so that Impl stays alive even if this HttpClient
+    // is moved-from or destroyed before the future completes.
+    auto impl = impl_;
+    auto req = HttpRequest::post(url, body).with_headers(headers);
+    return std::async(std::launch::async, [impl, req = std::move(req)]() {
+        return impl->do_request(req);
     });
 }
 

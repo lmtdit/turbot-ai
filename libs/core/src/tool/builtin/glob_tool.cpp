@@ -232,13 +232,7 @@ std::vector<GlobFileEntry> GlobTool::scan_directory(
                 
                 auto ftime = std::filesystem::last_write_time(entry.path(), ec);
                 if (!ec) {
-                    // Convert file_time_type to time_t
-                    auto sctp = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
-                        ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now()
-                    );
-                    file_entry.mtime = std::chrono::duration_cast<std::chrono::seconds>(
-                        sctp.time_since_epoch()
-                    ).count();
+                    file_entry.mtime = file_time_to_unix_sec(ftime);
                 }
                 
                 results.push_back(std::move(file_entry));

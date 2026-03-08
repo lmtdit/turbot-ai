@@ -749,7 +749,9 @@ TEST_CASE("HttpRequest::default_values", "[network][http]") {
     REQUIRE(req.url.empty());
     REQUIRE(req.headers.empty());
     REQUIRE(req.body.empty());
-    REQUIRE(req.timeout_seconds == 30);
+    // timeout_seconds == 0 means "inherit the HttpClient-level default" (set via set_timeout()).
+    // The old value 30 has been moved to the HttpClient::Impl default_timeout_.
+    REQUIRE(req.timeout_seconds == 0);
     REQUIRE(req.follow_redirects);
     REQUIRE(req.max_redirects == 5);
 }

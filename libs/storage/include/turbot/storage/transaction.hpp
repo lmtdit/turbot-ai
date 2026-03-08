@@ -3,6 +3,7 @@
 #include <turbot/storage/export.hpp>
 
 #include <nlohmann/json.hpp>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -30,7 +31,7 @@ public:
     /// @param sql SQL query string
     /// @param params Parameters to bind
     /// @return Query result
-    virtual QueryResult execute(
+    [[nodiscard]] virtual QueryResult execute(
         const std::string& sql,
         const std::vector<nlohmann::json>& params = {}
     ) = 0;
@@ -39,17 +40,17 @@ public:
     /// @param sql SQL query string
     /// @param params Parameters to bind
     /// @return Single row result or nullopt if no rows
-    virtual std::optional<nlohmann::json> execute_one(
+    [[nodiscard]] virtual std::optional<nlohmann::json> execute_one(
         const std::string& sql,
         const std::vector<nlohmann::json>& params = {}
     ) = 0;
 
     /// Check if the transaction is still active
     /// @return true if transaction is active
-    virtual bool is_active() const = 0;
+    [[nodiscard]] virtual bool is_active() const = 0;
 
 protected:
-    bool active_ = true;
+    std::atomic<bool> active_{true};
 };
 
 /// RAII transaction guard for automatic rollback on scope exit

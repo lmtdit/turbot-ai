@@ -3,6 +3,7 @@
 /// Internal shared helpers for filesystem-based builtin tools (glob, grep, list).
 /// Not part of the public API.
 
+#include <chrono>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -33,6 +34,18 @@ inline const std::vector<std::string>& default_ignore_patterns() {
         }
     }
     return false;
+}
+
+/// Convert std::filesystem::file_time_type to a Unix timestamp (seconds since epoch).
+/// This is a portable helper for glob_tool / grep_tool mtime fields; the conversion
+/// trick avoids the clock_cast API that requires C++20 on some toolchains.
+[[nodiscard]] inline int64_t file_time_to_unix_sec(
+    std::filesystem::file_time_type ftime) noexcept {
+    using namespace std::chrono;
+    using fft = std::filesystem::file_time_type;
+    auto sctp = time_point_cast<system_clock::duration>(
+        ftime - fft::clock::now() + system_clock::now());
+    return duration_cast<seconds>(sctp.time_since_epoch()).count();
 }
 
 } // namespace turbot::core::tool::builtin

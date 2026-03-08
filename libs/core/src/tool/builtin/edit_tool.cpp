@@ -517,8 +517,29 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     if (!std::filesystem::exists(file_path, ec)) {
         // If old_string is empty, create new file
         if (params.old_string.empty()) {
-            // Validate path is not a symlink target outside workspace
-            // (basic protection against path traversal)
+            // Enforce workspace boundary: resolve symlinks and verify the
+            // canonical path starts with the working directory.
+            if (!ctx.working_directory.empty()) {
+                std::error_code canon_ec;
+                auto canonical = std::filesystem::weakly_canonical(file_path, canon_ec);
+                auto root      = std::filesystem::weakly_canonical(
+                                     std::filesystem::path(ctx.working_directory), canon_ec);
+                if (!canon_ec) {
+                    std::string can_str  = canonical.string();
+                    std::string root_str = root.string();
+                    // Ensure the resolved path is strictly inside the workspace:
+                    // it must equal the root, or start with root + "/".
+                    bool is_inside =
+                        (can_str == root_str) ||
+                        (can_str.size() > root_str.size() &&
+                         can_str[root_str.size()] == '/' &&
+                         can_str.substr(0, root_str.size()) == root_str);
+                    if (!is_inside) {
+                        return ToolResult::error("Edit",
+                            "Path escapes workspace boundary: " + file_path_str);
+                    }
+                }
+            }
             
             // Request permission
             if (ctx.ask_permission) {
@@ -595,6 +616,27 @@ ToolResult EditTool::execute(const nlohmann::json& input, ToolContext& ctx) {
         TURBOT_LOG_INFO("Editing symlink {} -> {}", file_path_str, resolved.string());
         file_path = resolved;
         file_path_str = file_path.string();
+    }
+
+    // Enforce workspace boundary for existing files
+    if (!ctx.working_directory.empty()) {
+        std::error_code canon_ec;
+        auto canonical = std::filesystem::weakly_canonical(file_path, canon_ec);
+        auto root      = std::filesystem::weakly_canonical(
+                             std::filesystem::path(ctx.working_directory), canon_ec);
+        if (!canon_ec) {
+            std::string can_str  = canonical.string();
+            std::string root_str = root.string();
+            bool is_inside =
+                (can_str == root_str) ||
+                (can_str.size() > root_str.size() &&
+                 can_str[root_str.size()] == '/' &&
+                 can_str.substr(0, root_str.size()) == root_str);
+            if (!is_inside) {
+                return ToolResult::error("Edit",
+                    "Path escapes workspace boundary: " + file_path_str);
+            }
+        }
     }
     
     // Check if it's a directory

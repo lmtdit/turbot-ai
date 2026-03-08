@@ -4,6 +4,7 @@
 #include <turbot/storage/database.hpp>
 
 #include <memory>
+#include <atomic>
 #include <mutex>
 #include <sqlite3.h>
 
@@ -67,11 +68,18 @@ public:
 
     /// Get the raw SQLite database handle
     /// @return SQLite database pointer
-    sqlite3* handle() const { return db_; }
+    /// @note Exposes the raw sqlite3* for advanced use; prefer the typed API when possible.
+    sqlite3* handle() const {
+        std::lock_guard<std::mutex> lock(*mutex_);
+        return db_;
+    }
 
     /// Check if the database is still valid (not closed/destroyed)
     /// @return true if database is valid
-    bool is_valid() const { return db_ != nullptr; }
+    [[nodiscard]] bool is_valid() const {
+        std::lock_guard<std::mutex> lock(*mutex_);
+        return db_ != nullptr;
+    }
 
 private:
     /// Bind a parameter to a statement
@@ -92,8 +100,10 @@ private:
     // using the same underlying lock, preventing concurrent access to the sqlite3 handle
     std::shared_ptr<std::mutex> mutex_ = std::make_shared<std::mutex>();
     
-    // Track if database is being destroyed
-    std::shared_ptr<bool> alive_flag_ = std::make_shared<bool>(true);
+    // Track if database is being destroyed — atomic so transactions can
+    // read it without a lock (they still validate db_ inside the mutex).
+    std::shared_ptr<std::atomic<bool>> alive_flag_ =
+        std::make_shared<std::atomic<bool>>(true);
 };
 
 /// SQLite implementation of the Transaction interface
@@ -104,7 +114,7 @@ public:
     /// @param alive_flag Shared flag to track database lifetime
     /// @param shared_mutex Shared mutex from the parent SQLiteDatabase
     explicit SQLiteTransaction(sqlite3* db,
-                               std::shared_ptr<bool> alive_flag,
+                               std::shared_ptr<std::atomic<bool>> alive_flag,
                                std::shared_ptr<std::mutex> shared_mutex);
     ~SQLiteTransaction() override;
 
@@ -130,7 +140,7 @@ public:
         const std::vector<nlohmann::json>& params = {}
     ) override;
 
-    bool is_active() const override { return active_ && *alive_flag_; }
+    [[nodiscard]] bool is_active() const override { return active_.load() && alive_flag_ && alive_flag_->load(); }
 
     /// @}
 
@@ -141,11 +151,11 @@ private:
     /// Convert a result row to JSON
     nlohmann::json row_to_json(sqlite3_stmt* stmt);
 
-    /// Check if the database is still alive
-    bool is_db_alive() const { return alive_flag_ && *alive_flag_; }
+    /// Check if the database is still alive (atomic load, safe without mutex)
+    bool is_db_alive() const { return alive_flag_ && alive_flag_->load(); }
 
     sqlite3* db_;
-    std::shared_ptr<bool> alive_flag_;
+    std::shared_ptr<std::atomic<bool>> alive_flag_;
     // Shared with SQLiteDatabase to prevent concurrent raw access to sqlite3*
     std::shared_ptr<std::mutex> mutex_;
 };

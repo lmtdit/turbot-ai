@@ -45,29 +45,55 @@ void Url::parse(std::string_view url) {
     auto path_start = url.find('/');
     auto host_port = url.substr(0, path_start);
 
-    auto port_start = host_port.find(':');
     bool port_parse_error = false;
-    
-    if (port_start != std::string_view::npos) {
-        host_ = std::string(host_port.substr(0, port_start));
-        try {
-            int parsed_port = std::stoi(std::string(host_port.substr(port_start + 1)));
-            // Validate port range
-            if (parsed_port > 0 && parsed_port <= 65535) {
-                port_ = parsed_port;
-            } else {
-                TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+
+    // Handle IPv6 addresses enclosed in brackets: [::1] or [::1]:8080
+    if (!host_port.empty() && host_port[0] == '[') {
+        auto bracket_end = host_port.find(']');
+        if (bracket_end == std::string_view::npos) {
+            valid_ = false;
+            return;
+        }
+        host_ = std::string(host_port.substr(1, bracket_end - 1));
+        auto port_sep = host_port.find(':', bracket_end + 1);
+        if (port_sep != std::string_view::npos) {
+            try {
+                int parsed_port = std::stoi(std::string(host_port.substr(port_sep + 1)));
+                if (parsed_port > 0 && parsed_port <= 65535) {
+                    port_ = parsed_port;
+                } else {
+                    TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+                    port_parse_error = true;
+                }
+            } catch (const std::exception& e) {
+                TURBOT_LOG_WARN("Invalid port in IPv6 URL: {}",
+                                std::string(host_port.substr(port_sep + 1)));
                 port_parse_error = true;
             }
-        } catch (const std::invalid_argument& e) {
-            TURBOT_LOG_WARN("Invalid port in URL: {}", std::string(host_port.substr(port_start + 1)));
-            port_parse_error = true;
-        } catch (const std::out_of_range& e) {
-            TURBOT_LOG_WARN("Port out of range in URL: {}", std::string(host_port.substr(port_start + 1)));
-            port_parse_error = true;
         }
     } else {
-        host_ = std::string(host_port);
+        auto port_start = host_port.find(':');
+        if (port_start != std::string_view::npos) {
+            host_ = std::string(host_port.substr(0, port_start));
+            try {
+                int parsed_port = std::stoi(std::string(host_port.substr(port_start + 1)));
+                // Validate port range
+                if (parsed_port > 0 && parsed_port <= 65535) {
+                    port_ = parsed_port;
+                } else {
+                    TURBOT_LOG_WARN("Port out of valid range in URL: {}", parsed_port);
+                    port_parse_error = true;
+                }
+            } catch (const std::invalid_argument& e) {
+                TURBOT_LOG_WARN("Invalid port in URL: {}", std::string(host_port.substr(port_start + 1)));
+                port_parse_error = true;
+            } catch (const std::out_of_range& e) {
+                TURBOT_LOG_WARN("Port out of range in URL: {}", std::string(host_port.substr(port_start + 1)));
+                port_parse_error = true;
+            }
+        } else {
+            host_ = std::string(host_port);
+        }
     }
     
     // Set default ports only if no port was parsed and no error occurred
@@ -83,12 +109,22 @@ void Url::parse(std::string_view url) {
         auto fragment_start = path_query.find('#');
 
         if (query_start != std::string_view::npos) {
-            path_ = std::string(path_query.substr(0, query_start));
-            if (fragment_start != std::string_view::npos) {
-                query_ = std::string(path_query.substr(query_start + 1, fragment_start - query_start - 1));
+            // Guard against malformed URLs where '#' appears before '?'
+            // (e.g. "/path#frag?not-query").  In that case the '?' is part of
+            // the fragment, not a query string.
+            if (fragment_start != std::string_view::npos && fragment_start < query_start) {
+                // Treat as path + fragment only; no query string.
+                path_ = std::string(path_query.substr(0, fragment_start));
                 fragment_ = std::string(path_query.substr(fragment_start + 1));
             } else {
-                query_ = std::string(path_query.substr(query_start + 1));
+                path_ = std::string(path_query.substr(0, query_start));
+                if (fragment_start != std::string_view::npos) {
+                    // fragment_start > query_start here, so subtraction is safe.
+                    query_ = std::string(path_query.substr(query_start + 1, fragment_start - query_start - 1));
+                    fragment_ = std::string(path_query.substr(fragment_start + 1));
+                } else {
+                    query_ = std::string(path_query.substr(query_start + 1));
+                }
             }
         } else if (fragment_start != std::string_view::npos) {
             path_ = std::string(path_query.substr(0, fragment_start));

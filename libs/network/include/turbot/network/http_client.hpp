@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 #include <optional>
 #include <future>
 #include <functional>
+#include <memory>
 #include <turbot/network/url.hpp>
 #include <turbot/network/export.hpp>
 
@@ -35,7 +37,7 @@ struct TURBOT_NETWORK_API HttpRequest {
     std::string url;
     HttpHeaders headers;
     std::string body;
-    int timeout_seconds = 30;
+    int timeout_seconds = 0;  ///< 0 means use the HttpClient-level default (set via set_timeout())
     bool follow_redirects = true;
     int max_redirects = 5;
     
@@ -61,7 +63,7 @@ struct TURBOT_NETWORK_API HttpResponse {
     std::string body;
     HttpHeaders headers;
     std::string content_type;
-    long response_time_ms = 0;  // Response time in milliseconds
+    int64_t response_time_ms = 0;  ///< Response time in milliseconds (int64_t avoids 32-bit truncation on Windows)
     
     /// Check if response indicates success (2xx status code)
     [[nodiscard]] bool is_success() const noexcept {
@@ -170,7 +172,7 @@ public:
 
 private:
     class Impl;
-    std::unique_ptr<Impl> impl_;
+    std::shared_ptr<Impl> impl_;
 };
 
 } // namespace turbot::network

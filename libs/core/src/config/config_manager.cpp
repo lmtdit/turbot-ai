@@ -451,24 +451,35 @@ std::vector<LoadResult> ConfigManager::load_extensions(ConfigLevel level, Extens
 }
 
 void ConfigManager::reload() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    nlohmann::json merged_snapshot;
+    std::vector<ConfigChangeCallback> callbacks_to_call;
 
-    merged_config_ = default_config_;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
 
-    if (!user_config_.is_null()) {
-        merged_config_ = merge_config_with_append(merged_config_, user_config_);
-    }
+        merged_config_ = default_config_;
 
-    if (!project_config_.is_null()) {
-        merged_config_ = merge_config_with_append(merged_config_, project_config_);
-    }
+        if (!user_config_.is_null()) {
+            merged_config_ = merge_config_with_append(merged_config_, user_config_);
+        }
 
-    load_env_overrides();
+        if (!project_config_.is_null()) {
+            merged_config_ = merge_config_with_append(merged_config_, project_config_);
+        }
 
-    // 通知变更
-    for (const auto& callback : change_callbacks_) {
+        load_env_overrides();
+
+        // Capture snapshot and callbacks while still holding the lock,
+        // but do NOT call them here: a callback that calls has()/get_all()
+        // would try to re-acquire mutex_ and deadlock.
+        merged_snapshot = merged_config_;
+        callbacks_to_call = change_callbacks_;
+    }  // mutex_ released
+
+    // 锁外执行回调
+    for (const auto& callback : callbacks_to_call) {
         try {
-            callback(ConfigLevel::Default, "", merged_config_);
+            callback(ConfigLevel::Default, "", merged_snapshot);
         } catch (const std::exception& e) {
             TURBOT_LOG_ERROR("Config change callback error: {}", e.what());
         }
@@ -564,20 +575,12 @@ bool ConfigManager::save_config(ConfigLevel level) {
         return false;
     }
 
-    try {
-        // 确保目录存在
-        std::filesystem::path p(config_path);
-        if (p.has_parent_path()) {
-            std::filesystem::create_directories(p.parent_path());
-        }
-
-        std::ofstream file(config_path);
-        if (!file.is_open()) {
-            TURBOT_LOG_ERROR("Failed to open config file for writing: {}", config_path);
-            return false;
-        }
-
-        nlohmann::json config_to_save;
+    // Take a snapshot of the config under the lock so we don't hold the mutex
+    // during file I/O, and so that save_config() is not vulnerable to data races
+    // when called concurrently with merge_config() or reload().
+    nlohmann::json config_to_save;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
         switch (level) {
             case ConfigLevel::User:
                 config_to_save = user_config_;
@@ -588,8 +591,44 @@ bool ConfigManager::save_config(ConfigLevel level) {
             default:
                 return false;
         }
+    }  // mutex_ released
 
-        file << config_to_save.dump(2);
+    try {
+        // Ensure the directory exists
+        std::filesystem::path p(config_path);
+        if (p.has_parent_path()) {
+            std::filesystem::create_directories(p.parent_path());
+        }
+
+        // Write atomically via temp-file + rename so that a crash or disk-full
+        // error does not leave a half-written (corrupted) config file.
+        std::filesystem::path temp_path = std::filesystem::path(config_path)
+            .parent_path() / (".turbot_save_" + std::to_string(std::hash<std::string>{}(config_path)));
+
+        {
+            std::ofstream file(temp_path);
+            if (!file.is_open()) {
+                TURBOT_LOG_ERROR("Failed to open temp config file for writing: {}", temp_path.string());
+                return false;
+            }
+            file << config_to_save.dump(2);
+            file.flush();
+            if (!file) {
+                TURBOT_LOG_ERROR("Failed to write temp config file: {}", temp_path.string());
+                std::error_code ec;
+                std::filesystem::remove(temp_path, ec);
+                return false;
+            }
+        }
+
+        std::error_code ec;
+        std::filesystem::rename(temp_path, config_path, ec);
+        if (ec) {
+            TURBOT_LOG_ERROR("Failed to rename temp config file: {}", ec.message());
+            std::filesystem::remove(temp_path, ec);
+            return false;
+        }
+
         TURBOT_LOG_INFO("Saved config to: {}", config_path);
         return true;
 

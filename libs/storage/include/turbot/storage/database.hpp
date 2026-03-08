@@ -37,7 +37,7 @@ public:
     /// @param sql SQL query string
     /// @param params Parameters to bind
     /// @return Query result with rows and affected row count
-    virtual QueryResult execute(
+    [[nodiscard]] virtual QueryResult execute(
         const std::string& sql,
         const std::vector<nlohmann::json>& params = {}
     ) = 0;
@@ -46,7 +46,7 @@ public:
     /// @param sql SQL query string
     /// @param params Parameters to bind
     /// @return Single row result or nullopt if no rows
-    virtual std::optional<nlohmann::json> execute_one(
+    [[nodiscard]] virtual std::optional<nlohmann::json> execute_one(
         const std::string& sql,
         const std::vector<nlohmann::json>& params = {}
     ) = 0;
@@ -57,7 +57,7 @@ public:
     /// @param params Parameters to bind
     /// @return Scalar value or nullopt if no result
     template<typename T>
-    std::optional<T> execute_scalar(
+    [[nodiscard]] std::optional<T> execute_scalar(
         const std::string& sql,
         const std::vector<nlohmann::json>& params = {}
     ) {
@@ -70,13 +70,13 @@ public:
 
     /// Begin a new transaction
     /// @return Transaction object
-    virtual std::shared_ptr<Transaction> begin_transaction() = 0;
+    [[nodiscard]] virtual std::shared_ptr<Transaction> begin_transaction() = 0;
 
     /// Execute a batch of statements
     /// @param sql SQL statement
     /// @param params_list List of parameter sets
     /// @return Combined result
-    virtual QueryResult execute_batch(
+    [[nodiscard]] virtual QueryResult execute_batch(
         const std::string& sql,
         const std::vector<std::vector<nlohmann::json>>& params_list
     ) = 0;
@@ -93,17 +93,17 @@ public:
 
     /// Check database health
     /// @return true if database is healthy
-    virtual bool health_check() = 0;
+    [[nodiscard]] virtual bool health_check() = 0;
 
     /// Get the database configuration
     /// @return Configuration reference
-    virtual const DatabaseConfig& config() const = 0;
+    [[nodiscard]] virtual const DatabaseConfig& config() const = 0;
 
     /// Close the database connection
     virtual void close() = 0;
 
     /// Check if database is open
-    virtual bool is_open() const = 0;
+    [[nodiscard]] virtual bool is_open() const = 0;
 };
 
 } // namespace turbot::storage

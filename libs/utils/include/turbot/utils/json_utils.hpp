@@ -14,7 +14,7 @@ namespace turbot::utils::json {
  * @param schema JSON Schema
  * @return 验证是否通过
  */
-TURBOT_UTILS_API bool validate_schema(const nlohmann::json& data,
+[[nodiscard]] TURBOT_UTILS_API bool validate_schema(const nlohmann::json& data,
                                          const nlohmann::json& schema);
 
 /**
@@ -23,7 +23,7 @@ TURBOT_UTILS_API bool validate_schema(const nlohmann::json& data,
  * @param b 第二个JSON对象（会覆盖a中的重复键）
  * @return 合并后的JSON对象
  */
-TURBOT_UTILS_API nlohmann::json merge(const nlohmann::json& a,
+[[nodiscard]] TURBOT_UTILS_API nlohmann::json merge(const nlohmann::json& a,
                                          const nlohmann::json& b);
 
 /**
@@ -32,7 +32,7 @@ TURBOT_UTILS_API nlohmann::json merge(const nlohmann::json& a,
  * @param path 路径字符串
  * @return 查询结果，如果路径不存在则返回nullopt
  */
-TURBOT_UTILS_API std::optional<nlohmann::json> query(const nlohmann::json& data,
+[[nodiscard]] TURBOT_UTILS_API std::optional<nlohmann::json> query(const nlohmann::json& data,
                                          const std::string& path);
 /**
  * @brief 安全获取JSON值
@@ -41,7 +41,7 @@ TURBOT_UTILS_API std::optional<nlohmann::json> query(const nlohmann::json& data,
  * @return 值，如果键不存在则返回nullopt
  */
 template<typename T>
-TURBOT_UTILS_API std::optional<T> get_safe(const nlohmann::json& data, const std::string& key) {
+[[nodiscard]] TURBOT_UTILS_API std::optional<T> get_safe(const nlohmann::json& data, const std::string& key) {
     if (!data.contains(key)) {
         return std::nullopt;
     }
@@ -70,7 +70,7 @@ inline T get_or(const nlohmann::json& data, const std::string& key, const T& def
  * @param path 路径字符串（如 "path.to.key[0]"）
  * @return 分割后的路径部分
  */
-TURBOT_UTILS_API std::vector<std::string> split_path(const std::string& path);
+[[nodiscard]] TURBOT_UTILS_API std::vector<std::string> split_path(const std::string& path);
 
 /**
  * @brief 检查JSON是否包含特定路径
@@ -78,14 +78,14 @@ TURBOT_UTILS_API std::vector<std::string> split_path(const std::string& path);
  * @param path 路径字符串
  * @return 是否包含该路径
  */
-TURBOT_UTILS_API bool has_path(const nlohmann::json& data, const std::string& path);
+[[nodiscard]] TURBOT_UTILS_API bool has_path(const nlohmann::json& data, const std::string& path);
 
 /**
  * @brief 深度克隆JSON对象
  * @param data 要克隆的JSON数据
  * @return 克隆后的JSON对象
  */
-TURBOT_UTILS_API nlohmann::json clone(const nlohmann::json& data);
+[[nodiscard]] TURBOT_UTILS_API nlohmann::json clone(const nlohmann::json& data);
 
 /**
  * @brief 比较两个JSON对象是否相等
@@ -93,7 +93,7 @@ TURBOT_UTILS_API nlohmann::json clone(const nlohmann::json& data);
  * @param b 第二个JSON对象
  * @return 是否相等
  */
-TURBOT_UTILS_API bool equals(const nlohmann::json& a, const nlohmann::json& b);
+[[nodiscard]] TURBOT_UTILS_API bool equals(const nlohmann::json& a, const nlohmann::json& b);
 
 /**
  * @brief 从JSON对象中删除指定路径
@@ -109,6 +109,6 @@ TURBOT_UTILS_API bool remove_path(nlohmann::json& data, const std::string& path)
  * @param indent 缩进空格数
  * @return 格式化后的JSON字符串
  */
-TURBOT_UTILS_API std::string pretty_print(const nlohmann::json& data, int indent = 2);
+[[nodiscard]] TURBOT_UTILS_API std::string pretty_print(const nlohmann::json& data, int indent = 2);
 
 } // namespace turbot::utils::json

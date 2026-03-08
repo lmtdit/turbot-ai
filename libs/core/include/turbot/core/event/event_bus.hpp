@@ -84,21 +84,29 @@ public:
     void publish(const std::string& name, T data, const std::string& source = "turbot") {
         Event<T> event(name, std::move(data), source);
 
-        std::shared_lock<std::shared_mutex> lock(mutex_);
-        auto it = handlers_.find(name);
-        if (it != handlers_.end()) {
-            for (auto& entry : it->second) {
-                try {
-                    // 执行处理器 - 使用简化的类型检查
+        // Copy handler list under the lock, then invoke handlers outside it.
+        // Calling handlers while holding the lock would deadlock if any handler
+        // calls subscribe() or unsubscribe() (which need a write lock).
+        std::vector<EventHandler<T>> handlers_to_call;
+        {
+            std::shared_lock<std::shared_mutex> lock(mutex_);
+            auto it = handlers_.find(name);
+            if (it != handlers_.end()) {
+                for (const auto& entry : it->second) {
                     auto* handler = std::any_cast<EventHandler<T>>(&entry.handler);
                     if (handler) {
-                        (*handler)(event);
+                        handlers_to_call.push_back(*handler);
                     }
-                } catch (const std::exception& e) {
-                    // Log the error but continue delivering to other handlers
-                    TURBOT_LOG_ERROR("EventBus: subscriber threw exception for event '{}': {}",
-                                    name, e.what());
                 }
+            }
+        }  // lock released here
+
+        for (auto& handler : handlers_to_call) {
+            try {
+                handler(event);
+            } catch (const std::exception& e) {
+                TURBOT_LOG_ERROR("EventBus: subscriber threw exception for event '{}': {}",
+                                name, e.what());
             }
         }
     }

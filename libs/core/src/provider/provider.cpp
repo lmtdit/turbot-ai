@@ -472,9 +472,19 @@ bool ProviderManager::has_provider(const std::string& provider_id) const {
 }
 
 std::vector<ModelInfo> ProviderManager::list_all_models() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    // Copy provider pointers under the lock, then call virtual methods outside
+    // the lock to avoid holding the mutex during potentially slow provider calls
+    // (which could re-enter through a registered callback and deadlock).
+    std::vector<ProviderPtr> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot.reserve(providers_.size());
+        for (const auto& [id, provider] : providers_) {
+            snapshot.push_back(provider);
+        }
+    }
     std::vector<ModelInfo> all_models;
-    for (const auto& [id, provider] : providers_) {
+    for (const auto& provider : snapshot) {
         auto models = provider->list_models();
         all_models.insert(all_models.end(), models.begin(), models.end());
     }
@@ -482,8 +492,15 @@ std::vector<ModelInfo> ProviderManager::list_all_models() const {
 }
 
 std::optional<ModelInfo> ProviderManager::find_model(const std::string& model_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& [id, provider] : providers_) {
+    std::vector<ProviderPtr> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot.reserve(providers_.size());
+        for (const auto& [id, provider] : providers_) {
+            snapshot.push_back(provider);
+        }
+    }
+    for (const auto& provider : snapshot) {
         auto model = provider->get_model(model_id);
         if (model) {
             return model;
@@ -493,8 +510,15 @@ std::optional<ModelInfo> ProviderManager::find_model(const std::string& model_id
 }
 
 std::optional<ProviderPtr> ProviderManager::find_provider_for_model(const std::string& model_id) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& [id, provider] : providers_) {
+    std::vector<ProviderPtr> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshot.reserve(providers_.size());
+        for (const auto& [id, provider] : providers_) {
+            snapshot.push_back(provider);
+        }
+    }
+    for (const auto& provider : snapshot) {
         if (provider->supports_model(model_id)) {
             return provider;
         }

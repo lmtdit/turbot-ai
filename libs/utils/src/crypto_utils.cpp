@@ -126,9 +126,9 @@ namespace {
     // Base64解码
     std::vector<uint8_t> base64_decode_impl(const std::string& encoded) {
         size_t in_len = encoded.size();
-        int i = 0;
-        int j = 0;
-        int in = 0;
+        size_t i = 0;   // index into char_array_4 (0-3)
+        size_t j = 0;   // index into char_array_3
+        size_t in = 0;  // index into encoded — size_t avoids signed overflow on large inputs
         uint8_t char_array_4[4];
         uint8_t char_array_3[3];
         std::vector<uint8_t> result;
@@ -239,19 +239,28 @@ std::vector<uint8_t> sha256(const std::vector<uint8_t>& data) {
 }
 
 std::string hmac_sha256(const std::string& key, const std::string& data) {
-    unsigned int digest_len;
+    // Use an explicit output buffer (not nullptr) so we are independent of
+    // OpenSSL’s internal static buffer, which is shared across threads on older
+    // OpenSSL versions and causes a data race under concurrent use.
+    // Also explicitly cast key size to int to avoid implicit narrowing.
+    std::array<uint8_t, EVP_MAX_MD_SIZE> buf{};
+    unsigned int digest_len = 0;
 
-    unsigned char* digest = HMAC(EVP_sha256(),
-                                  key.c_str(), key.size(),
-                                  reinterpret_cast<const unsigned char*>(data.c_str()), data.size(),
-                                  nullptr, &digest_len);
+    if (key.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("HMAC key too large");
+    }
 
-    // 检查 HMAC 是否成功
+    unsigned char* digest = HMAC(
+        EVP_sha256(),
+        key.data(), static_cast<int>(key.size()),
+        reinterpret_cast<const unsigned char*>(data.data()), data.size(),
+        buf.data(), &digest_len);
+
     if (!digest) {
         throw std::runtime_error("HMAC computation failed");
     }
 
-    return to_hex(std::vector<uint8_t>(digest, digest + digest_len));
+    return to_hex(std::vector<uint8_t>(buf.data(), buf.data() + digest_len));
 }
 
 AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext, const std::string& key) {

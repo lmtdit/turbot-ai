@@ -23,11 +23,9 @@ std::optional<std::string> read_file(std::string_view path) {
         return std::nullopt;
     }
     
-    // 检查文件大小限制
+    // 检查文件大小限制 — 超限时返回 nullopt，保持 optional API 契约
     if (file_size > MAX_FILE_SIZE) {
-        throw std::runtime_error("File too large: " + std::string(path) + 
-                                 " (size: " + std::to_string(file_size) + 
-                                 ", max: " + std::to_string(MAX_FILE_SIZE) + ")");
+        return std::nullopt;
     }
 
     std::ifstream file(std::string(path), std::ios::binary);

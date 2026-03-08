@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <regex>
 #include <cctype>
+#include <shared_mutex>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -19,11 +20,17 @@ extern char** environ;
 
 namespace turbot::utils {
 
+#ifndef _WIN32
+// POSIX getenv/setenv/unsetenv are not thread-safe; protect with a shared mutex.
+// Readers (get_env, has_env) take a shared lock; writers (set_env, unset_env) take exclusive lock.
+static std::shared_mutex s_env_mutex;
+#endif
+
 std::string get_env(std::string_view name) {
     // string_view may not be null-terminated; convert to std::string first
     std::string name_str(name);
 #ifdef _WIN32
-    // Windows 使用 GetEnvironmentVariable
+    // Windows GetEnvironmentVariableA is internally thread-safe
     DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     if (size == 0) {
         return "";
@@ -32,14 +39,28 @@ std::string get_env(std::string_view name) {
     GetEnvironmentVariableA(name_str.c_str(), result.data(), size);
     return result;
 #else
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
     const char* value = std::getenv(name_str.c_str());
+    // Copy the string while the lock is held; getenv returns a pointer into
+    // the environment block which may be invalidated by a concurrent setenv.
     return value ? std::string(value) : "";
 #endif
 }
 
 std::string get_env_or(std::string_view name, std::string_view default_value) {
-    // Use has_env to distinguish "variable not set" from "variable set to empty string"
-    return has_env(name) ? get_env(name) : std::string(default_value);
+    // Single lock acquisition to avoid TOCTOU: check and read in one critical section.
+    std::string name_str(name);
+#ifdef _WIN32
+    DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
+    if (size == 0) return std::string(default_value);
+    std::string result(size - 1, '\0');
+    GetEnvironmentVariableA(name_str.c_str(), result.data(), size);
+    return result;
+#else
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
+    const char* value = std::getenv(name_str.c_str());
+    return value ? std::string(value) : std::string(default_value);
+#endif
 }
 
 void set_env(std::string_view name, std::string_view value) {
@@ -48,6 +69,7 @@ void set_env(std::string_view name, std::string_view value) {
 #ifdef _WIN32
     _putenv_s(name_str.c_str(), value_str.c_str());
 #else
+    std::unique_lock<std::shared_mutex> lock(s_env_mutex);
     setenv(name_str.c_str(), value_str.c_str(), 1);
 #endif
 }
@@ -58,6 +80,7 @@ void unset_env(std::string_view name) {
     // _putenv_s("") only sets the variable to empty; use SetEnvironmentVariableA(nullptr) to truly delete
     SetEnvironmentVariableA(name_str.c_str(), nullptr);
 #else
+    std::unique_lock<std::shared_mutex> lock(s_env_mutex);
     unsetenv(name_str.c_str());
 #endif
 }
@@ -68,12 +91,15 @@ bool has_env(std::string_view name) {
     DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     return size != 0;
 #else
+    std::shared_lock<std::shared_mutex> lock(s_env_mutex);
     return std::getenv(name_str.c_str()) != nullptr;
 #endif
 }
 
 std::string env_key_to_config_key(std::string_view env_key, std::string_view prefix) {
-    if (env_key.size() <= prefix.size()) {
+    // Validate that env_key actually starts with prefix before stripping it;
+    // a missing check would silently produce a mangled config key.
+    if (env_key.size() <= prefix.size() || !env_key.starts_with(prefix)) {
         return "";
     }
 
