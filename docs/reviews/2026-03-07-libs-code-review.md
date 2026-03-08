@@ -370,3 +370,31 @@ class SQLiteTransaction {
 6. **http_client.cpp 边界检查**：`line.substr(0, 5)` 改为 `line.compare(0, 5, "HTTP/")` 避免短字符串异常
 
 7. **config.hpp 回调异常日志**：为 set() 中的回调异常添加 `TURBOT_LOG_ERROR` 记录
+
+---
+
+## 第三轮代码审查 (2026-03-08)
+
+**详见**: [2026-03-08-config-refactor-review.md](./2026-03-08-config-refactor-review.md)
+
+### 审查范围
+
+配置系统重构和工具函数模块化工作：
+
+- 新增 `env_utils` 模块
+- ConfigManager 使用 utils 模块函数
+- Config 类使用 utils 模块函数
+- 移除循环依赖
+
+### 评分
+
+| 维度     | 评分 |
+| -------- | ---- |
+| 代码质量 | A    |
+| 安全性   | A    |
+| 可维护性 | A-   |
+| 性能     | B+   |
+
+### 测试验证
+
+✅ 所有测试通过 (491 test cases, 2254 assertions)
