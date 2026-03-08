@@ -80,4 +80,10 @@
 - ⚠️ 消息 Part 流式处理（部分实现）
 - ❌ Skill 系统（动态加载技能）
 
+**协议系统缺失 (v3.0)**:
+
+- ❌ MCP (Model Context Protocol) - 外部工具集成
+- ❌ LSP (Language Server Protocol) - 代码智能
+- ❌ ACP (Agent Client Protocol) - IDE 集成
+
 详细实现计划见 [2.0-turbot-ai-follow-up-development-plan.md](./2.0-turbot-ai-follow-up-development-plan.md)。
