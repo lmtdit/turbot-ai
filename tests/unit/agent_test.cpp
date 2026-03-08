@@ -63,6 +63,299 @@ TEST_CASE("AgentInfo serialization", "[core][agent][agent_info]") {
         REQUIRE(j["model_id"] == "gpt-4");
     }
 
+    SECTION("v2.0 extended fields serialization") {
+        AgentInfo info;
+        info.name = "extended_agent";
+        info.description = "Agent with v2.0 fields";
+        info.mode = AgentMode::Subagent;
+        info.prompt = "You are a specialized agent for code review.";
+        info.temperature = 0.7;
+        info.top_p = 0.9;
+        info.steps = 50;
+        info.color = "#FF5733";
+        info.variant = "high";
+
+        nlohmann::json j = info.to_json();
+        
+        REQUIRE(j["name"] == "extended_agent");
+        REQUIRE(j["prompt"] == "You are a specialized agent for code review.");
+        REQUIRE(j["temperature"] == Catch::Approx(0.7));
+        REQUIRE(j["top_p"] == Catch::Approx(0.9));
+        REQUIRE(j["steps"] == 50);
+        REQUIRE(j["color"] == "#FF5733");
+        REQUIRE(j["variant"] == "high");
+    }
+
+    SECTION("v2.0 extended fields deserialization") {
+        nlohmann::json j = {
+            {"name", "test_extended"},
+            {"description", "Test"},
+            {"mode", "subagent"},
+            {"prompt", "Custom system prompt"},
+            {"temperature", 0.5},
+            {"top_p", 0.95},
+            {"steps", 20},
+            {"color", "#00FF00"},
+            {"variant", "low"}
+        };
+
+        AgentInfo info = AgentInfo::from_json(j);
+        
+        REQUIRE(info.name == "test_extended");
+        REQUIRE(info.prompt == "Custom system prompt");
+        REQUIRE(info.temperature == Catch::Approx(0.5));
+        REQUIRE(info.top_p == Catch::Approx(0.95));
+        REQUIRE(info.steps == 20);
+        REQUIRE(info.color == "#00FF00");
+        REQUIRE(info.variant == "low");
+    }
+
+    SECTION("v2.0 round trip with extended fields") {
+        AgentInfo original;
+        original.name = "round_trip_v2";
+        original.description = "Round trip test v2.0";
+        original.mode = AgentMode::Subagent;
+        original.prompt = "Test prompt";
+        original.temperature = 0.3;
+        original.top_p = 0.8;
+        original.steps = 10;
+        original.color = "blue";
+        original.variant = "medium";
+        
+        nlohmann::json j = original.to_json();
+        AgentInfo restored = AgentInfo::from_json(j);
+        
+        REQUIRE(restored.name == original.name);
+        REQUIRE(restored.description == original.description);
+        REQUIRE(restored.mode == original.mode);
+        REQUIRE(restored.prompt == original.prompt);
+        REQUIRE(restored.temperature == Catch::Approx(*original.temperature));
+        REQUIRE(restored.top_p == Catch::Approx(*original.top_p));
+        REQUIRE(restored.steps == original.steps);
+        REQUIRE(restored.color == original.color);
+        REQUIRE(restored.variant == original.variant);
+    }
+
+    SECTION("v2.0 equality with extended fields") {
+        AgentInfo a;
+        a.name = "test";
+        a.mode = AgentMode::Primary;
+        a.prompt = "Same prompt";
+        a.temperature = 0.5;
+        a.steps = 10;
+        
+        AgentInfo b;
+        b.name = "test";
+        b.mode = AgentMode::Primary;
+        b.prompt = "Same prompt";
+        b.temperature = 0.5;
+        b.steps = 10;
+        
+        AgentInfo c;
+        c.name = "test";
+        c.mode = AgentMode::Primary;
+        c.prompt = "Different prompt";
+        c.temperature = 0.5;
+        c.steps = 10;
+        
+        REQUIRE(a == b);
+        REQUIRE_FALSE(a == c);
+    }
+
+    SECTION("partial extended fields") {
+        // Test that partial extended fields work correctly
+        nlohmann::json j = {
+            {"name", "partial_agent"},
+            {"temperature", 0.8}
+            // Other extended fields omitted
+        };
+
+        AgentInfo info = AgentInfo::from_json(j);
+        
+        REQUIRE(info.name == "partial_agent");
+        REQUIRE(info.temperature == Catch::Approx(0.8));
+        REQUIRE_FALSE(info.prompt.has_value());
+        REQUIRE_FALSE(info.top_p.has_value());
+        REQUIRE_FALSE(info.steps.has_value());
+        REQUIRE_FALSE(info.color.has_value());
+        REQUIRE_FALSE(info.variant.has_value());
+    }
+
+    SECTION("null extended fields") {
+        nlohmann::json j = {
+            {"name", "null_fields_agent"},
+            {"prompt", nullptr},
+            {"temperature", nullptr},
+            {"steps", nullptr}
+        };
+
+        AgentInfo info = AgentInfo::from_json(j);
+        
+        REQUIRE(info.name == "null_fields_agent");
+        REQUIRE_FALSE(info.prompt.has_value());
+        REQUIRE_FALSE(info.temperature.has_value());
+        REQUIRE_FALSE(info.steps.has_value());
+    }
+}
+
+TEST_CASE("AgentInfo validation", "[core][agent][agent_info][validation]") {
+    SECTION("validate() returns true for valid values") {
+        AgentInfo info;
+        info.name = "valid_agent";
+        info.temperature = 1.0;
+        info.top_p = 0.9;
+        info.steps = 10;
+        
+        REQUIRE(info.validate());
+    }
+    
+    SECTION("validate() returns true for unset optional fields") {
+        AgentInfo info;
+        info.name = "minimal_agent";
+        // No extended fields set
+        
+        REQUIRE(info.validate());
+    }
+    
+    SECTION("validate() rejects temperature below minimum") {
+        AgentInfo info;
+        info.name = "test";
+        info.temperature = -0.1;
+        
+        REQUIRE_FALSE(info.validate());
+    }
+    
+    SECTION("validate() rejects temperature above maximum") {
+        AgentInfo info;
+        info.name = "test";
+        info.temperature = 2.1;
+        
+        REQUIRE_FALSE(info.validate());
+    }
+    
+    SECTION("validate() accepts temperature at boundaries") {
+        AgentInfo info;
+        info.name = "test";
+        
+        info.temperature = 0.0;
+        REQUIRE(info.validate());
+        
+        info.temperature = 2.0;
+        REQUIRE(info.validate());
+    }
+    
+    SECTION("validate() rejects top_p below minimum") {
+        AgentInfo info;
+        info.name = "test";
+        info.top_p = -0.1;
+        
+        REQUIRE_FALSE(info.validate());
+    }
+    
+    SECTION("validate() rejects top_p above maximum") {
+        AgentInfo info;
+        info.name = "test";
+        info.top_p = 1.1;
+        
+        REQUIRE_FALSE(info.validate());
+    }
+    
+    SECTION("validate() accepts top_p at boundaries") {
+        AgentInfo info;
+        info.name = "test";
+        
+        info.top_p = 0.0;
+        REQUIRE(info.validate());
+        
+        info.top_p = 1.0;
+        REQUIRE(info.validate());
+    }
+    
+    SECTION("validate() rejects steps below minimum") {
+        AgentInfo info;
+        info.name = "test";
+        info.steps = 0;
+        
+        REQUIRE_FALSE(info.validate());
+    }
+    
+    SECTION("validate() rejects negative steps") {
+        AgentInfo info;
+        info.name = "test";
+        info.steps = -5;
+        
+        REQUIRE_FALSE(info.validate());
+    }
+    
+    SECTION("validate() accepts steps at minimum boundary") {
+        AgentInfo info;
+        info.name = "test";
+        info.steps = 1;
+        
+        REQUIRE(info.validate());
+    }
+}
+
+TEST_CASE("AgentInfo deserialization validation", "[core][agent][agent_info][validation]") {
+    SECTION("from_json throws for invalid temperature") {
+        nlohmann::json j = {
+            {"name", "test"},
+            {"temperature", 3.0}  // Invalid: > 2.0
+        };
+        
+        REQUIRE_THROWS_AS(AgentInfo::from_json(j), std::out_of_range);
+    }
+    
+    SECTION("from_json throws for negative temperature") {
+        nlohmann::json j = {
+            {"name", "test"},
+            {"temperature", -0.5}  // Invalid: < 0.0
+        };
+        
+        REQUIRE_THROWS_AS(AgentInfo::from_json(j), std::out_of_range);
+    }
+    
+    SECTION("from_json throws for invalid top_p") {
+        nlohmann::json j = {
+            {"name", "test"},
+            {"top_p", 1.5}  // Invalid: > 1.0
+        };
+        
+        REQUIRE_THROWS_AS(AgentInfo::from_json(j), std::out_of_range);
+    }
+    
+    SECTION("from_json throws for invalid steps") {
+        nlohmann::json j = {
+            {"name", "test"},
+            {"steps", 0}  // Invalid: < 1
+        };
+        
+        REQUIRE_THROWS_AS(AgentInfo::from_json(j), std::out_of_range);
+    }
+    
+    SECTION("from_json throws for negative steps") {
+        nlohmann::json j = {
+            {"name", "test"},
+            {"steps", -10}
+        };
+        
+        REQUIRE_THROWS_AS(AgentInfo::from_json(j), std::out_of_range);
+    }
+    
+    SECTION("from_json accepts boundary values") {
+        nlohmann::json j = {
+            {"name", "boundary_test"},
+            {"temperature", 0.0},
+            {"top_p", 1.0},
+            {"steps", 1}
+        };
+        
+        AgentInfo info = AgentInfo::from_json(j);
+        REQUIRE(info.temperature == Catch::Approx(0.0));
+        REQUIRE(info.top_p == Catch::Approx(1.0));
+        REQUIRE(info.steps == 1);
+    }
+
     SECTION("with permission rules") {
         using namespace turbot::core::permission;
         

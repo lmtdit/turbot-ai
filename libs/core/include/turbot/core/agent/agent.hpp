@@ -28,6 +28,7 @@ enum class TURBOT_CORE_API AgentMode {
 
 /// Agent information structure
 struct TURBOT_CORE_API AgentInfo {
+    // === Basic fields (v1.0) ===
     std::string name;                      ///< Agent identifier
     std::optional<std::string> description; ///< Human-readable description
     AgentMode mode = AgentMode::Primary;   ///< Agent mode
@@ -35,15 +36,29 @@ struct TURBOT_CORE_API AgentInfo {
     bool hidden = false;                   ///< Whether this agent should be hidden from UI
     permission::Ruleset permission;        ///< Permission rules for this agent
     std::optional<std::string> model_id;   ///< Preferred model ID
-    nlohmann::json options;                ///< Additional agent options
+    nlohmann::json options;                ///< Additional agent options (excluded from equality comparison)
+
+    // === Extended fields (v2.0) ===
+    std::optional<std::string> prompt;     ///< Agent-specific system prompt template
+    std::optional<double> temperature;     ///< Generation temperature (0.0-2.0, validated)
+    std::optional<double> top_p;           ///< Top-p sampling parameter (0.0-1.0, validated)
+    std::optional<int> steps;              ///< Maximum execution steps (>= 1, validated)
+    std::optional<std::string> color;      ///< UI color identifier (hex format: #RRGGBB or name)
+    std::optional<std::string> variant;    ///< Model variant identifier
+
+    /// Validate field values
+    /// @return true if all fields are valid
+    [[nodiscard]] bool validate() const noexcept;
 
     /// Serialize to JSON
     [[nodiscard]] nlohmann::json to_json() const;
 
     /// Deserialize from JSON
+    /// @throws std::out_of_range if temperature/top_p/steps are out of valid range
+    /// @throws nlohmann::json::out_of_range if required fields are missing
     static AgentInfo from_json(const nlohmann::json& j);
 
-    /// Equality comparison
+    /// Equality comparison (excludes options field)
     bool operator==(const AgentInfo& other) const noexcept;
 };
 

@@ -44,6 +44,8 @@ set(CORE_SOURCES
     src/session/session.cpp
     src/session/session_state_machine.cpp
     src/session/session_loop.cpp
+    # LLM module (v2.0)
+    src/llm/tool_schema.cpp
 )
 
 # Header files - organized by module
@@ -91,6 +93,8 @@ set(CORE_HEADERS
     include/turbot/core/session/session.hpp
     include/turbot/core/session/session_state_machine.hpp
     include/turbot/core/session/session_loop.hpp
+    # LLM module (v2.0)
+    include/turbot/core/llm/tool_schema.hpp
 )
 
 # Create library

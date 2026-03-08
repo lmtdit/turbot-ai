@@ -38,6 +38,8 @@ set(UNIT_TEST_SOURCES
     unit/session_test.cpp
     unit/task_tool_test.cpp
     unit/session_loop_test.cpp
+    # v2.0 LLM module
+    unit/tool_schema_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})

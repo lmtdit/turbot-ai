@@ -6,6 +6,15 @@
 
 namespace turbot::core::agent {
 
+// Constants for field validation
+namespace {
+    constexpr double TEMPERATURE_MIN = 0.0;
+    constexpr double TEMPERATURE_MAX = 2.0;
+    constexpr double TOP_P_MIN = 0.0;
+    constexpr double TOP_P_MAX = 1.0;
+    constexpr int STEPS_MIN = 1;
+}
+
 // AgentMode conversion functions
 std::string agent_mode_to_string(AgentMode mode) {
     switch (mode) {
@@ -23,9 +32,36 @@ AgentMode string_to_agent_mode(const std::string& str) {
     throw std::invalid_argument(fmt::format("Invalid agent mode: {}", str));
 }
 
+// AgentInfo validation
+bool AgentInfo::validate() const noexcept {
+    // Validate temperature range
+    if (temperature.has_value()) {
+        if (*temperature < TEMPERATURE_MIN || *temperature > TEMPERATURE_MAX) {
+            return false;
+        }
+    }
+    
+    // Validate top_p range
+    if (top_p.has_value()) {
+        if (*top_p < TOP_P_MIN || *top_p > TOP_P_MAX) {
+            return false;
+        }
+    }
+    
+    // Validate steps (must be positive)
+    if (steps.has_value()) {
+        if (*steps < STEPS_MIN) {
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 // AgentInfo implementation
 nlohmann::json AgentInfo::to_json() const {
     nlohmann::json j;
+    // Basic fields (v1.0)
     j["name"] = name;
     if (description) {
         j["description"] = *description;
@@ -47,11 +83,34 @@ nlohmann::json AgentInfo::to_json() const {
     if (options.is_object() && !options.empty()) {
         j["options"] = options;
     }
+    
+    // Extended fields (v2.0)
+    if (prompt) {
+        j["prompt"] = *prompt;
+    }
+    if (temperature) {
+        j["temperature"] = *temperature;
+    }
+    if (top_p) {
+        j["top_p"] = *top_p;
+    }
+    if (steps) {
+        j["steps"] = *steps;
+    }
+    if (color) {
+        j["color"] = *color;
+    }
+    if (variant) {
+        j["variant"] = *variant;
+    }
+    
     return j;
 }
 
 AgentInfo AgentInfo::from_json(const nlohmann::json& j) {
     AgentInfo info;
+    
+    // Basic fields (v1.0)
     info.name = j.at("name").get<std::string>();
     
     if (j.contains("description") && !j["description"].is_null()) {
@@ -82,17 +141,65 @@ AgentInfo AgentInfo::from_json(const nlohmann::json& j) {
         info.options = j["options"];
     }
     
+    // Extended fields (v2.0)
+    if (j.contains("prompt") && !j["prompt"].is_null()) {
+        info.prompt = j["prompt"].get<std::string>();
+    }
+    if (j.contains("temperature") && !j["temperature"].is_null()) {
+        double temp = j["temperature"].get<double>();
+        if (temp < TEMPERATURE_MIN || temp > TEMPERATURE_MAX) {
+            throw std::out_of_range(
+                fmt::format("temperature must be between {} and {}, got {}", 
+                           TEMPERATURE_MIN, TEMPERATURE_MAX, temp));
+        }
+        info.temperature = temp;
+    }
+    if (j.contains("top_p") && !j["top_p"].is_null()) {
+        double tp = j["top_p"].get<double>();
+        if (tp < TOP_P_MIN || tp > TOP_P_MAX) {
+            throw std::out_of_range(
+                fmt::format("top_p must be between {} and {}, got {}", 
+                           TOP_P_MIN, TOP_P_MAX, tp));
+        }
+        info.top_p = tp;
+    }
+    if (j.contains("steps") && !j["steps"].is_null()) {
+        int s = j["steps"].get<int>();
+        if (s < STEPS_MIN) {
+            throw std::out_of_range(
+                fmt::format("steps must be >= {}, got {}", STEPS_MIN, s));
+        }
+        info.steps = s;
+    }
+    if (j.contains("color") && !j["color"].is_null()) {
+        info.color = j["color"].get<std::string>();
+    }
+    if (j.contains("variant") && !j["variant"].is_null()) {
+        info.variant = j["variant"].get<std::string>();
+    }
+    
     return info;
 }
 
 bool AgentInfo::operator==(const AgentInfo& other) const noexcept {
-    return name == other.name &&
+    // Basic fields (v1.0)
+    bool basic_equal = name == other.name &&
            description == other.description &&
            mode == other.mode &&
            native == other.native &&
            hidden == other.hidden &&
            permission == other.permission &&
            model_id == other.model_id;
+    
+    // Extended fields (v2.0)
+    bool extended_equal = prompt == other.prompt &&
+           temperature == other.temperature &&
+           top_p == other.top_p &&
+           steps == other.steps &&
+           color == other.color &&
+           variant == other.variant;
+    
+    return basic_equal && extended_equal;
     // Note: options field intentionally excluded from comparison
 }
 
