@@ -660,3 +660,265 @@ TEST_CASE("SkillLoadResult", "[skill][result]") {
         REQUIRE(result.warnings.empty());
     }
 }
+
+// ===== Remote Skill Discovery Tests =====
+
+TEST_CASE("RemoteSkillEntry JSON", "[skill][remote]") {
+    SECTION("Parse valid entry") {
+        nlohmann::json j = R"({
+            "name": "test-skill",
+            "description": "A test skill",
+            "files": ["SKILL.md", "references/extra.md"]
+        })"_json;
+
+        auto entry = skill_discovery::RemoteSkillEntry::from_json(j);
+        REQUIRE(entry.has_value());
+        REQUIRE(entry->name == "test-skill");
+        REQUIRE(entry->description == "A test skill");
+        REQUIRE(entry->files.size() == 2);
+        REQUIRE(entry->files[0] == "SKILL.md");
+    }
+
+    SECTION("Parse entry without description") {
+        nlohmann::json j = R"({
+            "name": "minimal",
+            "files": ["SKILL.md"]
+        })"_json;
+
+        auto entry = skill_discovery::RemoteSkillEntry::from_json(j);
+        REQUIRE(entry.has_value());
+        REQUIRE(entry->name == "minimal");
+        REQUIRE(entry->description.empty());
+    }
+
+    SECTION("Invalid - missing name") {
+        nlohmann::json j = R"({
+            "description": "No name",
+            "files": ["SKILL.md"]
+        })"_json;
+
+        auto entry = skill_discovery::RemoteSkillEntry::from_json(j);
+        REQUIRE_FALSE(entry.has_value());
+    }
+
+    SECTION("Invalid - missing files") {
+        nlohmann::json j = R"({
+            "name": "no-files",
+            "description": "No files"
+        })"_json;
+
+        auto entry = skill_discovery::RemoteSkillEntry::from_json(j);
+        REQUIRE_FALSE(entry.has_value());
+    }
+
+    SECTION("Invalid - empty files array") {
+        nlohmann::json j = R"({
+            "name": "empty-files",
+            "files": []
+        })"_json;
+
+        auto entry = skill_discovery::RemoteSkillEntry::from_json(j);
+        REQUIRE_FALSE(entry.has_value());
+    }
+
+    SECTION("to_json round-trip") {
+        skill_discovery::RemoteSkillEntry original;
+        original.name = "round-trip";
+        original.description = "Test";
+        original.files = {"SKILL.md", "extra.md"};
+
+        auto j = original.to_json();
+        auto restored = skill_discovery::RemoteSkillEntry::from_json(j);
+
+        REQUIRE(restored.has_value());
+        REQUIRE(restored->name == original.name);
+        REQUIRE(restored->description == original.description);
+        REQUIRE(restored->files == original.files);
+    }
+}
+
+TEST_CASE("RemoteSkillIndex JSON", "[skill][remote]") {
+    SECTION("Parse valid index") {
+        nlohmann::json j = R"({
+            "skills": [
+                {
+                    "name": "skill-one",
+                    "description": "First skill",
+                    "files": ["SKILL.md"]
+                },
+                {
+                    "name": "skill-two",
+                    "description": "Second skill",
+                    "files": ["SKILL.md", "refs/guide.md"]
+                }
+            ]
+        })"_json;
+
+        auto index = skill_discovery::RemoteSkillIndex::from_json(j);
+        REQUIRE(index.has_value());
+        REQUIRE(index->skills.size() == 2);
+        REQUIRE(index->skills[0].name == "skill-one");
+        REQUIRE(index->skills[1].name == "skill-two");
+    }
+
+    SECTION("Invalid - missing skills array") {
+        nlohmann::json j = R"({"other": "data"})"_json;
+
+        auto index = skill_discovery::RemoteSkillIndex::from_json(j);
+        REQUIRE_FALSE(index.has_value());
+    }
+
+    SECTION("Skips invalid entries") {
+        nlohmann::json j = R"({
+            "skills": [
+                {
+                    "name": "valid",
+                    "files": ["SKILL.md"]
+                },
+                {
+                    "description": "Invalid - no name or files"
+                }
+            ]
+        })"_json;
+
+        auto index = skill_discovery::RemoteSkillIndex::from_json(j);
+        REQUIRE(index.has_value());
+        REQUIRE(index->skills.size() == 1);
+        REQUIRE(index->skills[0].name == "valid");
+    }
+
+    SECTION("to_json round-trip") {
+        skill_discovery::RemoteSkillIndex original;
+        skill_discovery::RemoteSkillEntry entry1;
+        entry1.name = "test1";
+        entry1.files = {"SKILL.md"};
+        skill_discovery::RemoteSkillEntry entry2;
+        entry2.name = "test2";
+        entry2.files = {"SKILL.md", "extra.md"};
+        original.skills = {entry1, entry2};
+
+        auto j = original.to_json();
+        auto restored = skill_discovery::RemoteSkillIndex::from_json(j);
+
+        REQUIRE(restored.has_value());
+        REQUIRE(restored->skills.size() == 2);
+    }
+}
+
+TEST_CASE("PullResult JSON", "[skill][remote]") {
+    SECTION("Serialize to JSON") {
+        skill_discovery::PullResult result;
+        result.success = true;
+        result.dirs = {"/cache/skills/skill1", "/cache/skills/skill2"};
+        result.skills_downloaded = 2;
+        result.files_downloaded = 5;
+        result.from_cache = false;
+
+        auto j = result.to_json();
+
+        REQUIRE(j["success"] == true);
+        REQUIRE(j["dirs"].size() == 2);
+        REQUIRE(j["skills_downloaded"] == 2);
+        REQUIRE(j["files_downloaded"] == 5);
+        REQUIRE(j["from_cache"] == false);
+    }
+}
+
+TEST_CASE("skill_discovery::get_cache_dir", "[skill][remote]") {
+    SECTION("Returns non-empty path") {
+        std::string cache_dir = skill_discovery::get_cache_dir();
+        REQUIRE_FALSE(cache_dir.empty());
+        // Should contain "turbot" and "skills"
+        REQUIRE_THAT(cache_dir, Catch::Matchers::ContainsSubstring("turbot"));
+        REQUIRE_THAT(cache_dir, Catch::Matchers::ContainsSubstring("skills"));
+    }
+
+    SECTION("Returns same path on multiple calls") {
+        auto dir1 = skill_discovery::get_cache_dir();
+        auto dir2 = skill_discovery::get_cache_dir();
+        REQUIRE(dir1 == dir2);
+    }
+}
+
+TEST_CASE("skill_discovery::is_valid_skill_url", "[skill][remote]") {
+    SECTION("Valid URLs") {
+        REQUIRE(skill_discovery::is_valid_skill_url("https://example.com/skills"));
+        REQUIRE(skill_discovery::is_valid_skill_url("http://localhost:8080/skills/"));
+        REQUIRE(skill_discovery::is_valid_skill_url("file:///local/path/skills"));
+    }
+
+    SECTION("Invalid URLs") {
+        REQUIRE_FALSE(skill_discovery::is_valid_skill_url(""));
+        REQUIRE_FALSE(skill_discovery::is_valid_skill_url("ftp://example.com/skills"));
+        REQUIRE_FALSE(skill_discovery::is_valid_skill_url("/local/path/skills"));
+        REQUIRE_FALSE(skill_discovery::is_valid_skill_url("example.com/skills"));
+    }
+}
+
+TEST_CASE("skill_discovery::download_file", "[skill][remote][download]") {
+    std::string temp_dir = SkillTestHelper::create_temp_dir();
+
+    SECTION("Creates parent directories") {
+        std::string dest = temp_dir + "/nested/dir/file.txt";
+
+        // This will fail because URL doesn't exist, but should create parent dirs
+        skill_discovery::download_file("http://nonexistent.invalid/file.txt", dest);
+
+        // Parent directory should have been created
+        REQUIRE(fs::exists(temp_dir + "/nested/dir"));
+    }
+
+    SECTION("Returns true for existing file (cache)") {
+        std::string dest = temp_dir + "/cached.txt";
+        std::ofstream file(dest);
+        file << "cached content";
+        file.close();
+
+        // Should return true without making network request
+        REQUIRE(skill_discovery::download_file("http://any.url/file.txt", dest));
+    }
+
+    SkillTestHelper::remove_temp_dir(temp_dir);
+}
+
+TEST_CASE("skill_discovery::clear_cache", "[skill][remote]") {
+    // This test just verifies the function runs without error
+    // Actual cache clearing is tested indirectly
+    REQUIRE_NOTHROW(skill_discovery::clear_cache());
+}
+
+TEST_CASE("skill_discovery::pull with invalid URL", "[skill][remote][pull]") {
+    SECTION("Empty URL returns error") {
+        auto result = skill_discovery::pull("");
+        REQUIRE_FALSE(result.success);
+        REQUIRE_FALSE(result.errors.empty());
+    }
+
+    SECTION("Invalid URL returns error") {
+        // Use a non-routable IP address that will fail fast
+        auto result = skill_discovery::pull("http://10.255.255.1/skills/");
+        REQUIRE_FALSE(result.success);
+        REQUIRE_FALSE(result.errors.empty());
+    }
+}
+
+TEST_CASE("skill_discovery::pull_all", "[skill][remote][pull]") {
+    SECTION("Empty URL list") {
+        auto result = skill_discovery::pull_all({});
+        REQUIRE_FALSE(result.success);
+        REQUIRE(result.dirs.empty());
+    }
+
+    SECTION("Multiple invalid URLs") {
+        // Use non-routable IP addresses that will fail fast
+        auto result = skill_discovery::pull_all({
+            "http://10.255.255.1/skills/",
+            "http://10.255.255.2/skills/"
+        });
+
+        REQUIRE_FALSE(result.success);
+        // Should have errors from both URLs
+        REQUIRE(result.errors.size() >= 2);
+    }
+}
+

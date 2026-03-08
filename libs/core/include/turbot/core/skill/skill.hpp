@@ -217,6 +217,78 @@ struct TURBOT_CORE_API SearchPaths {
 /// Check if a path contains a valid skill directory (has SKILL.md)
 [[nodiscard]] TURBOT_CORE_API bool is_skill_directory(const std::string& dir_path);
 
+// ============================================================================
+// Remote Skill Discovery (pull skills from URL)
+// ============================================================================
+
+/// Remote skill entry in index.json
+struct TURBOT_CORE_API RemoteSkillEntry {
+    std::string name;                   ///< Skill name
+    std::string description;            ///< Skill description
+    std::vector<std::string> files;     ///< List of files to download (relative paths)
+
+    /// Parse from JSON
+    [[nodiscard]] static std::optional<RemoteSkillEntry> from_json(const nlohmann::json& j);
+
+    /// Convert to JSON
+    [[nodiscard]] nlohmann::json to_json() const;
+};
+
+/// Remote skill index (index.json format)
+struct TURBOT_CORE_API RemoteSkillIndex {
+    std::vector<RemoteSkillEntry> skills;  ///< List of available skills
+
+    /// Parse from JSON
+    [[nodiscard]] static std::optional<RemoteSkillIndex> from_json(const nlohmann::json& j);
+
+    /// Convert to JSON
+    [[nodiscard]] nlohmann::json to_json() const;
+};
+
+/// Result of a pull operation
+struct TURBOT_CORE_API PullResult {
+    bool success = false;               ///< Whether the pull was successful
+    std::vector<std::string> dirs;      ///< Directories where skills were downloaded
+    std::vector<std::string> errors;    ///< Error messages
+    int skills_downloaded = 0;          ///< Number of skills downloaded
+    int files_downloaded = 0;           ///< Number of files downloaded
+    bool from_cache = false;            ///< Whether results came from cache
+
+    /// Convert to JSON
+    [[nodiscard]] nlohmann::json to_json() const;
+};
+
+/// Get the cache directory for remote skills
+/// Returns ~/.cache/turbot/skills/ (or platform equivalent)
+[[nodiscard]] TURBOT_CORE_API std::string get_cache_dir();
+
+/// Pull skills from a remote URL
+/// @param base_url Base URL containing index.json (e.g., "https://example.com/skills/")
+/// @return PullResult with downloaded skill directories
+/// @note The URL should point to a directory containing index.json
+/// @note Files are cached in get_cache_dir() and not re-downloaded
+[[nodiscard]] TURBOT_CORE_API PullResult pull(const std::string& base_url);
+
+/// Pull skills from multiple URLs
+/// @param urls List of base URLs to pull from
+/// @return Combined PullResult from all URLs
+[[nodiscard]] TURBOT_CORE_API PullResult pull_all(const std::vector<std::string>& urls);
+
+/// Download a single file from URL to destination
+/// @param url URL to download from
+/// @param dest_path Local file path to save to
+/// @return true if download succeeded (or file already exists)
+[[nodiscard]] TURBOT_CORE_API bool download_file(const std::string& url, const std::string& dest_path);
+
+/// Clear the skill cache directory
+/// @return true if cache was cleared successfully
+TURBOT_CORE_API bool clear_cache();
+
+/// Check if a URL is a valid skill index URL
+/// @param url URL to check
+/// @return true if URL appears to be a valid skill index
+[[nodiscard]] TURBOT_CORE_API bool is_valid_skill_url(const std::string& url);
+
 } // namespace skill_discovery
 
 } // namespace turbot::core

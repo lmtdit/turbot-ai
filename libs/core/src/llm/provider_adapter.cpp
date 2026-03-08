@@ -213,8 +213,22 @@ provider::ToolCall ProviderAdapter::from_tool_call_chunk(const ToolCallChunk& ch
 // ===== Format Detection =====
 
 MessageFormat ProviderAdapter::detect_format(const std::string& provider_id) {
-    static const std::set<std::string> anthropic_providers = {"anthropic", "claude"};
-    static const std::set<std::string> openai_providers = {"openai", "azure", "ollama", "lmstudio"};
+    // Anthropic format providers
+    static const std::set<std::string> anthropic_providers = {
+        "anthropic", "claude", "bedrock", "amazon-bedrock"
+    };
+    
+    // Native OpenAI format providers
+    static const std::set<std::string> openai_providers = {
+        "openai", "azure", "ollama", "lmstudio",
+        "groq", "openrouter", "deepinfra", "togetherai", "together",
+        "github-copilot", "cerebras"
+    };
+    
+    // Google Gemini format (treated as OpenAI compatible for now)
+    static const std::set<std::string> gemini_providers = {
+        "gemini", "google", "google-vertex"
+    };
 
     std::string lower_id = provider_id;
     std::transform(lower_id.begin(), lower_id.end(), lower_id.begin(), ::tolower);
@@ -224,6 +238,9 @@ MessageFormat ProviderAdapter::detect_format(const std::string& provider_id) {
     }
     if (openai_providers.count(lower_id) > 0) {
         return MessageFormat::OpenAI;
+    }
+    if (gemini_providers.count(lower_id) > 0) {
+        return MessageFormat::OpenAI;  // Gemini uses OpenAI-compatible format
     }
 
     return MessageFormat::OpenAICompat;
@@ -239,7 +256,19 @@ bool ProviderAdapter::supports_streaming(const std::string& provider_id) {
 
 bool ProviderAdapter::supports_tool_calls(const std::string& provider_id) {
     static const std::set<std::string> tool_capable = {
-        "openai", "anthropic", "claude", "azure", "ollama", "groq", "together"
+        // OpenAI and compatible
+        "openai", "azure", "groq", "openrouter", "deepinfra", 
+        "togetherai", "together", "github-copilot", "cerebras",
+        // Anthropic
+        "anthropic", "claude", "bedrock", "amazon-bedrock",
+        // Google
+        "gemini", "google", "google-vertex",
+        // Others
+        "mistral", "deepseek", "xai", "cohere",
+        // Chinese providers
+        "bailian", "zhipu", "kimi", "moonshot", "minimax",
+        // Local
+        "ollama", "lmstudio"
     };
     std::string lower_id = provider_id;
     std::transform(lower_id.begin(), lower_id.end(), lower_id.begin(), ::tolower);
@@ -247,7 +276,18 @@ bool ProviderAdapter::supports_tool_calls(const std::string& provider_id) {
 }
 
 bool ProviderAdapter::supports_reasoning(const std::string& provider_id) {
-    static const std::set<std::string> reasoning_capable = {"openai", "anthropic", "claude"};
+    static const std::set<std::string> reasoning_capable = {
+        // OpenAI o1/o3 models
+        "openai",
+        // Anthropic Claude extended thinking
+        "anthropic", "claude", "bedrock", "amazon-bedrock",
+        // DeepSeek R1
+        "deepseek",
+        // Google Gemini thinking
+        "gemini", "google", "google-vertex",
+        // xAI Grok
+        "xai"
+    };
     std::string lower_id = provider_id;
     std::transform(lower_id.begin(), lower_id.end(), lower_id.begin(), ::tolower);
     return reasoning_capable.count(lower_id) > 0;

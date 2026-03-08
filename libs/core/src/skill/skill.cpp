@@ -1,6 +1,7 @@
 #include "turbot/core/skill/skill.hpp"
 #include "turbot/core/config/config_manager.hpp"
 #include <turbot/core/common/logger.hpp>
+#include <turbot/network/http_client.hpp>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -656,6 +657,344 @@ bool is_skill_directory(const std::string& dir_path) {
 
     std::string skill_file = dir_path + "/" + skill_constants::skill_file_name;
     return fs::exists(skill_file);
+}
+
+// ============================================================================
+// Remote Skill Discovery Implementation
+// ============================================================================
+
+// Thread-safe cache directory
+namespace {
+    std::string cached_cache_dir;
+    std::once_flag cache_dir_flag;
+
+    void init_cache_dir() {
+        const std::string& home = get_home_dir();
+        if (!home.empty()) {
+            // Follow XDG Base Directory Specification
+            const char* xdg_cache = std::getenv("XDG_CACHE_HOME");
+            if (xdg_cache) {
+                cached_cache_dir = std::string(xdg_cache) + "/turbot/skills";
+            } else {
+                cached_cache_dir = home + "/.cache/turbot/skills";
+            }
+        }
+    }
+}
+
+// ===== RemoteSkillEntry =====
+
+std::optional<RemoteSkillEntry> RemoteSkillEntry::from_json(const nlohmann::json& j) {
+    if (!j.is_object()) {
+        return std::nullopt;
+    }
+
+    RemoteSkillEntry entry;
+
+    if (!j.contains("name") || !j["name"].is_string()) {
+        return std::nullopt;
+    }
+    entry.name = j["name"].get<std::string>();
+
+    if (!j.contains("files") || !j["files"].is_array()) {
+        return std::nullopt;
+    }
+
+    for (const auto& file : j["files"]) {
+        if (file.is_string()) {
+            entry.files.push_back(file.get<std::string>());
+        }
+    }
+
+    if (entry.files.empty()) {
+        return std::nullopt;
+    }
+
+    // Optional description
+    if (j.contains("description") && j["description"].is_string()) {
+        entry.description = j["description"].get<std::string>();
+    }
+
+    return entry;
+}
+
+nlohmann::json RemoteSkillEntry::to_json() const {
+    return nlohmann::json{
+        {"name", name},
+        {"description", description},
+        {"files", files}
+    };
+}
+
+// ===== RemoteSkillIndex =====
+
+std::optional<RemoteSkillIndex> RemoteSkillIndex::from_json(const nlohmann::json& j) {
+    if (!j.is_object() || !j.contains("skills") || !j["skills"].is_array()) {
+        return std::nullopt;
+    }
+
+    RemoteSkillIndex index;
+
+    for (const auto& skill_json : j["skills"]) {
+        auto entry = RemoteSkillEntry::from_json(skill_json);
+        if (entry.has_value()) {
+            index.skills.push_back(std::move(*entry));
+        }
+    }
+
+    return index;
+}
+
+nlohmann::json RemoteSkillIndex::to_json() const {
+    nlohmann::json skills_array = nlohmann::json::array();
+    for (const auto& skill : skills) {
+        skills_array.push_back(skill.to_json());
+    }
+    return nlohmann::json{{"skills", skills_array}};
+}
+
+// ===== PullResult =====
+
+nlohmann::json PullResult::to_json() const {
+    return nlohmann::json{
+        {"success", success},
+        {"dirs", dirs},
+        {"errors", errors},
+        {"skills_downloaded", skills_downloaded},
+        {"files_downloaded", files_downloaded},
+        {"from_cache", from_cache}
+    };
+}
+
+// ===== Remote discovery functions =====
+
+std::string get_cache_dir() {
+    std::call_once(cache_dir_flag, init_cache_dir);
+    return cached_cache_dir;
+}
+
+bool download_file(const std::string& url, const std::string& dest_path) {
+    namespace fs = std::filesystem;
+
+    // Check if file already exists (cache hit)
+    if (fs::exists(dest_path)) {
+        TURBOT_LOG_DEBUG("Skill file already cached: {}", dest_path);
+        return true;
+    }
+
+    try {
+        // Create parent directories
+        fs::path dest(dest_path);
+        fs::create_directories(dest.parent_path());
+
+        // Download using HTTP client
+        network::HttpClient client;
+        client.set_timeout(30);  // 30 second timeout
+
+        auto response = client.get(url);
+
+        if (!response.is_success()) {
+            TURBOT_LOG_ERROR("Failed to download {}: HTTP {}", url, response.status_code);
+            return false;
+        }
+
+        // Write to file
+        std::ofstream file(dest_path, std::ios::binary);
+        if (!file) {
+            TURBOT_LOG_ERROR("Failed to create file: {}", dest_path);
+            return false;
+        }
+
+        file.write(response.body.data(), static_cast<std::streamsize>(response.body.size()));
+        file.close();
+
+        TURBOT_LOG_INFO("Downloaded skill file: {} -> {}", url, dest_path);
+        return true;
+
+    } catch (const fs::filesystem_error& e) {
+        TURBOT_LOG_ERROR("Filesystem error downloading {}: {}", url, e.what());
+        return false;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("Error downloading {}: {}", url, e.what());
+        return false;
+    }
+}
+
+PullResult pull(const std::string& base_url) {
+    PullResult result;
+
+    if (base_url.empty()) {
+        result.errors.push_back("Empty URL provided");
+        return result;
+    }
+
+    // Normalize URL (ensure trailing slash)
+    std::string normalized_url = base_url;
+    if (!normalized_url.empty() && normalized_url.back() != '/') {
+        normalized_url += '/';
+    }
+
+    // Construct index URL
+    std::string index_url = normalized_url + "index.json";
+
+    TURBOT_LOG_INFO("Fetching skill index from: {}", index_url);
+
+    // Fetch index.json
+    network::HttpClient client;
+    client.set_timeout(30);
+
+    network::HttpResponse response;
+    try {
+        response = client.get(index_url);
+    } catch (const std::exception& e) {
+        result.errors.push_back(std::string("Network error: ") + e.what());
+        TURBOT_LOG_ERROR("Failed to fetch skill index from {}: {}", index_url, e.what());
+        return result;
+    }
+
+    if (!response.is_success()) {
+        result.errors.push_back("Failed to fetch index.json: HTTP " +
+                               std::to_string(response.status_code));
+        TURBOT_LOG_ERROR("Failed to fetch skill index from {}: HTTP {}",
+                        index_url, response.status_code);
+        return result;
+    }
+
+    // Parse index
+    nlohmann::json index_json;
+    try {
+        index_json = nlohmann::json::parse(response.body);
+    } catch (const nlohmann::json::parse_error& e) {
+        result.errors.push_back(std::string("Invalid JSON in index: ") + e.what());
+        TURBOT_LOG_ERROR("Failed to parse skill index: {}", e.what());
+        return result;
+    }
+
+    auto index_opt = RemoteSkillIndex::from_json(index_json);
+    if (!index_opt.has_value()) {
+        result.errors.push_back("Invalid index.json format");
+        TURBOT_LOG_ERROR("Invalid skill index format from: {}", index_url);
+        return result;
+    }
+
+    const auto& index = *index_opt;
+
+    // Get cache directory
+    std::string cache = get_cache_dir();
+    if (cache.empty()) {
+        result.errors.push_back("Could not determine cache directory");
+        return result;
+    }
+
+    // Extract host for constructing file URLs
+    // Remove trailing slash for URL construction
+    std::string host = normalized_url;
+    if (!host.empty() && host.back() == '/') {
+        host.pop_back();
+    }
+
+    // Download each skill
+    for (const auto& skill_entry : index.skills) {
+        std::string skill_dir = cache + "/" + skill_entry.name;
+
+        int files_for_this_skill = 0;
+        bool skill_has_skill_md = false;
+
+        for (const auto& file : skill_entry.files) {
+            // Construct file URL: host/skill_name/file
+            std::string file_url = host + "/" + skill_entry.name + "/" + file;
+            std::string dest_path = skill_dir + "/" + file;
+
+            if (download_file(file_url, dest_path)) {
+                files_for_this_skill++;
+                result.files_downloaded++;
+
+                // Check if this is SKILL.md
+                if (file == "SKILL.md" || file.ends_with("/SKILL.md")) {
+                    skill_has_skill_md = true;
+                }
+            } else {
+                result.errors.push_back("Failed to download: " + file_url);
+            }
+        }
+
+        // Only count as successful if SKILL.md exists
+        if (skill_has_skill_md) {
+            result.dirs.push_back(skill_dir);
+            result.skills_downloaded++;
+            TURBOT_LOG_INFO("Downloaded skill '{}' with {} files",
+                           skill_entry.name, files_for_this_skill);
+        } else {
+            TURBOT_LOG_WARN("Skill '{}' missing SKILL.md, skipping", skill_entry.name);
+        }
+    }
+
+    result.success = !result.dirs.empty();
+    return result;
+}
+
+PullResult pull_all(const std::vector<std::string>& urls) {
+    PullResult combined;
+
+    for (const auto& url : urls) {
+        auto single_result = pull(url);
+
+        // Merge results
+        if (single_result.success) {
+            combined.success = true;
+        }
+
+        for (const auto& dir : single_result.dirs) {
+            combined.dirs.push_back(dir);
+        }
+
+        for (const auto& error : single_result.errors) {
+            combined.errors.push_back(error);
+        }
+
+        combined.skills_downloaded += single_result.skills_downloaded;
+        combined.files_downloaded += single_result.files_downloaded;
+    }
+
+    return combined;
+}
+
+bool clear_cache() {
+    namespace fs = std::filesystem;
+
+    std::string cache = get_cache_dir();
+    if (cache.empty()) {
+        return false;
+    }
+
+    try {
+        if (fs::exists(cache)) {
+            fs::remove_all(cache);
+            TURBOT_LOG_INFO("Cleared skill cache: {}", cache);
+        }
+        return true;
+    } catch (const fs::filesystem_error& e) {
+        TURBOT_LOG_ERROR("Failed to clear skill cache: {}", e.what());
+        return false;
+    }
+}
+
+bool is_valid_skill_url(const std::string& url) {
+    if (url.empty()) {
+        return false;
+    }
+
+    // Check for valid URL scheme
+    if (url.starts_with("http://") || url.starts_with("https://")) {
+        return true;
+    }
+
+    // Also allow file:// for local testing
+    if (url.starts_with("file://")) {
+        return true;
+    }
+
+    return false;
 }
 
 } // namespace skill_discovery

@@ -9,12 +9,29 @@ namespace turbot::core::llm {
 
 /// Provider type enumeration for prompt selection
 enum class ProviderType {
-    OpenAI,      ///< OpenAI GPT models
-    Anthropic,   ///< Anthropic Claude models
-    Gemini,      ///< Google Gemini models
-    Codex,       ///< OpenAI Codex models
-    Trinity,     ///< Trinity models
-    Other        ///< Other providers
+    OpenAI,        ///< OpenAI GPT models
+    Anthropic,     ///< Anthropic Claude models
+    Gemini,        ///< Google Gemini models (also: google, google-vertex)
+    Azure,         ///< Azure OpenAI models
+    Bedrock,       ///< Amazon Bedrock models
+    OpenRouter,    ///< OpenRouter aggregator
+    Groq,          ///< Groq fast inference
+    Mistral,       ///< Mistral AI models
+    DeepSeek,      ///< DeepSeek models
+    XAI,           ///< xAI Grok models
+    Cohere,        ///< Cohere models
+    Perplexity,    ///< Perplexity AI models
+    Cerebras,      ///< Cerebras fast inference
+    Bailian,       ///< Alibaba Cloud Bailian (百炼)
+    Zhipu,         ///< Zhipu AI (智谱)
+    Kimi,          ///< Moonshot Kimi (月之暗面)
+    Minimax,       ///< Minimax models
+    DeepInfra,     ///< DeepInfra models
+    Together,      ///< Together AI models
+    GitHub,        ///< GitHub Copilot models
+    Codex,         ///< OpenAI Codex models (legacy)
+    Trinity,       ///< Trinity models
+    Other          ///< Other/unknown providers
 };
 
 /// Convert provider ID to ProviderType

@@ -9,10 +9,44 @@ namespace turbot::core::llm {
 
 ProviderType get_provider_type(std::string_view provider_id) noexcept {
     static const std::unordered_map<std::string_view, ProviderType> provider_map = {
+        // OpenAI and compatible
         {"openai", ProviderType::OpenAI},
+        {"azure", ProviderType::Azure},
+        {"openrouter", ProviderType::OpenRouter},
+        {"groq", ProviderType::Groq},
+        {"deepinfra", ProviderType::DeepInfra},
+        {"togetherai", ProviderType::Together},
+        {"together", ProviderType::Together},
+        {"github-copilot", ProviderType::GitHub},
+        
+        // Anthropic
         {"anthropic", ProviderType::Anthropic},
+        
+        // Google
         {"gemini", ProviderType::Gemini},
         {"google", ProviderType::Gemini},
+        {"google-vertex", ProviderType::Gemini},
+        
+        // Amazon
+        {"amazon-bedrock", ProviderType::Bedrock},
+        {"bedrock", ProviderType::Bedrock},
+        
+        // Other providers
+        {"mistral", ProviderType::Mistral},
+        {"deepseek", ProviderType::DeepSeek},
+        {"xai", ProviderType::XAI},
+        {"cohere", ProviderType::Cohere},
+        {"perplexity", ProviderType::Perplexity},
+        {"cerebras", ProviderType::Cerebras},
+        
+        // Chinese providers
+        {"bailian", ProviderType::Bailian},
+        {"zhipu", ProviderType::Zhipu},
+        {"kimi", ProviderType::Kimi},
+        {"moonshot", ProviderType::Kimi},
+        {"minimax", ProviderType::Minimax},
+        
+        // Legacy
         {"codex", ProviderType::Codex},
         {"trinity", ProviderType::Trinity}
     };
@@ -193,16 +227,47 @@ std::string SystemPrompt::provider_prompt(
     // Fall back to provider type
     ProviderType type = get_provider_type(provider_id);
     switch (type) {
+        // OpenAI-style prompts (OpenAI compatible providers)
         case ProviderType::OpenAI:
+        case ProviderType::Azure:
+        case ProviderType::OpenRouter:
+        case ProviderType::Groq:
+        case ProviderType::DeepInfra:
+        case ProviderType::Together:
+        case ProviderType::GitHub:
+        case ProviderType::Cerebras:
+        case ProviderType::DeepSeek:
+        case ProviderType::XAI:
+        case ProviderType::Perplexity:
+        case ProviderType::Mistral:
             return prompt_openai();
+        
+        // Anthropic-style prompts
         case ProviderType::Anthropic:
+        case ProviderType::Bedrock:  // Bedrock supports Claude
             return prompt_anthropic();
+        
+        // Google-style prompts
         case ProviderType::Gemini:
             return prompt_gemini();
+        
+        // Cohere has its own style
+        case ProviderType::Cohere:
+            return prompt_openai();  // Cohere is largely OpenAI compatible
+        
+        // Chinese providers - use OpenAI style (most are compatible)
+        case ProviderType::Bailian:
+        case ProviderType::Zhipu:
+        case ProviderType::Kimi:
+        case ProviderType::Minimax:
+            return prompt_openai();
+        
+        // Legacy
         case ProviderType::Codex:
             return prompt_codex();
         case ProviderType::Trinity:
             return prompt_trinity();
+        
         default:
             return prompt_anthropic();  // Default to Anthropic-style prompt
     }

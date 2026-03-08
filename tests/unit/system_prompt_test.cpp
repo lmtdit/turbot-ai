@@ -8,11 +8,50 @@ using namespace turbot::core::agent;
 // ===== ProviderType Tests =====
 
 TEST_CASE("get_provider_type", "[llm][system_prompt][provider]") {
-    SECTION("known providers") {
+    SECTION("OpenAI and compatible providers") {
         REQUIRE(get_provider_type("openai") == ProviderType::OpenAI);
+        REQUIRE(get_provider_type("azure") == ProviderType::Azure);
+        REQUIRE(get_provider_type("openrouter") == ProviderType::OpenRouter);
+        REQUIRE(get_provider_type("groq") == ProviderType::Groq);
+        REQUIRE(get_provider_type("deepinfra") == ProviderType::DeepInfra);
+        REQUIRE(get_provider_type("togetherai") == ProviderType::Together);
+        REQUIRE(get_provider_type("together") == ProviderType::Together);
+        REQUIRE(get_provider_type("github-copilot") == ProviderType::GitHub);
+    }
+
+    SECTION("Anthropic providers") {
         REQUIRE(get_provider_type("anthropic") == ProviderType::Anthropic);
+    }
+
+    SECTION("Google providers") {
         REQUIRE(get_provider_type("gemini") == ProviderType::Gemini);
         REQUIRE(get_provider_type("google") == ProviderType::Gemini);
+        REQUIRE(get_provider_type("google-vertex") == ProviderType::Gemini);
+    }
+
+    SECTION("Amazon providers") {
+        REQUIRE(get_provider_type("amazon-bedrock") == ProviderType::Bedrock);
+        REQUIRE(get_provider_type("bedrock") == ProviderType::Bedrock);
+    }
+
+    SECTION("Other international providers") {
+        REQUIRE(get_provider_type("mistral") == ProviderType::Mistral);
+        REQUIRE(get_provider_type("deepseek") == ProviderType::DeepSeek);
+        REQUIRE(get_provider_type("xai") == ProviderType::XAI);
+        REQUIRE(get_provider_type("cohere") == ProviderType::Cohere);
+        REQUIRE(get_provider_type("perplexity") == ProviderType::Perplexity);
+        REQUIRE(get_provider_type("cerebras") == ProviderType::Cerebras);
+    }
+
+    SECTION("Chinese providers") {
+        REQUIRE(get_provider_type("bailian") == ProviderType::Bailian);
+        REQUIRE(get_provider_type("zhipu") == ProviderType::Zhipu);
+        REQUIRE(get_provider_type("kimi") == ProviderType::Kimi);
+        REQUIRE(get_provider_type("moonshot") == ProviderType::Kimi);
+        REQUIRE(get_provider_type("minimax") == ProviderType::Minimax);
+    }
+
+    SECTION("Legacy providers") {
         REQUIRE(get_provider_type("codex") == ProviderType::Codex);
         REQUIRE(get_provider_type("trinity") == ProviderType::Trinity);
     }
