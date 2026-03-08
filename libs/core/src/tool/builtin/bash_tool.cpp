@@ -53,11 +53,22 @@ bool validate_working_directory(const std::string& cwd, std::string& error) {
     std::string canonical_str = canonical_path.string();
     
     // Block access to system directories (basic protection)
+    // Note: This is a basic security measure, not a complete sandbox
     const std::vector<std::string> blocked_prefixes = {
-        "/etc",
-        "/sys",
-        "/proc",
-        "/root"
+        "/etc",           // System configuration
+        "/sys",           // Kernel virtual filesystem
+        "/proc",          // Process virtual filesystem
+        "/root",          // Root user home
+        "/boot",          // Boot loader files
+        "/dev",           // Device files (already protected but explicit)
+        "/lib",           // System libraries
+        "/lib64",         // System libraries (64-bit)
+        "/usr/lib",       // User libraries
+        "/usr/lib64",     // User libraries (64-bit)
+        "/var/lib",       // Variable state data
+        "/var/log",       // System logs
+        "/var/run",       // Runtime variable data (symlink to /run)
+        "/run"            // Runtime variable data
     };
     
     for (const auto& prefix : blocked_prefixes) {

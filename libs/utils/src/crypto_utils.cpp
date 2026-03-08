@@ -370,14 +370,22 @@ std::string random_string(size_t length) {
 
 std::string random_alphanumeric(size_t length) {
     const std::string chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    // Use OpenSSL RAND_bytes for cryptographic-quality randomness
-    auto bytes = random_bytes(length);
-
+    constexpr uint8_t chars_size = 62;
+    constexpr uint8_t max_valid_byte = 247;  // 62 * 4 - 1 = 247 (largest value where byte % 62 is unbiased)
+    
     std::string result;
     result.reserve(length);
-
-    for (auto byte : bytes) {
-        result += chars[byte % chars.size()];
+    
+    // Use rejection sampling to eliminate modulo bias
+    while (result.size() < length) {
+        auto bytes = random_bytes(length - result.size() + 16);  // Get extra bytes for rejection
+        for (auto byte : bytes) {
+            if (byte <= max_valid_byte) {
+                result += chars[byte % chars_size];
+                if (result.size() >= length) break;
+            }
+            // Reject bytes > max_valid_byte to avoid modulo bias
+        }
     }
 
     return result;
