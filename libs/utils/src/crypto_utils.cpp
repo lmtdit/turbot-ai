@@ -9,6 +9,7 @@
 #include <array>
 #include <cctype>
 #include <iomanip>
+#include <limits>
 #include <random>
 #include <regex>
 #include <sstream>
@@ -258,6 +259,10 @@ AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext, const std::string
         throw std::runtime_error("AES-256-GCM requires a 32-byte key");
     }
 
+    if (plaintext.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("Plaintext too large for AES-GCM encryption");
+    }
+
     AesGcmResult result;
 
     // 生成随机nonce（12字节二进制）
@@ -281,7 +286,7 @@ AesGcmResult aes_256_gcm_encrypt(const std::string& plaintext, const std::string
     int len;
     if (EVP_EncryptUpdate(ctx.get(), ciphertext.data(), &len,
                           reinterpret_cast<const uint8_t*>(plaintext.data()),
-                          plaintext.size()) != 1) {
+                          static_cast<int>(plaintext.size())) != 1) {
         throw std::runtime_error("Failed to encrypt");
     }
 
@@ -308,8 +313,16 @@ std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted, const std::string
         throw std::runtime_error("AES-256-GCM requires a 32-byte key");
     }
 
+    if (encrypted.nonce.size() != 12) {
+        throw std::runtime_error("Invalid nonce size: AES-256-GCM requires a 12-byte nonce");
+    }
+
     if (encrypted.tag.size() != 16) {
         throw std::runtime_error("Invalid tag size");
+    }
+
+    if (encrypted.ciphertext.size() > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("Ciphertext too large for AES-GCM decryption");
     }
 
     std::vector<uint8_t> plaintext(encrypted.ciphertext.size());
@@ -328,7 +341,7 @@ std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted, const std::string
     int len;
     if (EVP_DecryptUpdate(ctx.get(), plaintext.data(), &len,
                           reinterpret_cast<const uint8_t*>(encrypted.ciphertext.data()),
-                          encrypted.ciphertext.size()) != 1) {
+                          static_cast<int>(encrypted.ciphertext.size())) != 1) {
         throw std::runtime_error("Failed to decrypt");
     }
 
@@ -354,9 +367,12 @@ std::string aes_256_gcm_decrypt(const AesGcmResult& encrypted, const std::string
 }
 
 std::vector<uint8_t> random_bytes(size_t length) {
+    if (length > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("Requested byte count exceeds INT_MAX");
+    }
     std::vector<uint8_t> data(length);
 
-    if (RAND_bytes(data.data(), length) != 1) {
+    if (RAND_bytes(data.data(), static_cast<int>(length)) != 1) {
         throw std::runtime_error("Failed to generate random bytes");
     }
 

@@ -490,7 +490,12 @@ std::string ConfigManager::get_config_path(ConfigLevel level) const {
             if (!home) {
                 home = std::getenv("USERPROFILE");  // Windows
             }
-            return std::string(home ? home : "") + "/.turbot/turbot.json";
+            if (!home || home[0] == '\0') {
+                throw std::runtime_error(
+                    "Cannot determine user config directory: HOME (or USERPROFILE on Windows) "
+                    "is not set. Set TURBOT_USER_CONFIG_PATH to specify config location.");
+            }
+            return std::string(home) + "/.turbot/turbot.json";
         }
         case ConfigLevel::Project: {
             std::string env_path = get_env("TURBOT_PROJECT_CONFIG_PATH");

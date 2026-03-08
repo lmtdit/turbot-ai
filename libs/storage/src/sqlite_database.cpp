@@ -62,6 +62,10 @@ nlohmann::json sqlite_row_to_json(sqlite3_stmt* stmt) {
 
     for (int i = 0; i < count; i++) {
         const char* name = sqlite3_column_name(stmt, i);
+        // sqlite3_column_name can return nullptr for unnamed columns
+        if (!name) {
+            name = "";
+        }
 
         switch (sqlite3_column_type(stmt, i)) {
             case SQLITE_INTEGER:
@@ -180,7 +184,7 @@ QueryResult SQLiteDatabase::execute(
     const std::string& sql,
     const std::vector<nlohmann::json>& params) {
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(*mutex_);
 
     if (!db_) {
         throw std::runtime_error("Database is not open");
@@ -237,27 +241,36 @@ std::shared_ptr<Transaction> SQLiteDatabase::begin_transaction() {
         throw std::runtime_error("Database is not open");
     }
     execute("BEGIN IMMEDIATE TRANSACTION;");
-    return std::make_shared<SQLiteTransaction>(db_, alive_flag_);
+    return std::make_shared<SQLiteTransaction>(db_, alive_flag_, mutex_);
 }
 
 QueryResult SQLiteDatabase::execute_batch(
     const std::string& sql,
     const std::vector<std::vector<nlohmann::json>>& params_list) {
 
-    QueryResult total_result;
-    total_result.affected_rows = 0;
+    // Wrap all executions in a single transaction for atomicity:
+    // if any statement fails, all previous changes are rolled back.
+    auto tx = begin_transaction();
+    try {
+        QueryResult total_result;
+        total_result.affected_rows = 0;
 
-    for (const auto& params : params_list) {
-        auto result = execute(sql, params);
-        total_result.affected_rows += result.affected_rows;
-        total_result.rows.insert(total_result.rows.end(),
-                                  result.rows.begin(), result.rows.end());
+        for (const auto& params : params_list) {
+            auto result = tx->execute(sql, params);
+            total_result.affected_rows += result.affected_rows;
+            total_result.rows.insert(total_result.rows.end(),
+                                      result.rows.begin(), result.rows.end());
+        }
+
+        tx->commit();
+        return total_result;
+    } catch (...) {
+        // Transaction auto-rollback in destructor
+        throw;
     }
-
-    return total_result;
 }
 
-void SQLiteDatabase::migrate(const std::string& name, const std::string& sql) {
+void SQLiteDatabase::migrate(const std::string& name, const std::string& sql, int version) {
     // Use transaction for atomic migration - ensures both SQL execution and
     // migration record are committed together or rolled back together
     auto tx = begin_transaction();
@@ -274,18 +287,45 @@ void SQLiteDatabase::migrate(const std::string& name, const std::string& sql) {
             return;
         }
 
-        // Execute migration SQL
-        tx->execute(sql);
+        // Execute migration SQL - supports multiple statements (e.g. CREATE TABLE; CREATE INDEX;)
+        // by iterating through all statements using sqlite3_prepare_v2 pzTail
+        {
+            std::lock_guard<std::mutex> lock(*mutex_);
+            const char* remaining = sql.c_str();
+            while (remaining && *remaining) {
+                sqlite3_stmt* raw_stmt = nullptr;
+                const char* tail = nullptr;
+                int result = sqlite3_prepare_v2(db_, remaining, -1, &raw_stmt, &tail);
+                if (result != SQLITE_OK) {
+                    throw std::runtime_error("Failed to prepare migration statement: " +
+                                             std::string(sqlite3_errmsg(db_)));
+                }
+                if (!raw_stmt) {
+                    // Only whitespace or comments, skip ahead
+                    remaining = tail;
+                    continue;
+                }
+                StmtPtr stmt(raw_stmt);
+                while ((result = sqlite3_step(stmt.get())) == SQLITE_ROW) {
+                    // DDL statements return no rows; ignore any rows for other stmts
+                }
+                if (result != SQLITE_DONE) {
+                    throw std::runtime_error("Migration statement failed: " +
+                                             std::string(sqlite3_errmsg(db_)));
+                }
+                remaining = tail;
+            }
+        }
 
-        // Record migration
+        // Record migration with the actual version number
         auto now = std::chrono::system_clock::now().time_since_epoch().count();
         tx->execute(
-            "INSERT INTO _migrations (name, version, executed_at) VALUES (?, 1, ?)",
-            {nlohmann::json(name), nlohmann::json(now)});
+            "INSERT INTO _migrations (name, version, executed_at) VALUES (?, ?, ?)",
+            {nlohmann::json(name), nlohmann::json(version), nlohmann::json(now)});
 
         // Commit transaction - atomic commit of both operations
         tx->commit();
-        TURBOT_LOG_INFO("Applied migration: {}", name);
+        TURBOT_LOG_INFO("Applied migration: {} (v{})", name, version);
     } catch (...) {
         // Transaction will auto-rollback in destructor if not committed
         throw;
@@ -302,7 +342,7 @@ bool SQLiteDatabase::health_check() {
 }
 
 void SQLiteDatabase::close() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(*mutex_);
     if (db_) {
         sqlite3_close(db_);
         db_ = nullptr;
@@ -318,11 +358,17 @@ bool SQLiteDatabase::is_open() const {
 // SQLiteTransaction Implementation
 // ============================================================================
 
-SQLiteTransaction::SQLiteTransaction(sqlite3* db, std::shared_ptr<bool> alive_flag)
+SQLiteTransaction::SQLiteTransaction(sqlite3* db,
+                                     std::shared_ptr<bool> alive_flag,
+                                     std::shared_ptr<std::mutex> shared_mutex)
     : db_(db)
-    , alive_flag_(std::move(alive_flag)) {
+    , alive_flag_(std::move(alive_flag))
+    , mutex_(std::move(shared_mutex)) {
     if (!db_) {
         throw std::runtime_error("Cannot create transaction without database");
+    }
+    if (!mutex_) {
+        throw std::runtime_error("Cannot create transaction without a valid mutex");
     }
 }
 
@@ -345,7 +391,7 @@ void SQLiteTransaction::commit() {
         throw std::runtime_error("Transaction is not active");
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(*mutex_);
     char* err_msg = nullptr;
     int result = sqlite3_exec(db_, "COMMIT;", nullptr, nullptr, &err_msg);
 
@@ -369,7 +415,7 @@ void SQLiteTransaction::rollback() {
         return;  // 数据库已销毁，无需 rollback
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(*mutex_);
     char* err_msg = nullptr;
     int result = sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, &err_msg);
 
@@ -403,7 +449,7 @@ QueryResult SQLiteTransaction::execute(
         throw std::runtime_error("Transaction is not active");
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::mutex> lock(*mutex_);
 
     sqlite3_stmt* raw_stmt = nullptr;
     int result = sqlite3_prepare_v2(db_, sql.c_str(), -1, &raw_stmt, nullptr);

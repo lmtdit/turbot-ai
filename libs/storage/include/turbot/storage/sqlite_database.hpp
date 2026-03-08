@@ -51,7 +51,8 @@ public:
 
     void migrate(
         const std::string& name,
-        const std::string& sql
+        const std::string& sql,
+        int version = 1
     ) override;
 
     bool health_check() override;
@@ -87,7 +88,9 @@ private:
 
     DatabaseConfig config_;
     sqlite3* db_ = nullptr;
-    std::mutex mutex_;
+    // Shared mutex allows SQLiteTransaction instances to coordinate with this database
+    // using the same underlying lock, preventing concurrent access to the sqlite3 handle
+    std::shared_ptr<std::mutex> mutex_ = std::make_shared<std::mutex>();
     
     // Track if database is being destroyed
     std::shared_ptr<bool> alive_flag_ = std::make_shared<bool>(true);
@@ -99,7 +102,10 @@ public:
     /// Construct a transaction for the given database
     /// @param db SQLite database pointer
     /// @param alive_flag Shared flag to track database lifetime
-    explicit SQLiteTransaction(sqlite3* db, std::shared_ptr<bool> alive_flag);
+    /// @param shared_mutex Shared mutex from the parent SQLiteDatabase
+    explicit SQLiteTransaction(sqlite3* db,
+                               std::shared_ptr<bool> alive_flag,
+                               std::shared_ptr<std::mutex> shared_mutex);
     ~SQLiteTransaction() override;
 
     // Non-copyable, non-movable
@@ -140,7 +146,8 @@ private:
 
     sqlite3* db_;
     std::shared_ptr<bool> alive_flag_;
-    std::mutex mutex_;
+    // Shared with SQLiteDatabase to prevent concurrent raw access to sqlite3*
+    std::shared_ptr<std::mutex> mutex_;
 };
 
 } // namespace turbot::storage::sqlite

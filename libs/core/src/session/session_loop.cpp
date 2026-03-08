@@ -2,6 +2,7 @@
 #include <turbot/core/tool/tool_registry.hpp>
 #include <fmt/format.h>
 #include <atomic>
+#include <filesystem>
 
 namespace turbot::core::session {
 
@@ -25,7 +26,7 @@ SessionLoop::SessionLoop(const std::string& session_id)
         CreateParams params;
         params.project_id = "default";
         params.slug = "main";
-        params.directory = "/tmp/turbot";
+        params.directory = (std::filesystem::temp_directory_path() / "turbot").string();
         params.title = "Interactive Session";
         
         auto created = Session::create(params);

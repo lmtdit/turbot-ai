@@ -82,7 +82,7 @@ void MigrationRunner::run() {
         TURBOT_LOG_INFO("Running migration: {} (v{})", migration->name(), migration->version());
 
         try {
-            db_->migrate(migration->name(), migration->up());
+            db_->migrate(migration->name(), migration->up(), migration->version());
             // record_migration is already called inside db_->migrate()
             pending_count++;
         } catch (const std::exception& e) {

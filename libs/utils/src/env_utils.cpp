@@ -20,17 +20,19 @@ extern char** environ;
 namespace turbot::utils {
 
 std::string get_env(std::string_view name) {
+    // string_view may not be null-terminated; convert to std::string first
+    std::string name_str(name);
 #ifdef _WIN32
     // Windows 使用 GetEnvironmentVariable
-    DWORD size = GetEnvironmentVariableA(name.data(), nullptr, 0);
+    DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     if (size == 0) {
         return "";
     }
     std::string result(size - 1, '\0');
-    GetEnvironmentVariableA(name.data(), result.data(), size);
+    GetEnvironmentVariableA(name_str.c_str(), result.data(), size);
     return result;
 #else
-    const char* value = std::getenv(name.data());
+    const char* value = std::getenv(name_str.c_str());
     return value ? std::string(value) : "";
 #endif
 }
@@ -41,27 +43,31 @@ std::string get_env_or(std::string_view name, std::string_view default_value) {
 }
 
 void set_env(std::string_view name, std::string_view value) {
+    std::string name_str(name);
+    std::string value_str(value);
 #ifdef _WIN32
-    _putenv_s(name.data(), value.data());
+    _putenv_s(name_str.c_str(), value_str.c_str());
 #else
-    setenv(name.data(), value.data(), 1);
+    setenv(name_str.c_str(), value_str.c_str(), 1);
 #endif
 }
 
 void unset_env(std::string_view name) {
+    std::string name_str(name);
 #ifdef _WIN32
-    _putenv_s(name.data(), "");
+    _putenv_s(name_str.c_str(), "");
 #else
-    unsetenv(name.data());
+    unsetenv(name_str.c_str());
 #endif
 }
 
 bool has_env(std::string_view name) {
+    std::string name_str(name);
 #ifdef _WIN32
-    DWORD size = GetEnvironmentVariableA(name.data(), nullptr, 0);
+    DWORD size = GetEnvironmentVariableA(name_str.c_str(), nullptr, 0);
     return size != 0;
 #else
-    return std::getenv(name.data()) != nullptr;
+    return std::getenv(name_str.c_str()) != nullptr;
 #endif
 }
 

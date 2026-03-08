@@ -1,5 +1,6 @@
 #include <turbot/core/tool/builtin/task_tool.hpp>
 #include <fmt/format.h>
+#include <filesystem>
 
 namespace turbot::core::tool {
 
@@ -108,7 +109,7 @@ ToolResult TaskTool::execute(const nlohmann::json& input, ToolContext& ctx) {
         session::CreateParams create_params;
         create_params.project_id = "subtask";
         create_params.slug = fmt::format("task_{}", params.subagent_type);
-        create_params.directory = "/tmp/turbot_subtask";  // Placeholder
+        create_params.directory = (std::filesystem::temp_directory_path() / "turbot_subtask").string();  // Placeholder
         create_params.title = fmt::format("{} (@{} subagent)", 
             params.description, params.subagent_type);
         

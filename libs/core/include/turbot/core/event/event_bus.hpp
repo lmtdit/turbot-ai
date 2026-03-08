@@ -1,6 +1,7 @@
 #pragma once
 
 #include <turbot/core/common/export.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <turbot/utils/string_utils.hpp>
 #include <nlohmann/json.hpp>
 #include <functional>
@@ -94,7 +95,9 @@ public:
                         (*handler)(event);
                     }
                 } catch (const std::exception& e) {
-                    // 记录错误但不中断其他处理器
+                    // Log the error but continue delivering to other handlers
+                    TURBOT_LOG_ERROR("EventBus: subscriber threw exception for event '{}': {}",
+                                    name, e.what());
                 }
             }
         }
@@ -124,7 +127,9 @@ public:
                             (*handler)(event).wait();
                         }
                     } catch (const std::exception& e) {
-                        // 记录错误
+                        // Log the error but continue delivering to other handlers
+                        TURBOT_LOG_ERROR("EventBus: async subscriber threw exception for event '{}': {}",
+                                        event.name, e.what());
                     }
                 }
             }

@@ -84,9 +84,11 @@ public:
     /// Run a migration
     /// @param name Migration name
     /// @param sql SQL to execute
+    /// @param version Migration version number (used for ordering and recording)
     virtual void migrate(
         const std::string& name,
-        const std::string& sql
+        const std::string& sql,
+        int version = 1
     ) = 0;
 
     /// Check database health

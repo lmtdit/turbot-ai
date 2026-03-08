@@ -2,7 +2,7 @@
 
 // Export macros for shared library support
 #if defined(_WIN32) || defined(__CYGWIN__)
-    #ifdef TURBOT_UTILS_APIS
+    #ifdef TURBOT_UTILS_EXPORTS
         #define TURBOT_UTILS_API __declspec(dllexport)
     #else
         #define TURBOT_UTILS_API __declspec(dllimport)

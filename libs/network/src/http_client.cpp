@@ -243,149 +243,161 @@ public:
         CurlData curl_data;
         curl_data.stream_callback = stream_callback;
         
-        // Create CURL handle
-        CURL* curl = curl_easy_init();
-        if (!curl) {
+        // RAII wrapper for CURL handle - prevents double-free on any code path
+        struct CurlDeleter {
+            void operator()(CURL* h) const noexcept {
+                if (h) curl_easy_cleanup(h);
+            }
+        };
+        std::unique_ptr<CURL, CurlDeleter> curl_handle(curl_easy_init());
+        if (!curl_handle) {
             throw std::runtime_error("Failed to initialize CURL handle");
         }
+        CURL* curl = curl_handle.get();
         
-        try {
-            // Set URL
-            curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
-            
-            // Set method - store in local variable to ensure lifetime
-            std::string method_str(method_to_string(req.method));
-            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method_str.c_str());
-            
-            // Set timeout
-            int timeout = req.timeout_seconds > 0 ? req.timeout_seconds : default_timeout_;
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout);
-            
-            // Set redirects
-            if (req.follow_redirects) {
-                curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-                curl_easy_setopt(curl, CURLOPT_MAXREDIRS, req.max_redirects);
+        // Set URL
+        curl_easy_setopt(curl, CURLOPT_URL, req.url.c_str());
+        
+        // Set method - store in local variable to ensure lifetime
+        std::string method_str(method_to_string(req.method));
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, method_str.c_str());
+        
+        // Set timeout
+        int timeout = req.timeout_seconds > 0 ? req.timeout_seconds : default_timeout_;
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, timeout);
+        
+        // Set redirects
+        if (req.follow_redirects) {
+            curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+            curl_easy_setopt(curl, CURLOPT_MAXREDIRS, req.max_redirects);
+        }
+        
+        // Build headers list with RAII error handling
+        struct CurlSlistDeleter {
+            void operator()(curl_slist* s) const noexcept {
+                if (s) curl_slist_free_all(s);
             }
-            
-            // Build headers list with error handling
-            struct curl_slist* curl_headers = nullptr;
-            
-            // Helper lambda to safely append headers
-            auto safe_append_header = [&curl_headers](const std::string& header) -> bool {
-                struct curl_slist* new_headers = curl_slist_append(curl_headers, header.c_str());
-                if (!new_headers) {
-                    if (curl_headers) {
-                        curl_slist_free_all(curl_headers);
-                    }
-                    return false;
+        };
+        
+        // Build the raw headers list first, then transfer ownership to RAII once.
+        // Do NOT call headers_guard.reset() inside the append loop: curl_slist_append
+        // returns the SAME head pointer on each call, and reset() would free+reassign
+        // the same pointer causing use-after-free.
+        curl_slist* raw_headers = nullptr;
+        
+        // Helper lambda: frees raw_headers on allocation failure, returns false
+        auto safe_append_header = [&raw_headers](const std::string& header) -> bool {
+            curl_slist* new_headers = curl_slist_append(raw_headers, header.c_str());
+            if (!new_headers) {
+                if (raw_headers) {
+                    curl_slist_free_all(raw_headers);
+                    raw_headers = nullptr;
                 }
-                curl_headers = new_headers;
-                return true;
-            };
-            
-            // Add request headers
-            for (const auto& [key, value] : req.headers) {
+                return false;
+            }
+            raw_headers = new_headers;
+            return true;
+        };
+        
+        // Add request headers
+        for (const auto& [key, value] : req.headers) {
+            std::string header = key + ": " + value;
+            if (!safe_append_header(header)) {
+                throw std::runtime_error("Failed to append HTTP header (out of memory)");
+            }
+        }
+        
+        // Add default headers (if not already present)
+        for (const auto& [key, value] : default_headers_) {
+            bool found = false;
+            for (const auto& [k, v] : req.headers) {
+                if (iequals(k, key)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
                 std::string header = key + ": " + value;
                 if (!safe_append_header(header)) {
-                    curl_easy_cleanup(curl);
                     throw std::runtime_error("Failed to append HTTP header (out of memory)");
                 }
             }
-            
-            // Add default headers (if not already present)
-            for (const auto& [key, value] : default_headers_) {
-                bool found = false;
-                for (const auto& [k, v] : req.headers) {
-                    if (iequals(k, key)) {
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    std::string header = key + ": " + value;
-                    if (!safe_append_header(header)) {
-                        curl_easy_cleanup(curl);
-                        throw std::runtime_error("Failed to append HTTP header (out of memory)");
-                    }
-                }
-            }
-            
-            // Set User-Agent
-            curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent_.c_str());
-            
-            // Set headers
-            if (curl_headers) {
-                curl_easy_setopt(curl, CURLOPT_HTTPHEADER, curl_headers);
-            }
-            
-            // Set body for POST/PUT/PATCH
-            if (!req.body.empty() && (req.method == HttpMethod::POST || 
-                                       req.method == HttpMethod::PUT ||
-                                       req.method == HttpMethod::PATCH)) {
-                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req.body.c_str());
-                curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, req.body.size());
-            }
-            
-            // Set proxy
-            if (!proxy_.empty()) {
-                curl_easy_setopt(curl, CURLOPT_PROXY, proxy_.c_str());
-            }
-            
-            // Set SSL verification
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, ssl_verify_ ? 1L : 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, ssl_verify_ ? 2L : 0L);
-            
-            // Set callbacks
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body_callback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &curl_data);
-            curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_header_callback);
-            curl_easy_setopt(curl, CURLOPT_HEADERDATA, &curl_data);
-            
-            // Perform request
-            CURLcode res = curl_easy_perform(curl);
-            
-            // Clean up headers
-            if (curl_headers) {
-                curl_slist_free_all(curl_headers);
-            }
-            
-            // Handle errors
-            if (res != CURLE_OK) {
-                if (curl_data.aborted) {
-                    response.status_code = 0;
-                    response.status_message = "Request aborted by callback";
-                } else {
-                    curl_easy_cleanup(curl);
-                    throw std::runtime_error(std::string("CURL error: ") + curl_easy_strerror(res));
-                }
-            } else {
-                // Get response code
-                long status_code;
-                curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
-                response.status_code = static_cast<int>(status_code);
-                
-                // Parse headers
-                response.headers = parse_headers(curl_data.headers);
-                
-                // Get content type
-                char* content_type = nullptr;
-                curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &content_type);
-                if (content_type) {
-                    response.content_type = content_type;
-                }
-                
-                // Set body (empty for streaming mode)
-                if (!stream_callback) {
-                    response.body = std::move(curl_data.body);
-                }
-            }
-            
-            curl_easy_cleanup(curl);
-        } catch (...) {
-            curl_easy_cleanup(curl);
-            throw;
         }
+        
+        // Transfer ownership to RAII *once* after all appending is done
+        std::unique_ptr<curl_slist, CurlSlistDeleter> headers_guard(raw_headers);
+        raw_headers = nullptr;
+        
+        // Set User-Agent
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, user_agent_.c_str());
+        
+        // Set headers
+        if (headers_guard) {
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers_guard.get());
+        }
+        
+        // Set body for POST/PUT/PATCH
+        if (!req.body.empty() && (req.method == HttpMethod::POST || 
+                                   req.method == HttpMethod::PUT ||
+                                   req.method == HttpMethod::PATCH)) {
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, req.body.c_str());
+            // Use POSTFIELDSIZE_LARGE (curl_off_t) to avoid truncation on 64-bit platforms
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE,
+                             static_cast<curl_off_t>(req.body.size()));
+        }
+        
+        // Set proxy
+        if (!proxy_.empty()) {
+            curl_easy_setopt(curl, CURLOPT_PROXY, proxy_.c_str());
+        }
+        
+        // Set SSL verification
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, ssl_verify_ ? 1L : 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, ssl_verify_ ? 2L : 0L);
+        
+        // Set callbacks
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &curl_data);
+        curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_header_callback);
+        curl_easy_setopt(curl, CURLOPT_HEADERDATA, &curl_data);
+        
+        // Perform request
+        CURLcode res = curl_easy_perform(curl);
+        
+        // headers_guard will auto-free curl_headers when it goes out of scope
+        
+        // Handle errors
+        if (res != CURLE_OK) {
+            if (curl_data.aborted) {
+                response.status_code = 0;
+                response.status_message = "Request aborted by callback";
+            } else {
+                throw std::runtime_error(std::string("CURL error: ") + curl_easy_strerror(res));
+            }
+        } else {
+            // Get response code
+            long status_code;
+            curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status_code);
+            response.status_code = static_cast<int>(status_code);
+            
+            // Parse headers
+            response.headers = parse_headers(curl_data.headers);
+            
+            // Get content type
+            char* content_type = nullptr;
+            curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &content_type);
+            if (content_type) {
+                response.content_type = content_type;
+            }
+            
+            // Set body (empty for streaming mode)
+            if (!stream_callback) {
+                response.body = std::move(curl_data.body);
+            }
+        }
+        
+        // curl_handle (RAII) will call curl_easy_cleanup automatically
         
         // Calculate response time
         auto end_time = std::chrono::steady_clock::now();

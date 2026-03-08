@@ -337,9 +337,14 @@ ToolResult BashTool::execute_normal(
 
     // Change to working directory if needed
     if (!cwd.empty() && cwd != ".") {
+        // Build a compound command: 'cd CWD && ORIGINAL_COMMAND'
+        // escape_shell_arg wraps the whole thing so all characters are safe,
+        // including single quotes inside the original command.
+        std::string cd_and_run = fmt::format("cd {} && {}", escape_shell_arg(cwd), params.command);
+        std::string escaped_cd_and_run = escape_shell_arg(cd_and_run);
         full_command = tc.empty()
-            ? fmt::format("{} -c 'cd {} && {}' 2>&1", shell_path(), escape_shell_arg(cwd), params.command)
-            : fmt::format("{} {} {} -c 'cd {} && {}' 2>&1", tc, timeout_sec, shell_path(), escape_shell_arg(cwd), params.command);
+            ? fmt::format("{} -c {} 2>&1", shell_path(), escaped_cd_and_run)
+            : fmt::format("{} {} {} -c {} 2>&1", tc, timeout_sec, shell_path(), escaped_cd_and_run);
     }
 
     // Execute the command
@@ -424,12 +429,14 @@ ToolResult BashTool::execute_sandbox(
 
     // Build sandbox command
     // This is a simplified sandbox - real implementation would use proper isolation
-    std::string sandbox_cmd;
     const std::string& tc = timeout_command();
     
-    // Sandbox: restrict to safe commands, no network, limited filesystem access
-    // For demonstration, we just use a restricted PATH and readonly filesystem flags
-    std::string sandbox_prefix = "env -i PATH=/usr/bin:/bin HOME=$HOME ";
+    // Sandbox: restrict to safe commands via a clean environment.
+    // Uses 'env -i' to clear the environment and set only minimal vars.
+    // Note: This provides environment-level isolation only; full filesystem/network
+    // isolation requires platform-specific mechanisms (namespaces, containers, etc.).
+    std::string sandbox_prefix = fmt::format("env -i PATH=/usr/bin:/bin HOME={} ",
+        escape_shell_arg(params.workdir.value_or(ctx.working_directory)));
     
     // Determine working directory with validation
     std::string cwd = params.workdir.value_or(ctx.working_directory);
@@ -446,11 +453,24 @@ ToolResult BashTool::execute_sandbox(
         );
     }
 
-    if (!tc.empty()) {
-        sandbox_cmd = fmt::format("{} {} {} -c {} {} 2>&1", 
-            tc, timeout_sec, shell_path(), sandbox_prefix, escaped_cmd);
+    // Build the sandboxed command:
+    // env -i PATH=... HOME=... shell -c 'cmd'
+    // The sandbox_prefix is a shell command prefix (not a shell -c script),
+    // so it must come before the shell invocation, not inside -c '...'.
+    std::string inner_cmd;
+    if (!cwd.empty() && cwd != ".") {
+        std::string cd_and_run = fmt::format("cd {} && {}", escape_shell_arg(cwd), params.command);
+        inner_cmd = escape_shell_arg(cd_and_run);
     } else {
-        sandbox_cmd = fmt::format("{} -c {} {} 2>&1", shell_path(), sandbox_prefix, escaped_cmd);
+        inner_cmd = escaped_cmd;
+    }
+
+    std::string sandbox_cmd;
+    if (!tc.empty()) {
+        sandbox_cmd = fmt::format("{} {} {}{} -c {} 2>&1",
+            tc, timeout_sec, sandbox_prefix, shell_path(), inner_cmd);
+    } else {
+        sandbox_cmd = fmt::format("{}{} -c {} 2>&1", sandbox_prefix, shell_path(), inner_cmd);
     }
 
     // Execute the command
