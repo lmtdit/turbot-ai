@@ -59,6 +59,8 @@ set(CORE_SOURCES
     src/llm/provider_adapter.cpp
     # Skill module (v2.0)
     src/skill/skill.cpp
+    # Snapshot module (v2.5)
+    src/snapshot/snapshot.cpp
 )
 
 # Header files - organized by module
@@ -116,6 +118,8 @@ set(CORE_HEADERS
     include/turbot/core/llm/provider_adapter.hpp
     # Skill module (v2.0)
     include/turbot/core/skill/skill.hpp
+    # Snapshot module (v2.5)
+    include/turbot/core/snapshot/snapshot.hpp
 )
 
 # Create library

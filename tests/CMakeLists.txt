@@ -2,6 +2,21 @@
 
 find_package(Catch2 REQUIRED)
 
+# Copy prompts directory to build directory for tests
+set(PROMPTS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/libs/core/prompts")
+set(PROMPTS_BUILD_DIR "${CMAKE_BINARY_DIR}/prompts")
+
+# Create custom command to copy prompts directory
+add_custom_command(
+    OUTPUT "${PROMPTS_BUILD_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROMPTS_SOURCE_DIR}" "${PROMPTS_BUILD_DIR}"
+    DEPENDS "${PROMPTS_SOURCE_DIR}"
+    COMMENT "Copying prompts directory to build directory"
+)
+
+# Custom target for prompts copy
+add_custom_target(copy_prompts ALL DEPENDS "${PROMPTS_BUILD_DIR}")
+
 # Config Manager 单元测试（独立，不依赖 network）
 add_executable(config-manager-test unit/config_manager_test.cpp)
 
@@ -52,6 +67,8 @@ set(UNIT_TEST_SOURCES
     # v2.0 Skill module
     unit/skill_test.cpp
     unit/skill_tool_test.cpp
+    # v2.5 Snapshot module
+    unit/snapshot_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
@@ -69,6 +86,9 @@ turbot_configure_target(turbot-unit-tests)
 turbot_configure_sanitizers(turbot-unit-tests)
 turbot_configure_coverage(turbot-unit-tests)
 
+# Ensure prompts are copied before running tests
+add_dependencies(turbot-unit-tests copy_prompts)
+
 include(Catch)
 catch_discover_tests(config-manager-test)
 catch_discover_tests(turbot-unit-tests)
@@ -78,6 +98,9 @@ set(INTEGRATION_TEST_NAME turbot-integration-tests)
 
 set(INTEGRATION_TEST_SOURCES
     test_integration.cpp
+    integration/persistence_test.cpp
+    integration/agent_collaboration_test.cpp
+    integration/error_recovery_test.cpp
 )
 
 add_executable(${INTEGRATION_TEST_NAME} ${INTEGRATION_TEST_SOURCES})
@@ -87,6 +110,7 @@ target_link_libraries(${INTEGRATION_TEST_NAME}
         turbot::core
         turbot::utils
         turbot::network
+        turbot::storage
         Catch2::Catch2WithMain
 )
 
@@ -95,3 +119,32 @@ turbot_configure_sanitizers(${INTEGRATION_TEST_NAME})
 turbot_configure_coverage(${INTEGRATION_TEST_NAME})
 
 catch_discover_tests(${INTEGRATION_TEST_NAME})
+
+# E2E 测试
+set(E2E_TEST_NAME turbot-e2e-tests)
+
+set(E2E_TEST_SOURCES
+    integration/e2e_test.cpp
+)
+
+add_executable(${E2E_TEST_NAME} ${E2E_TEST_SOURCES})
+
+target_include_directories(${E2E_TEST_NAME}
+    PRIVATE
+        ${CMAKE_SOURCE_DIR}/tests
+)
+
+target_link_libraries(${E2E_TEST_NAME}
+    PRIVATE
+        turbot::core
+        turbot::utils
+        turbot::network
+        turbot::storage
+        Catch2::Catch2WithMain
+)
+
+turbot_configure_target(${E2E_TEST_NAME})
+turbot_configure_sanitizers(${E2E_TEST_NAME})
+turbot_configure_coverage(${E2E_TEST_NAME})
+
+catch_discover_tests(${E2E_TEST_NAME})
