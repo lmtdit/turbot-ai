@@ -124,9 +124,11 @@ public:
     [[nodiscard]] int step_number() const noexcept { return iteration_count_.load(std::memory_order_relaxed); }
 
     /// Get total token usage
+    /// @note Not thread-safe; intended to be read after run() completes
     [[nodiscard]] TokenUsage total_usage() const noexcept { return total_usage_; }
 
     /// Get total cost
+    /// @note Not thread-safe; intended to be read after run() completes
     [[nodiscard]] double total_cost() const noexcept { return total_cost_; }
 
 private:
@@ -151,6 +153,7 @@ private:
 
     // Doom loop detection
     std::string last_tool_call_;
+    nlohmann::json last_tool_input_{};   ///< Last tool input for doom loop detection
     int same_tool_count_ = 0;
 
     MessageCallback on_message_;

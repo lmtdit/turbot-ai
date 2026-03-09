@@ -7,6 +7,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <fstream>
+#include <thread>
+#include <atomic>
+#include <unordered_set>
 
 using namespace turbot::core;
 using namespace turbot::storage;
@@ -329,7 +332,8 @@ TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-06: Message update", "[integra
     CHECK(updated->tokens.input == 100);
 }
 
-TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-07: Concurrent message creation", "[integration][persistence]") {
+// PERSIST-07: Sequential message creation (renamed from "Concurrent" since it was never truly concurrent)
+TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-07: Sequential message creation integrity", "[integration][persistence]") {
     session::CreateParams params;
     params.project_id = "persist-test";
     params.slug = "concurrent-test";
@@ -341,11 +345,11 @@ TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-07: Concurrent message creatio
     
     MessageDao dao(db);
     
-    // Create multiple messages "concurrently" (simulated)
+    // Create multiple messages sequentially
     std::vector<std::string> message_ids;
     for (int i = 0; i < 10; i++) {
         Message msg(session_result->id(), Role::User, "build", "", "");
-        msg.add_text("Concurrent message " + std::to_string(i));
+        msg.add_text("Message " + std::to_string(i));
         dao.create_message(msg.info());
         message_ids.push_back(msg.id());
     }
@@ -353,4 +357,44 @@ TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-07: Concurrent message creatio
     // Verify all messages were created
     auto messages = dao.list_messages_by_session(session_result->id());
     CHECK(messages.size() == 10);
+
+    // Verify each message ID is unique (UUIDs must not collide)
+    std::unordered_set<std::string> id_set(message_ids.begin(), message_ids.end());
+    CHECK(id_set.size() == 10);
+}
+
+// PERSIST-07b: True concurrent message creation
+TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-07b: Concurrent message creation (multi-thread)", "[integration][persistence][concurrent]") {
+    session::CreateParams params;
+    params.project_id = "persist-test";
+    params.slug = "concurrent-test-mt";
+    params.directory = "/tmp/concurrent-test-mt";
+    params.title = "Concurrent MT Test Session";
+
+    auto session_result = session::Session::create(params);
+    REQUIRE(session_result.has_value());
+
+    const int thread_count = 4;
+    const int msgs_per_thread = 5;
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count{0};
+
+    for (int t = 0; t < thread_count; t++) {
+        threads.emplace_back([&, t]() {
+            MessageDao thread_dao(db);  // per-thread DAO
+            for (int i = 0; i < msgs_per_thread; i++) {
+                Message msg(session_result->id(), Role::User, "build", "", "");
+                msg.add_text("Thread " + std::to_string(t) + " msg " + std::to_string(i));
+                thread_dao.create_message(msg.info());
+                success_count.fetch_add(1, std::memory_order_relaxed);
+            }
+        });
+    }
+
+    for (auto& th : threads) th.join();
+
+    // All messages must have been written successfully
+    CHECK(success_count == thread_count * msgs_per_thread);
+    auto messages = MessageDao(db).list_messages_by_session(session_result->id());
+    CHECK(messages.size() == static_cast<size_t>(thread_count * msgs_per_thread));
 }

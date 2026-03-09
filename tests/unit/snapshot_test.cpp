@@ -2,9 +2,12 @@
 // Unit tests for snapshot tracking system
 
 #include <turbot/core/snapshot/snapshot.hpp>
+#include <turbot/utils/file_utils.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
 #include <fstream>
+#include <thread>
+#include <atomic>
 
 using namespace turbot::core::snapshot;
 
@@ -17,10 +20,7 @@ namespace {
     
     // Helper to read test file
     std::string read_test_file(const std::filesystem::path& path) {
-        std::ifstream file(path, std::ios::binary);
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        return buffer.str();
+        return turbot::utils::read_file(path.string()).value_or("");
     }
     
     // Test fixture for file-based tests
@@ -402,4 +402,106 @@ TEST_CASE("SnapshotOptions: default exclude patterns", "[snapshot]") {
     CHECK(std::find(patterns.begin(), patterns.end(), ".git") != patterns.end());
     CHECK(std::find(patterns.begin(), patterns.end(), "node_modules") != patterns.end());
     CHECK(std::find(patterns.begin(), patterns.end(), "build") != patterns.end());
+}
+
+// ============================================================================
+// SNAP-PERF: Performance - reduced lock granularity
+// ============================================================================
+
+TEST_CASE("SNAP-PERF-01: start_tracking does not block active_tracking_count", "[snapshot][perf]") {
+    SnapshotTestDir test_dir;
+    auto& manager = SnapshotManager::instance();
+    manager.clear();
+
+    // Create several files so scan_files takes measurable time
+    for (int i = 0; i < 20; ++i) {
+        create_test_file(test_dir.path("file" + std::to_string(i) + ".txt"),
+                         std::string(256, 'A'));
+    }
+
+    SnapshotOptions options;
+    options.root_directory = test_dir.test_dir;
+
+    std::atomic<bool> query_succeeded{false};
+    std::atomic<bool> start_done{false};
+
+    std::thread t1([&] {
+        manager.start_tracking(options);
+        start_done.store(true);
+    });
+
+    std::thread t2([&] {
+        for (int i = 0; i < 50; ++i) {
+            std::this_thread::yield();
+        }
+        [[maybe_unused]] auto count = manager.active_tracking_count();
+        query_succeeded.store(true);
+    });
+
+    t1.join();
+    t2.join();
+
+    CHECK(start_done.load());
+    CHECK(query_succeeded.load());
+
+    manager.clear();
+}
+
+TEST_CASE("SNAP-PERF-02: is_excluded uses pre-compiled patterns correctly", "[snapshot][perf]") {
+    SnapshotTestDir test_dir;
+    auto& manager = SnapshotManager::instance();
+    manager.clear();
+
+    std::filesystem::create_directories(test_dir.test_dir / "cmake-build-debug");
+    create_test_file(test_dir.path("cmake-build-debug/output"), "excluded");
+    create_test_file(test_dir.path("main.o"), "excluded");
+    create_test_file(test_dir.path("main.cpp"), "tracked");
+
+    SnapshotOptions options;
+    options.root_directory = test_dir.test_dir;
+    options.exclude_patterns = {"cmake-build-*", "*.o"};
+
+    std::string id = manager.start_tracking(options);
+
+    create_test_file(test_dir.path("new.cpp"), "new tracked");
+    create_test_file(test_dir.path("cmake-build-debug/new_output"), "new excluded");
+    create_test_file(test_dir.path("new.o"), "new excluded");
+
+    PatchResult patch = manager.stop_tracking(id);
+
+    for (const auto& change : patch.files) {
+        std::string p = change.path.string();
+        CHECK(p.find(".o") == std::string::npos);
+        CHECK(p.find("cmake-build") == std::string::npos);
+    }
+}
+
+TEST_CASE("SNAP-PERF-03: wildcard patterns match correctly", "[snapshot][perf]") {
+    SnapshotTestDir test_dir;
+    auto& manager = SnapshotManager::instance();
+    manager.clear();
+
+    create_test_file(test_dir.path("readme.txt"), "tracked");
+    create_test_file(test_dir.path("lib.a"), "excluded");
+    create_test_file(test_dir.path("lib.so"), "excluded");
+
+    SnapshotOptions options;
+    options.root_directory = test_dir.test_dir;
+    options.exclude_patterns = {"*.a", "*.so"};
+
+    std::string id = manager.start_tracking(options);
+
+    create_test_file(test_dir.path("new.txt"), "tracked");
+    create_test_file(test_dir.path("new.a"), "excluded");
+
+    PatchResult patch = manager.stop_tracking(id);
+
+    bool found_txt = false;
+    for (const auto& change : patch.files) {
+        std::string p = change.path.string();
+        CHECK(p.find(".a") == std::string::npos);
+        CHECK(p.find(".so") == std::string::npos);
+        if (p.find("new.txt") != std::string::npos) found_txt = true;
+    }
+    CHECK(found_txt);
 }

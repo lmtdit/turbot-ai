@@ -64,7 +64,7 @@ public:
             auto error = error_sequence_.front();
             error_sequence_.pop();
             if (error != MockError::None) {
-                return make_error_response(error);
+                return make_error_response(error, call_count_);
             }
         }
 
@@ -75,8 +75,15 @@ public:
             return response;
         }
 
+        // Simulate timeout if configured
+        if (timeout_after_ >= 0 && call_count_ > timeout_after_) {
+            if (!timeout_then_succeed_) {
+                throw std::runtime_error("MockProvider: simulated timeout");
+            }
+        }
+
         // Default response
-        return make_default_response(model_id);
+        return make_default_response(model_id, call_count_);
     }
 
     [[nodiscard]] core::provider::ChatResponse chat_stream(
@@ -85,25 +92,58 @@ public:
         const core::provider::ChatOptions& options,
         core::provider::StreamCallback callback
     ) override {
-        std::lock_guard<std::mutex> lock(mutex_);
-        call_count_++;
-        last_messages_ = messages;
-        last_model_id_ = model_id;
-        last_options_ = options;
+        // Step 1: Collect all needed data under lock
+        std::vector<std::string> local_chunks;
+        core::provider::ChatResponse final_response;
+        MockError pending_error = MockError::None;
+        int snapshot_call_count = 0;
+        bool should_timeout = false;
 
-        // Check for error sequence
-        if (!error_sequence_.empty()) {
-            auto error = error_sequence_.front();
-            error_sequence_.pop();
-            if (error != MockError::None) {
-                return make_error_response(error);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            call_count_++;
+            snapshot_call_count = call_count_;  // Snapshot under lock
+            last_messages_ = messages;
+            last_model_id_ = model_id;
+            last_options_ = options;
+
+            // Check timeout
+            if (timeout_after_ >= 0 && call_count_ > timeout_after_ && !timeout_then_succeed_) {
+                should_timeout = true;
+            }
+
+            // Check for error sequence
+            if (!error_sequence_.empty()) {
+                pending_error = error_sequence_.front();
+                error_sequence_.pop();
+            }
+
+            // Copy stream chunks and response while holding lock
+            local_chunks = stream_chunks_;
+
+            if (!responses_.empty()) {
+                final_response = responses_.front();
+                responses_.pop();
+            } else {
+                final_response = make_default_response(model_id, snapshot_call_count);
             }
         }
+        // Lock released
 
-        // Simulate streaming
+        // Step 2: Handle timeout outside lock
+        if (should_timeout) {
+            throw std::runtime_error("MockProvider: simulated timeout");
+        }
+
+        // Step 3: Handle error outside lock
+        if (pending_error != MockError::None) {
+            return make_error_response(pending_error, snapshot_call_count);
+        }
+
+        // Step 4: Call callback outside lock to avoid potential deadlock
         if (callback) {
-            // Send text delta events
-            for (const auto& chunk : stream_chunks_) {
+            // Send text delta events (if any explicit stream chunks configured)
+            for (const auto& chunk : local_chunks) {
                 core::provider::ChatStreamEvent event;
                 event.type = core::provider::StreamEventType::TextDelta;
                 event.content = chunk;
@@ -113,22 +153,46 @@ public:
                 }
             }
 
+            // Emit any tool calls from the pre-configured response so that
+            // LLM::stream's StreamingState can pick them up via ToolCall events.
+            for (const auto& choice : final_response.choices) {
+                if (choice.tool_calls.has_value()) {
+                    for (const auto& tc : *choice.tool_calls) {
+                        core::provider::ChatStreamEvent tc_event;
+                        tc_event.type = core::provider::StreamEventType::ToolCall;
+                        tc_event.tool_call = tc;
+                        if (!callback(tc_event)) {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Emit text content from choices (if no explicit stream chunks)
+            if (local_chunks.empty()) {
+                for (const auto& choice : final_response.choices) {
+                    if (!choice.content.empty() &&
+                        (!choice.tool_calls.has_value() || choice.tool_calls->empty())) {
+                        core::provider::ChatStreamEvent text_event;
+                        text_event.type = core::provider::StreamEventType::TextDelta;
+                        text_event.content = choice.content;
+                        if (!callback(text_event)) {
+                            break;
+                        }
+                    }
+                }
+            }
+
             // Send finish event
             core::provider::ChatStreamEvent finish_event;
             finish_event.type = core::provider::StreamEventType::Finish;
-            finish_event.finish_reason = "stop";
-            finish_event.usage = core::TokenUsage(100, 50, 150);
+            finish_event.finish_reason = final_response.finish_reason.empty()
+                                            ? "stop" : final_response.finish_reason;
+            finish_event.usage = final_response.usage;
             callback(finish_event);
         }
 
-        // Return final response
-        if (!responses_.empty()) {
-            auto response = responses_.front();
-            responses_.pop();
-            return response;
-        }
-
-        return make_default_response(model_id);
+        return final_response;
     }
 
     [[nodiscard]] int64_t count_tokens(
@@ -159,32 +223,37 @@ public:
         models_.push_back(model);
     }
 
-    /// Set the next response to return
+    /// Set the next response to return (thread-safe)
     void set_next_response(const core::provider::ChatResponse& response) {
+        std::lock_guard<std::mutex> lock(mutex_);
         responses_.push(response);
     }
 
-    /// Set a sequence of responses
+    /// Set a sequence of responses (thread-safe)
     void set_response_sequence(const std::vector<core::provider::ChatResponse>& responses) {
+        std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& r : responses) {
             responses_.push(r);
         }
     }
 
-    /// Set error sequence (for retry testing)
+    /// Set error sequence for retry testing (thread-safe)
     void set_error_sequence(const std::vector<MockError>& errors) {
+        std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& e : errors) {
             error_sequence_.push(e);
         }
     }
 
-    /// Set stream chunks for streaming simulation
+    /// Set stream chunks for streaming simulation (thread-safe)
     void set_stream_chunks(const std::vector<std::string>& chunks) {
+        std::lock_guard<std::mutex> lock(mutex_);
         stream_chunks_ = chunks;
     }
 
-    /// Set timeout behavior
+    /// Set timeout behavior (thread-safe)
     void set_timeout_behavior(int timeout_after, bool then_succeed) {
+        std::lock_guard<std::mutex> lock(mutex_);
         timeout_after_ = timeout_after;
         timeout_then_succeed_ = then_succeed;
     }
@@ -234,7 +303,7 @@ private:
     std::queue<core::provider::ChatResponse> responses_;
     std::queue<MockError> error_sequence_;
     std::vector<std::string> stream_chunks_;
-    int timeout_after_ = 0;
+    int timeout_after_ = -1;  // -1 = disabled; N = throw after N-th call
     bool timeout_then_succeed_ = false;
 
     mutable std::mutex mutex_;
@@ -244,9 +313,10 @@ private:
     core::provider::ChatOptions last_options_;
 
     /// Create an error response
-    [[nodiscard]] core::provider::ChatResponse make_error_response(MockError error) const {
+    [[nodiscard]] core::provider::ChatResponse make_error_response(
+        MockError error, int call_count_snapshot) const {
         core::provider::ChatResponse response;
-        response.id = "mock-error-" + std::to_string(call_count_);
+        response.id = "mock-error-" + std::to_string(call_count_snapshot);
 
         switch (error) {
             case MockError::RateLimitExceeded:
@@ -287,9 +357,10 @@ private:
     }
 
     /// Create a default response
-    [[nodiscard]] core::provider::ChatResponse make_default_response(const std::string& model_id) const {
+    [[nodiscard]] core::provider::ChatResponse make_default_response(
+        const std::string& model_id, int call_count_snapshot) const {
         core::provider::ChatResponse response;
-        response.id = "mock-" + std::to_string(call_count_);
+        response.id = "mock-" + std::to_string(call_count_snapshot);
         response.model = model_id;
         response.finish_reason = "stop";
         response.usage = core::TokenUsage(100, 50, 150);

@@ -201,12 +201,14 @@ TEST_CASE("Role::to_string", "[message][role]") {
     REQUIRE(role_to_string(Role::User) == "user");
     REQUIRE(role_to_string(Role::Assistant) == "assistant");
     REQUIRE(role_to_string(Role::System) == "system");
+    REQUIRE(role_to_string(Role::Tool) == "tool");  // C-3 fix
 }
 
 TEST_CASE("Role::from_string", "[message][role]") {
     REQUIRE(role_from_string("user") == Role::User);
     REQUIRE(role_from_string("assistant") == Role::Assistant);
     REQUIRE(role_from_string("system") == Role::System);
+    REQUIRE(role_from_string("tool") == Role::Tool);  // C-3 fix
     REQUIRE(role_from_string("unknown") == Role::User);  // default
 }
 
@@ -1087,6 +1089,7 @@ TEST_CASE("Role O(1) string parsing", "[message][role][performance]") {
         REQUIRE(role_from_string("user") == Role::User);
         REQUIRE(role_from_string("assistant") == Role::Assistant);
         REQUIRE(role_from_string("system") == Role::System);
+        REQUIRE(role_from_string("tool") == Role::Tool);  // C-3 fix
     }
 
     SECTION("unknown role defaults to user") {
@@ -1099,6 +1102,7 @@ TEST_CASE("Role to_string consistency", "[message][role]") {
         REQUIRE(role_from_string(std::string(role_to_string(Role::User))) == Role::User);
         REQUIRE(role_from_string(std::string(role_to_string(Role::Assistant))) == Role::Assistant);
         REQUIRE(role_from_string(std::string(role_to_string(Role::System))) == Role::System);
+        REQUIRE(role_from_string(std::string(role_to_string(Role::Tool))) == Role::Tool);  // C-3 fix
     }
 }
 

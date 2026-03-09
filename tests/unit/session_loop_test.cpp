@@ -432,3 +432,31 @@ TEST_CASE("SessionLoop respects max_iterations", "[core][session][session_loop]"
     // Should stop due to iteration limit
     REQUIRE_FALSE(loop.is_running());
 }
+
+// ============================================================================
+// SNAP-LOOP: Doom loop detection - (tool, input) pair
+// ============================================================================
+
+TEST_CASE("SessionLoopConfig doom_loop_threshold default", "[core][session][doom-loop]") {
+    SessionLoopConfig config;
+    REQUIRE(config.doom_loop_threshold == 3);
+}
+
+TEST_CASE("SessionLoop doom_loop_threshold is configurable", "[core][session][doom-loop]") {
+    CreateParams params;
+    params.project_id = "test";
+    params.slug = "test";
+    params.directory = "/tmp";
+    params.title = "Test";
+
+    auto session = Session::create(params);
+    REQUIRE(session.has_value());
+
+    SessionLoop loop(std::move(*session));
+
+    SessionLoopConfig config;
+    config.doom_loop_threshold = 5;
+    loop.set_config(config);
+
+    REQUIRE(loop.config().doom_loop_threshold == 5);
+}

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <functional>
 #include <mutex>
+#include <regex>
 
 namespace turbot::core::snapshot {
 
@@ -80,6 +81,9 @@ struct SnapshotData {
     std::unordered_map<std::string, std::string> file_contents;  ///< Path -> content backup
     std::chrono::system_clock::time_point start_time;  ///< Tracking start time
     SnapshotOptions options;  ///< Snapshot options
+    /// Pre-compiled glob patterns (parallel to exclude_patterns).
+    /// nullopt = non-glob pattern (use exact/prefix match instead).
+    std::vector<std::optional<std::regex>> compiled_patterns;
 };
 
 /// Snapshot manager for tracking file changes
@@ -122,6 +126,7 @@ public:
 
     /// Get number of active tracking sessions
     [[nodiscard]] size_t active_tracking_count() const noexcept {
+        std::lock_guard<std::mutex> lock(mutex_);
         return snapshots_.size();
     }
 
@@ -144,10 +149,10 @@ private:
     /// Write file content
     static bool write_file_content(const std::filesystem::path& path, const std::string& content);
 
-    /// Check if path matches any exclude pattern
+    /// Check if path matches any exclude pattern (uses pre-compiled patterns from SnapshotData)
     [[nodiscard]] static bool is_excluded(
         const std::filesystem::path& path,
-        const std::vector<std::string>& patterns
+        const SnapshotData& data
     );
 
     /// Should track this file

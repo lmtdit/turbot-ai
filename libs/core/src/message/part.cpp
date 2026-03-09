@@ -60,7 +60,8 @@ std::string_view role_to_string(Role role) noexcept {
     static const std::unordered_map<Role, std::string_view> role_to_str = {
         {Role::User, "user"},
         {Role::Assistant, "assistant"},
-        {Role::System, "system"}
+        {Role::System, "system"},
+        {Role::Tool, "tool"}
     };
     auto it = role_to_str.find(role);
     return it != role_to_str.end() ? it->second : "user";
@@ -70,7 +71,8 @@ Role role_from_string(std::string_view str) {
     static const std::unordered_map<std::string_view, Role> str_to_role = {
         {"user", Role::User},
         {"assistant", Role::Assistant},
-        {"system", Role::System}
+        {"system", Role::System},
+        {"tool", Role::Tool}
     };
     auto it = str_to_role.find(str);
     return it != str_to_role.end() ? it->second : Role::User;

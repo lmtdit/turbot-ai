@@ -166,9 +166,13 @@ TEST_CASE_METHOD(E2ETest, "E2E-07: Error Retry", "[e2e][e2e-07]") {
     setup_simple_qa("Success after retries!");
 
     // Run the loop
-    loop->run("Test retry logic");
+    auto result = loop->run("Test retry logic");
 
-    // Verify retries occurred
+    // SessionLoop stops on first error (no internal retry); error is propagated via callback
+    // Note: MockProvider error responses may be processed as empty content (Stop), not Error
+    CHECK((result == session::LoopResult::Stop || result == session::LoopResult::Error));
+
+    // Verify at least one LLM call was attempted
     CHECK(provider->call_count() >= 1);
 }
 
@@ -181,21 +185,70 @@ TEST_CASE_METHOD(E2ETest, "E2E-08: Doom Loop Detection", "[e2e][e2e-08]") {
     config.doom_loop_threshold = 3;
     loop->set_config(config);
 
-    // Configure repeated same tool calls
+    // Configure repeated same tool calls (same name AND same input = doom loop)
+    nlohmann::json same_input = {{"param", "same_value"}};
     for (int i = 0; i < 5; i++) {
-        setup_tool_call("same_tool", "tool-" + std::to_string(i), nlohmann::json{
-            {"param", "same_value"}
-        });
+        setup_tool_call("same_tool", "tool-" + std::to_string(i), same_input);
     }
 
     // Run the loop
-    loop->run("Keep doing the same thing");
+    auto result = loop->run("Keep doing the same thing");
 
-    // Verify doom loop was detected (should stop, not infinite loop)
-    // The loop should either stop or continue with a different result
+    // Verify: the loop terminates (either by doom loop Error or natural Stop)
+    CHECK((result == session::LoopResult::Error || result == session::LoopResult::Stop));
+
+    // Verify LLM was not called more than threshold+1 times
     CHECK(provider->call_count() <= config.doom_loop_threshold + 1);
 }
 
+// ============================================================================
+// E2E-08b: Doom Loop Detection - Behavioral Verification
+// Verifies that exactly threshold consecutive identical (tool, input) pairs
+// return LoopResult::Error with error_code == "doom_loop".
+// Registers a real MockTool so the first (threshold-1) calls go through the
+// full tool execution path; doom loop fires on the threshold-th call.
+// ============================================================================
+TEST_CASE_METHOD(E2ETest, "E2E-08b: Doom Loop triggers Error with registered tool", "[e2e][e2e-08b][doom-loop]") {
+    // Create a shared counter so we can observe call_count after ownership transfer
+    auto shared_counter = std::make_shared<std::atomic<int>>(0);
+
+    // Register the tool (ToolRegistry takes unique_ptr ownership)
+    tool::ToolRegistry::instance().register_tool(
+        std::make_unique<MockTool>("repeat_tool", shared_counter)
+    );
+
+    // Configure threshold = 3: the 3rd consecutive identical call should trigger Error
+    session::SessionLoopConfig config;
+    config.doom_loop_threshold = 3;
+    loop->set_config(config);
+
+    // Queue threshold+1 identical (tool_name, input) pairs.
+    // doom loop triggers on the 3rd call (after 2 successful executions).
+    nlohmann::json fixed_input = {{"input", "fixed"}};
+    for (int i = 0; i < config.doom_loop_threshold + 1; i++) {
+        setup_tool_call("repeat_tool", "call-" + std::to_string(i), fixed_input);
+    }
+
+    // Track whether the doom loop error callback fires
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
+    auto result = loop->run("Repeat the same tool");
+
+    // Must terminate with Error (doom loop detected)
+    CHECK(result == session::LoopResult::Error);
+    // Error code must indicate doom loop
+    CHECK(error_code == "doom_loop");
+    // LLM called at most threshold times (no extra calls after detection)
+    CHECK(provider->call_count() <= config.doom_loop_threshold);
+    // Tool executed threshold-1 times before doom loop fired
+    CHECK(shared_counter->load(std::memory_order_relaxed) == config.doom_loop_threshold - 1);
+
+    // Clean up registered tool (avoid polluting other tests)
+    tool::ToolRegistry::instance().remove("repeat_tool");
+}
 // ============================================================================
 // Additional Edge Cases
 // ============================================================================

@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstdint>
 #include <optional>
+#include <filesystem>
 
 namespace turbot::utils::crypto {
 
@@ -126,5 +127,12 @@ struct AesGcmResult {
  * @return 是否为有效的UUID
  */
 [[nodiscard]] TURBOT_UTILS_API bool is_valid_uuid(const std::string& uuid);
+
+/**
+ * @brief 计算文件内容的 SHA-256 哈希
+ * @param path 文件路径
+ * @return 十六进制 SHA-256 哈希字符串，文件不存在或无法读取时返回空字符串
+ */
+[[nodiscard]] TURBOT_UTILS_API std::string sha256_file(const std::filesystem::path& path);
 
 } // namespace turbot::utils::crypto

@@ -220,7 +220,8 @@ struct TURBOT_CORE_API Part {
 enum class Role {
     User,      ///< User message
     Assistant, ///< AI assistant message
-    System     ///< System message
+    System,    ///< System message
+    Tool       ///< Tool result message (tool execution output)
 };
 
 /// Convert Role to string

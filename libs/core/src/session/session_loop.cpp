@@ -94,6 +94,7 @@ LoopResult SessionLoop::run(const std::string& user_message) {
     total_usage_ = TokenUsage{};
     total_cost_ = 0.0;
     last_tool_call_.clear();
+    last_tool_input_ = {};
     same_tool_count_ = 0;
     
     // Process the user message
@@ -266,7 +267,7 @@ LoopResult SessionLoop::process_llm_response() {
         }
         
         // Add tool result message
-        core::Message tool_msg(session_.id(), core::Role::User, tc.name, "", "");
+        core::Message tool_msg(session_.id(), core::Role::Tool, tc.name, "", "");
         if (result.is_error) {
             tool_msg.add_part(core::Part::create_text(fmt::format("Error: {}", result.output)));
         } else {
@@ -323,17 +324,19 @@ bool SessionLoop::is_doom_loop(const std::string& tool_name, const nlohmann::jso
     if (tool_name != last_tool_call_) {
         return false;
     }
-    
-    // Check if input is the same (simple comparison)
-    // In a more sophisticated implementation, we'd do semantic comparison
+    // Same tool but different input is NOT a doom loop
+    if (input != last_tool_input_) {
+        return false;
+    }
     return same_tool_count_ >= config_.doom_loop_threshold - 1;
 }
 
 void SessionLoop::update_doom_loop_tracking(const std::string& tool_name, const nlohmann::json& input) {
-    if (tool_name == last_tool_call_) {
+    if (tool_name == last_tool_call_ && input == last_tool_input_) {
         same_tool_count_++;
     } else {
         last_tool_call_ = tool_name;
+        last_tool_input_ = input;
         same_tool_count_ = 1;
     }
 }
@@ -356,8 +359,13 @@ std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() con
     }
     
     // Add conversation messages
-    std::lock_guard<std::mutex> lock(messages_mutex_);
-    for (const auto& msg : messages_) {
+    // Copy under lock, then build LLM messages outside the lock
+    std::vector<core::Message> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex_);
+        snapshot = messages_;
+    }
+    for (const auto& msg : snapshot) {
         switch (msg.role()) {
             case core::Role::User: {
                 auto content = msg.get_text();
@@ -367,6 +375,12 @@ std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() con
             case core::Role::Assistant: {
                 auto content = msg.get_text();
                 result.push_back(llm::LLMMessage::assistant(content));
+                break;
+            }
+            case core::Role::Tool: {
+                // Tool result message: use tool_call_id stored in agent field
+                auto content = msg.get_text();
+                result.push_back(llm::LLMMessage::tool_result(msg.info().agent, content));
                 break;
             }
             case core::Role::System:

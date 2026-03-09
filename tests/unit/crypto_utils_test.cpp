@@ -2,6 +2,8 @@
 #include <turbot/utils/crypto_utils.hpp>
 #include <algorithm>
 #include <iomanip>
+#include <filesystem>
+#include <fstream>
 
 using namespace turbot::utils::crypto;
 
@@ -533,5 +535,50 @@ TEST_CASE("crypto::sha256 edge cases", "[utils][crypto]") {
         // SHA256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
         std::string result = sha256("hello");
         REQUIRE(result == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+    }
+}
+
+TEST_CASE("crypto::sha256_file", "[utils][crypto]") {
+    namespace fs = std::filesystem;
+    auto tmp_dir = fs::temp_directory_path();
+
+    SECTION("hash known file content") {
+        auto tmp = tmp_dir / "sha256_file_test.txt";
+        std::ofstream(tmp) << "hello";
+
+        std::string hash = sha256_file(tmp);
+        // Same as sha256("hello")
+        CHECK(hash == "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824");
+        CHECK(hash.length() == 64);
+
+        fs::remove(tmp);
+    }
+
+    SECTION("non-existent file returns empty") {
+        std::string hash = sha256_file("/non/existent/path/file_xyz.txt");
+        CHECK(hash.empty());
+    }
+
+    SECTION("consistent with sha256(content)") {
+        auto tmp = tmp_dir / "sha256_file_consistent.txt";
+        std::string content = "test content for consistency";
+        std::ofstream(tmp) << content;
+
+        std::string file_hash = sha256_file(tmp);
+        std::string content_hash = sha256(content);
+        CHECK(file_hash == content_hash);
+
+        fs::remove(tmp);
+    }
+
+    SECTION("empty file returns sha256 of empty string") {
+        auto tmp = tmp_dir / "sha256_file_empty.txt";
+        { std::ofstream ofs(tmp); }  // create empty file and close immediately
+
+        std::string hash = sha256_file(tmp);
+        // sha256("") = e3b0c44...
+        CHECK(hash == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+
+        fs::remove(tmp);
     }
 }

@@ -1,4 +1,5 @@
 #include "turbot/utils/crypto_utils.hpp"
+#include "turbot/utils/file_utils.hpp"
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -468,6 +469,15 @@ bool is_valid_uuid(const std::string& uuid) {
     );
 
     return std::regex_match(uuid, uuid_regex);
+}
+
+std::string sha256_file(const std::filesystem::path& path) {
+    auto content = turbot::utils::read_file(path.string());
+    if (!content.has_value()) {
+        // File unreadable or exceeds size limit; caller should treat empty hash as failure
+        return "";
+    }
+    return sha256(*content);
 }
 
 } // namespace turbot::utils::crypto

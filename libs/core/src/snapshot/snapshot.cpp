@@ -1,9 +1,9 @@
 #include <turbot/core/snapshot/snapshot.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/utils/crypto_utils.hpp>
+#include <turbot/utils/file_utils.hpp>
 #include <fstream>
 #include <sstream>
-#include <random>
-#include <openssl/sha.h>
 #include <regex>
 
 namespace turbot::core::snapshot {
@@ -124,6 +124,45 @@ std::vector<std::string> SnapshotOptions::default_exclude_patterns() {
     };
 }
 
+// Compile glob patterns to optional<regex> (one-time, outside hot path).
+// Returns nullopt for non-glob patterns (they use exact/prefix matching).
+static std::vector<std::optional<std::regex>> compile_patterns(const std::vector<std::string>& patterns) {
+    std::vector<std::optional<std::regex>> result;
+    result.reserve(patterns.size());
+    for (const auto& pattern : patterns) {
+        if (pattern.find('*') == std::string::npos && pattern.find('?') == std::string::npos) {
+            result.emplace_back(std::nullopt);  // non-glob: use exact/prefix match
+            continue;
+        }
+        std::string regex_str;
+        for (char c : pattern) {
+            switch (c) {
+                case '*': regex_str += ".*"; break;
+                case '?': regex_str += ".";  break;
+                case '.':
+                case '+':
+                case '[':
+                case ']':
+                case '(':
+                case ')':
+                case '{':
+                case '}':
+                case '^':
+                case '$':
+                case '|':
+                case '\\': regex_str += '\\'; regex_str += c; break;
+                default:   regex_str += c; break;
+            }
+        }
+        try {
+            result.emplace_back(std::regex{regex_str});
+        } catch (const std::regex_error&) {
+            result.emplace_back(std::nullopt);  // invalid pattern: fall back to exact match
+        }
+    }
+    return result;
+}
+
 // ============================================================================
 // SnapshotManager
 // ============================================================================
@@ -134,66 +173,20 @@ SnapshotManager& SnapshotManager::instance() {
 }
 
 std::string SnapshotManager::generate_id() {
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
-    static std::uniform_int_distribution<> dis(0, 15);
-    static const char* hex = "0123456789abcdef";
-    
-    std::string id;
-    id.reserve(36);
-    
-    // Generate UUID v4 format
-    for (int i = 0; i < 8; i++) id += hex[dis(gen)];
-    id += '-';
-    for (int i = 0; i < 4; i++) id += hex[dis(gen)];
-    id += "-4";  // Version 4
-    for (int i = 0; i < 3; i++) id += hex[dis(gen)];
-    id += '-';
-    id += hex[8 + dis(gen) % 4];  // Variant
-    for (int i = 0; i < 3; i++) id += hex[dis(gen)];
-    id += '-';
-    for (int i = 0; i < 12; i++) id += hex[dis(gen)];
-    
-    return id;
+    return turbot::utils::crypto::generate_uuid();
 }
 
 std::string SnapshotManager::compute_file_hash(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return "";
+    auto hash = turbot::utils::crypto::sha256_file(path);
+    if (hash.empty()) {
+        TURBOT_LOG_WARN("compute_file_hash: failed to hash file (unreadable or too large): {}",
+                        path.string());
     }
-    
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    
-    char buffer[8192];
-    while (file.read(buffer, sizeof(buffer))) {
-        SHA256_Update(&sha256, buffer, file.gcount());
-    }
-    if (file.gcount() > 0) {
-        SHA256_Update(&sha256, buffer, file.gcount());
-    }
-    
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_Final(hash, &sha256);
-    
-    std::stringstream ss;
-    for (unsigned char c : hash) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(c);
-    }
-    
-    return ss.str();
+    return hash;
 }
 
 std::string SnapshotManager::read_file_content(const std::filesystem::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        return "";
-    }
-    
-    std::stringstream buffer;
-    buffer << file.rdbuf();
-    return buffer.str();
+    return turbot::utils::read_file(path.string()).value_or("");
 }
 
 bool SnapshotManager::write_file_content(
@@ -217,47 +210,37 @@ bool SnapshotManager::write_file_content(
     }
     
     file << content;
+    file.close();
+    if (!file.good()) {
+        TURBOT_LOG_ERROR("Failed to flush/close file after writing: {}", path.string());
+        return false;
+    }
     return true;
 }
 
 bool SnapshotManager::is_excluded(
     const std::filesystem::path& path,
-    const std::vector<std::string>& patterns
+    const SnapshotData& data
 ) {
     std::string path_str = path.string();
-    
-    for (const auto& pattern : patterns) {
-        // Simple glob matching
-        if (pattern.find('*') != std::string::npos) {
-            // Convert glob to regex
-            std::string regex_str;
-            for (char c : pattern) {
-                if (c == '*') {
-                    regex_str += ".*";
-                } else if (c == '?') {
-                    regex_str += ".";
-                } else if (c == '.' || c == '+' || c == '[' || c == ']' ||
-                           c == '(' || c == ')' || c == '{' || c == '}' ||
-                           c == '^' || c == '$' || c == '|' || c == '\\') {
-                    // Escape regex special characters
-                    regex_str += "\\";
-                    regex_str += c;
-                } else {
-                    regex_str += c;
-                }
-            }
+    const auto& patterns = data.options.exclude_patterns;
+
+    for (size_t i = 0; i < patterns.size(); ++i) {
+        const auto& pattern = patterns[i];
+        // Use pre-compiled regex for glob patterns (has_value = is glob)
+        const bool has_compiled = (i < data.compiled_patterns.size()) &&
+                                   data.compiled_patterns[i].has_value();
+        if (has_compiled) {
             try {
-                std::regex re(regex_str);
-                if (std::regex_search(path_str, re)) {
+                if (std::regex_search(path_str, *data.compiled_patterns[i])) {
                     return true;
                 }
             } catch (const std::regex_error&) {
-                // Invalid regex, skip this pattern
-                continue;
+                // skip invalid
             }
         } else {
             // Exact match or prefix match for directories
-            if (path_str == pattern || 
+            if (path_str == pattern ||
                 path_str.find(pattern + "/") == 0 ||
                 path_str.find("/" + pattern + "/") != std::string::npos ||
                 path_str.find(pattern + "\\") == 0 ||
@@ -266,7 +249,7 @@ bool SnapshotManager::is_excluded(
             }
         }
     }
-    
+
     return false;
 }
 
@@ -276,7 +259,7 @@ bool SnapshotManager::should_track(
 ) {
     // Skip excluded patterns
     if (!data.options.exclude_patterns.empty()) {
-        if (is_excluded(path, data.options.exclude_patterns)) {
+        if (is_excluded(path, data)) {
             return false;
         }
     }
@@ -298,6 +281,7 @@ void SnapshotManager::scan_files(SnapshotData& data) {
     std::error_code ec;
     for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
         if (ec) {
+            ec.clear();  // reset so subsequent entries are not skipped
             continue;
         }
         
@@ -318,48 +302,59 @@ void SnapshotManager::scan_files(SnapshotData& data) {
 }
 
 std::string SnapshotManager::start_tracking(const SnapshotOptions& options) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
+    // Step 1: Prepare data outside the lock (no shared state access needed)
     std::string id = generate_id();
-    
+
     SnapshotData data;
     data.start_time = std::chrono::system_clock::now();
     data.options = options;
-    
+
     // Set default exclude patterns if not specified
     if (data.options.exclude_patterns.empty()) {
         data.options.exclude_patterns = SnapshotOptions::default_exclude_patterns();
     }
-    
+
     // Set default root directory
     if (data.options.root_directory.empty()) {
         data.options.root_directory = std::filesystem::current_path();
     }
-    
-    // Scan initial file state
+
+    // Step 2: Pre-compile glob patterns (once, before scanning)
+    data.compiled_patterns = compile_patterns(data.options.exclude_patterns);
+
+    // Step 3: IO scan outside the lock (potentially slow)
     scan_files(data);
-    
-    snapshots_[id] = std::move(data);
-    
+
+    // Step 4: Only hold lock for map insertion (nanoseconds)
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        snapshots_[id] = std::move(data);
+    }
+
     TURBOT_LOG_DEBUG("Started snapshot tracking: {}", id);
     return id;
 }
 
 PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
-    auto it = snapshots_.find(snapshot_id);
-    if (it == snapshots_.end()) {
-        TURBOT_LOG_ERROR("Snapshot not found: {}", snapshot_id);
-        return {};
+    // Step 1: Hold lock only to extract data and remove from map
+    SnapshotData data;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = snapshots_.find(snapshot_id);
+        if (it == snapshots_.end()) {
+            TURBOT_LOG_ERROR("Snapshot not found: {}", snapshot_id);
+            return {};
+        }
+        data = std::move(it->second);
+        snapshots_.erase(it);
     }
-    
+    // Lock released — IO runs outside critical section
+
     PatchResult result;
     result.id = generate_id();
     result.snapshot_id = snapshot_id;
     result.created_at = std::chrono::system_clock::now();
-    
-    const auto& data = it->second;
+
     const auto& root = data.options.root_directory;
     
     // Scan current file state
@@ -367,7 +362,11 @@ PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
     std::error_code ec;
     
     for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
-        if (ec || !entry.is_regular_file()) {
+        if (ec) {
+            ec.clear();  // reset so subsequent entries are not skipped
+            continue;
+        }
+        if (!entry.is_regular_file()) {
             continue;
         }
         
@@ -393,11 +392,11 @@ PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
             });
         } else if (old_it->second != current_hash) {
             // File modified
+            auto content_it = data.file_contents.find(path_str);
             result.files.push_back({
                 .path = path,
                 .type = FileChangeType::Modified,
-                .old_content = data.file_contents.count(path_str) > 0 
-                    ? data.file_contents.at(path_str) : "",
+                .old_content = (content_it != data.file_contents.end()) ? content_it->second : "",
                 .new_content = read_file_content(path),
                 .hash = current_hash
             });
@@ -407,28 +406,25 @@ PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
     // Check for deleted files
     for (const auto& [path_str, hash] : data.file_hashes) {
         if (current_hashes.find(path_str) == current_hashes.end()) {
+            auto content_it = data.file_contents.find(path_str);
             result.files.push_back({
                 .path = path_str,
                 .type = FileChangeType::Deleted,
-                .old_content = data.file_contents.count(path_str) > 0 
-                    ? data.file_contents.at(path_str) : "",
+                .old_content = (content_it != data.file_contents.end()) ? content_it->second : "",
                 .new_content = "",
                 .hash = hash
             });
         }
     }
-    
-    snapshots_.erase(it);
-    
-    TURBOT_LOG_DEBUG("Stopped snapshot tracking: {}, found {} changes", 
+
+    TURBOT_LOG_DEBUG("Stopped snapshot tracking: {}, found {} changes",
               snapshot_id, result.files.size());
-    
+
     return result;
 }
 
 bool SnapshotManager::apply_patch(const PatchResult& patch) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
+    // No lock needed: patch is a self-contained value type; IO runs outside the critical section
     for (const auto& change : patch.files) {
         switch (change.type) {
             case FileChangeType::Created:
@@ -454,8 +450,7 @@ bool SnapshotManager::apply_patch(const PatchResult& patch) {
 }
 
 bool SnapshotManager::rollback_patch(const PatchResult& patch) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    
+    // No lock needed: patch is a self-contained value type; IO runs outside the critical section
     // Apply changes in reverse
     for (auto it = patch.files.rbegin(); it != patch.files.rend(); ++it) {
         const auto& change = *it;

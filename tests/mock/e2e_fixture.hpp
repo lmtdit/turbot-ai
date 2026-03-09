@@ -8,9 +8,13 @@
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
 #include <turbot/core/tool/tool.hpp>
+#include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/utils/file_utils.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 
 namespace turbot::test {
 
@@ -98,10 +102,8 @@ struct E2EFixture {
 
     /// Read a test file from the test directory
     [[nodiscard]] std::string read_test_file(const std::string& name) const {
-        std::ifstream file(test_dir / name);
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        return buffer.str();
+        auto path = (test_dir / name).string();
+        return turbot::utils::read_file(path).value_or("");
     }
 
     /// Configure the mock provider for simple Q&A
@@ -175,12 +177,24 @@ struct E2ETest : public E2EFixture {
 };
 
 /// Helper to create a mock tool for testing
+///
+/// Supports an optional shared call counter so that a unique_ptr<MockTool>
+/// registered in ToolRegistry can share observable state with the test.
 class MockTool : public core::tool::Tool {
 public:
     explicit MockTool(
         const std::string& name,
         const std::string& description = "A mock tool for testing"
-    ) : name_(name), description_(description) {}
+    ) : name_(name), description_(description)
+      , shared_call_count_(std::make_shared<std::atomic<int>>(0)) {}
+
+    /// Construct with a pre-allocated shared counter (for ownership transfer scenarios)
+    explicit MockTool(
+        const std::string& name,
+        std::shared_ptr<std::atomic<int>> shared_counter,
+        const std::string& description = "A mock tool for testing"
+    ) : name_(name), description_(description)
+      , shared_call_count_(std::move(shared_counter)) {}
 
     [[nodiscard]] std::string name() const override { return name_; }
     [[nodiscard]] std::string description() const override { return description_; }
@@ -199,7 +213,7 @@ public:
         const nlohmann::json& input,
         [[maybe_unused]] core::tool::ToolContext& context
     ) override {
-        call_count_++;
+        shared_call_count_->fetch_add(1, std::memory_order_relaxed);
         last_input_ = input;
 
         if (should_fail_) {
@@ -212,14 +226,22 @@ public:
     // Configuration methods
     void set_result(const std::string& result) { result_ = result; }
     void set_should_fail(bool fail) { should_fail_ = fail; }
-    [[nodiscard]] int call_count() const { return call_count_; }
+    [[nodiscard]] int call_count() const {
+        return shared_call_count_->load(std::memory_order_relaxed);
+    }
     [[nodiscard]] const nlohmann::json& last_input() const { return last_input_; }
-    void reset() { call_count_ = 0; last_input_ = {}; should_fail_ = false; result_ = "mock result"; }
+    [[nodiscard]] std::shared_ptr<std::atomic<int>> counter() const { return shared_call_count_; }
+    void reset() {
+        shared_call_count_->store(0, std::memory_order_relaxed);
+        last_input_ = {};
+        should_fail_ = false;
+        result_ = "mock result";
+    }
 
 private:
     std::string name_;
     std::string description_;
-    int call_count_ = 0;
+    std::shared_ptr<std::atomic<int>> shared_call_count_;
     nlohmann::json last_input_;
     bool should_fail_ = false;
     std::string result_ = "mock result";
