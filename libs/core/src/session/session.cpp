@@ -340,47 +340,51 @@ bool Session::revert(const RevertParams& params) {
 
     auto& sm = turbot::core::snapshot::SnapshotManager::instance();
 
-    // Capture a snapshot of the current file state before rolling back, so that
-    // unrevert() can restore the working directory.  If we are already in a revert
-    // state we reuse the original snapshot to avoid losing the baseline.
-    std::optional<turbot::core::snapshot::PatchResult> pre_patch;
-    std::optional<std::string> snapshot_id;
-
+    // Preserve the original snapshot when chaining reverts so that unrevert()
+    // can always return to the original baseline from before the first revert.
     if (info_.revert && info_.revert->pre_patch) {
-        // Keep the snapshot from the first revert in this chain.
-        pre_patch   = info_.revert->pre_patch;
-        snapshot_id = info_.revert->snapshot_id;
-    } else {
-        // Capture the current file state of the session directory.
-        const std::string dir = info_.directory.empty() ? "." : info_.directory;
-        turbot::core::snapshot::SnapshotOptions opts;
-        opts.root_directory = dir;
-        const std::string snap_id = sm.start_tracking(opts);
-        // stop_tracking immediately – no files have changed yet, so the PatchResult
-        // is empty (no diffs), but it records the baseline file hashes / contents
-        // that apply_patch can use to restore the directory after an unrevert.
-        const auto result = sm.stop_tracking(snap_id);
-        pre_patch   = result;
-        snapshot_id = snap_id;
+        // Already in a revert state — roll back the additional patches using
+        // the existing pre_patch as the restore baseline, but update the target.
+        for (auto it = params.patches.rbegin(); it != params.patches.rend(); ++it) {
+            if (!sm.rollback_patch(*it)) {
+                // Attempt to restore the previous revert state.
+                sm.apply_patch(*info_.revert->pre_patch);
+                return false;
+            }
+        }
+        // Update the revert boundary but keep the original pre_patch.
+        info_.revert->message_id  = params.message_id;
+        info_.revert->part_id     = params.part_id;
+        info_.time_updated        = current_timestamp();
+        return true;
     }
+
+    // New revert: capture the current file state BEFORE rolling back.
+    // start_tracking records baseline hashes/contents.
+    const std::string dir = info_.directory.empty() ? "." : info_.directory;
+    turbot::core::snapshot::SnapshotOptions opts;
+    opts.root_directory = dir;
+    const std::string snap_id = sm.start_tracking(opts);
 
     // Roll back all patches in reverse order (newest → oldest).
     for (auto it = params.patches.rbegin(); it != params.patches.rend(); ++it) {
         if (!sm.rollback_patch(*it)) {
-            // Partial rollback occurred; attempt to restore via pre_patch.
-            if (pre_patch && !pre_patch->empty()) {
-                sm.apply_patch(*pre_patch);
-            }
+            // Partial rollback — cancel tracking and signal failure.
+            sm.cancel_tracking(snap_id);
             return false;
         }
     }
+
+    // stop_tracking AFTER rollback: the diff now records exactly "pre-revert → post-revert"
+    // changes, which apply_patch() can re-apply during unrevert() to restore the files.
+    const auto pre_patch = sm.stop_tracking(snap_id);
 
     // Record the revert info.
     RevertInfo ri;
     ri.message_id  = params.message_id;
     ri.part_id     = params.part_id;
-    ri.snapshot_id = snapshot_id;
-    ri.pre_patch   = std::move(pre_patch);
+    ri.snapshot_id = snap_id;
+    ri.pre_patch   = pre_patch;
     // diff is populated externally after computing SessionSummary (opencode pattern).
     info_.revert       = std::move(ri);
     info_.time_updated = current_timestamp();
@@ -397,9 +401,12 @@ bool Session::unrevert() {
     }
 
     // Re-apply the pre-revert patch to restore the working directory.
+    // pre_patch records "pre-revert state → post-revert state" (old→new).
+    // To undo the revert we need to go back: rollback_patch restores old_content,
+    // i.e. the state that existed before the original revert was executed.
     if (info_.revert->pre_patch && !info_.revert->pre_patch->empty()) {
         auto& sm = turbot::core::snapshot::SnapshotManager::instance();
-        if (!sm.apply_patch(*info_.revert->pre_patch)) {
+        if (!sm.rollback_patch(*info_.revert->pre_patch)) {
             return false;  // Restoration failed; leave revert info intact for retry.
         }
     }

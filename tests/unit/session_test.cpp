@@ -589,9 +589,10 @@ TEST_CASE("RevertInfo serialization", "[core][session][revert]") {
         ri.message_id = "msg_abc";
 
         auto j = ri.to_json();
-        REQUIRE(j["message_id"] == "msg_abc");
-        REQUIRE_FALSE(j.contains("part_id"));
-        REQUIRE_FALSE(j.contains("snapshot_id"));
+        // JSON uses opencode-compatible camelCase keys
+        REQUIRE(j["messageID"] == "msg_abc");
+        REQUIRE_FALSE(j.contains("partID"));
+        REQUIRE_FALSE(j.contains("snapshot"));
         REQUIRE_FALSE(j.contains("diff"));
 
         auto restored = RevertInfo::from_json(j);
@@ -609,9 +610,9 @@ TEST_CASE("RevertInfo serialization", "[core][session][revert]") {
         ri.diff         = "--- a/foo.txt\n+++ b/foo.txt\n@@ -1 +1 @@\n-old\n+new\n";
 
         auto j = ri.to_json();
-        REQUIRE(j["message_id"]  == "msg_full");
-        REQUIRE(j["part_id"]     == "part_1");
-        REQUIRE(j["snapshot_id"] == "snap_xyz");
+        REQUIRE(j["messageID"]  == "msg_full");
+        REQUIRE(j["partID"]     == "part_1");
+        REQUIRE(j["snapshot"]   == "snap_xyz");
         REQUIRE(j["diff"].get<std::string>().find("old") != std::string::npos);
 
         auto restored = RevertInfo::from_json(j);
@@ -621,17 +622,44 @@ TEST_CASE("RevertInfo serialization", "[core][session][revert]") {
         REQUIRE(restored.diff.has_value());
     }
 
+    SECTION("from_json accepts snake_case keys (backward compatibility)") {
+        nlohmann::json j = {
+            {"message_id", "msg_snake"},
+            {"part_id", "part_snake"}
+        };
+
+        auto ri = RevertInfo::from_json(j);
+        REQUIRE(ri.message_id == "msg_snake");
+        REQUIRE(ri.part_id.value() == "part_snake");
+    }
+
     SECTION("round-trip with null optionals in JSON") {
         nlohmann::json j = {
-            {"message_id", "msg_null"},
-            {"part_id", nullptr},
-            {"snapshot_id", nullptr}
+            {"messageID", "msg_null"},
+            {"partID", nullptr},
+            {"snapshot", nullptr}
         };
 
         auto ri = RevertInfo::from_json(j);
         REQUIRE(ri.message_id == "msg_null");
         REQUIRE_FALSE(ri.part_id.has_value());
         REQUIRE_FALSE(ri.snapshot_id.has_value());
+    }
+
+    SECTION("equality operator") {
+        RevertInfo a;
+        a.message_id = "msg1";
+        a.part_id    = "part1";
+
+        RevertInfo b;
+        b.message_id = "msg1";
+        b.part_id    = "part1";
+
+        RevertInfo c;
+        c.message_id = "msg2";
+
+        REQUIRE(a == b);
+        REQUIRE_FALSE(a == c);
     }
 }
 
@@ -669,8 +697,8 @@ TEST_CASE("SessionInfo with revert field", "[core][session][revert]") {
 
         auto j = info.to_json();
         REQUIRE(j.contains("revert"));
-        REQUIRE(j["revert"]["message_id"] == "msg_r1");
-        REQUIRE(j["revert"]["snapshot_id"] == "snap_001");
+        REQUIRE(j["revert"]["messageID"] == "msg_r1");
+        REQUIRE(j["revert"]["snapshot"]  == "snap_001");
     }
 
     SECTION("round-trip with revert") {
@@ -836,6 +864,46 @@ TEST_CASE("Session::unrevert clears revert info", "[core][session][revert]") {
         REQUIRE(session.unrevert());
         REQUIRE_FALSE(session.info().revert.has_value());
     }
+}
+
+TEST_CASE("Session::unrevert restores file changes", "[core][session][revert]") {
+    TempDir tmp;
+    auto file_path = tmp.file("restore.txt");
+    write_file(file_path, "original content");
+
+    auto& sm = turbot::core::snapshot::SnapshotManager::instance();
+
+    // Track a change: modify the file
+    std::string snap_id = sm.start_tracking(
+        turbot::core::snapshot::SnapshotOptions{tmp.path.string()});
+    write_file(file_path, "modified content");
+    auto patch = sm.stop_tracking(snap_id);
+
+    REQUIRE(read_file(file_path) == "modified content");
+
+    // session directory points to our tmp dir so revert captures a valid snapshot
+    CreateParams cp;
+    cp.project_id = "proj_unrev";
+    cp.slug       = "unrev";
+    cp.directory  = tmp.path.string();
+    cp.title      = "Unrevert Test";
+    auto session  = Session::create(cp).value();
+
+    RevertParams params;
+    params.message_id = "msg_restore";
+    params.patches.push_back(patch);
+
+    REQUIRE(session.revert(params));
+    REQUIRE(read_file(file_path) == "original content");
+
+    // unrevert: restore the file to "modified content"
+    REQUIRE(session.unrevert());
+    REQUIRE_FALSE(session.info().revert.has_value());
+    // After unrevert, apply_patch re-applies the pre_patch (which captured the diff
+    // "original content → modified content" that occurred during the revert's rollback).
+    // The file is now restored to "modified content" — the state before the revert.
+    REQUIRE(read_file(file_path) == "modified content");
+    REQUIRE_FALSE(session.info().revert.has_value());
 }
 
 TEST_CASE("Session::cleanup_revert clears revert info", "[core][session][revert]") {
