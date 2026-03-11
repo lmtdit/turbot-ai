@@ -2,6 +2,7 @@
 
 #include <turbot/core/common/export.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include <turbot/core/snapshot/snapshot.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <memory>
@@ -19,6 +20,36 @@ enum class TURBOT_CORE_API SessionState {
     Busy,       ///< Session is processing a request
     Compacting, ///< Session is compacting history
     Archived    ///< Session is archived (read-only)
+};
+
+/// Revert info - tracks a pending revert operation.
+///
+/// Aligned with opencode Session.Info.revert:
+///   { messageID, partID?, snapshot?, diff? }
+///
+/// JSON key mapping (opencode-compatible):
+///   message_id  → "messageID"
+///   part_id     → "partID"
+///   snapshot_id → "snapshot"
+///   diff        → "diff"
+///   pre_patch   → "prePatch"  (turbot-specific, stores pre-revert PatchResult for unrevert)
+struct TURBOT_CORE_API RevertInfo {
+    std::string message_id;                  ///< Message ID to revert from (revert boundary)
+    std::optional<std::string> part_id;      ///< Part ID for finer granularity (optional)
+    std::optional<std::string> snapshot_id;  ///< Logical snapshot identifier (for UI display)
+    std::optional<std::string> diff;         ///< Diff text of reverted range (for UI display)
+    /// Pre-revert patch: stores the file states captured just before rolling back,
+    /// allowing unrevert() to re-apply them and restore the working directory.
+    std::optional<turbot::core::snapshot::PatchResult> pre_patch;
+
+    /// Serialize to JSON (opencode-compatible key names)
+    [[nodiscard]] nlohmann::json to_json() const;
+
+    /// Deserialize from JSON (accepts both opencode camelCase and snake_case keys)
+    static RevertInfo from_json(const nlohmann::json& j);
+
+    /// Equality comparison
+    bool operator==(const RevertInfo& other) const noexcept;
 };
 
 /// Convert SessionState to string
@@ -42,6 +73,7 @@ struct TURBOT_CORE_API SessionInfo {
     std::optional<int64_t> time_compacting;  ///< Last compacting timestamp
     std::optional<int64_t> time_archived;    ///< Archival timestamp
     SessionState state = SessionState::Created; ///< Current state
+    std::optional<RevertInfo> revert;        ///< Pending revert operation (nullopt when not reverting)
 
     /// Serialize to JSON
     [[nodiscard]] nlohmann::json to_json() const;
@@ -49,7 +81,7 @@ struct TURBOT_CORE_API SessionInfo {
     /// Deserialize from JSON
     static SessionInfo from_json(const nlohmann::json& j);
 
-    /// Equality comparison
+    /// Equality comparison (includes revert field)
     bool operator==(const SessionInfo& other) const noexcept;
 };
 
@@ -74,6 +106,14 @@ struct TURBOT_CORE_API ForkParams {
     std::string parent_id;                   ///< Parent session ID
     std::string slug;                        ///< Slug for the fork
     std::string title;                       ///< Title for the fork
+};
+
+/// Parameters for reverting a session to a specific message/part
+struct TURBOT_CORE_API RevertParams {
+    std::string message_id;             ///< Message ID to revert from (the revert point)
+    std::optional<std::string> part_id; ///< Optional part ID for finer granularity
+    /// Patches collected from messages after the revert point (to roll back files)
+    std::vector<turbot::core::snapshot::PatchResult> patches;
 };
 
 /// Forward declaration for message
@@ -109,11 +149,12 @@ public:
     /// @return true if deleted
     static bool remove(const std::string& id);
 
-    /// Default constructor
-    Session() = default;
+    /// Default constructor — initialises the mutex so the object is immediately usable.
+    Session() : mutex_(std::make_shared<std::mutex>()) {}
 
     /// Constructor with session info
-    explicit Session(SessionInfo info) : info_(std::move(info)) {}
+    explicit Session(SessionInfo info)
+        : info_(std::move(info)), mutex_(std::make_shared<std::mutex>()) {}
 
     /// Update session
     /// @param params Update parameters
@@ -147,6 +188,30 @@ public:
     /// Restore from archived state
     /// @return true if restored successfully
     bool restore();
+
+    /// Revert session to the specified message/part.
+    ///
+    /// Rolls back all file changes collected in @p params.patches via SnapshotManager,
+    /// records the revert info in SessionInfo, and publishes a SessionStatusEvent.
+    /// Callers are responsible for truncating the in-memory message list.
+    ///
+    /// @param params   Revert parameters (target message_id / part_id + patches to roll back)
+    /// @return true if the revert was applied successfully
+    bool revert(const RevertParams& params);
+
+    /// Undo a previous revert: re-apply file changes from the pre-revert snapshot and
+    /// clear the revert info.
+    ///
+    /// @return true if the unrevert was applied successfully (or there was nothing to unrevert)
+    bool unrevert();
+
+    /// Clean up after a committed revert: discard the stored revert info without touching files.
+    ///
+    /// Call this once the UI/caller has confirmed the revert (messages have been truncated
+    /// and the user does not want to unrevert).
+    ///
+    /// @return true on success
+    bool cleanup_revert();
 
     /// Get session ID
     [[nodiscard]] const std::string& id() const noexcept { return info_.id; }

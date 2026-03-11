@@ -1,13 +1,45 @@
 #include <turbot/core/session/session_loop.hpp>
+#include <turbot/core/session/session_events.hpp>
+#include <turbot/core/session/retry_manager.hpp>
+#include <turbot/core/event/event_bus.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
 #include <turbot/core/llm/llm.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <fmt/format.h>
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <filesystem>
+#include <limits>
 #include <sstream>
 
 namespace turbot::core::session {
+
+const char* session_status_to_string(SessionStatus status) noexcept {
+    switch (status) {
+        case SessionStatus::Idle:  return "idle";
+        case SessionStatus::Busy:  return "busy";
+        case SessionStatus::Retry: return "retry";
+        default:                   return "unknown";
+    }
+}
+
+/// Helper: publish a SessionStatusEvent via the global EventBus.
+static void publish_status(
+    const std::string& session_id,
+    SessionStatus status,
+    int retry_attempt = 0,
+    const std::string& retry_message = {},
+    int64_t retry_next_ms = 0
+) {
+    SessionStatusEvent ev;
+    ev.session_id    = session_id;
+    ev.status        = status;
+    ev.retry_attempt = retry_attempt;
+    ev.retry_message = retry_message;
+    ev.retry_next_ms = retry_next_ms;
+    turbot::core::EventBus::instance().publish(SessionStatusEvent::kEventName, std::move(ev));
+}
 
 std::string loop_result_to_string(LoopResult result) {
     switch (result) {
@@ -98,6 +130,13 @@ LoopResult SessionLoop::run(const std::string& user_message) {
     last_tool_call_.clear();
     last_tool_input_ = {};
     same_tool_count_ = 0;
+
+    // Invalidate tool definition cache so it is rebuilt once for this run().
+    // (Tools are registered at startup; the cache remains valid across steps.)
+    tool_defs_dirty_ = true;
+
+    // Broadcast session lifecycle: Idle → Busy
+    publish_status(session_.id(), SessionStatus::Busy);
     
     // Process the user message
     LoopResult result = process_user_message(user_message);
@@ -124,6 +163,10 @@ LoopResult SessionLoop::run(const std::string& user_message) {
     }
     
     running_.store(false, std::memory_order_release);
+
+    // Broadcast session lifecycle: Busy → Idle
+    publish_status(session_.id(), SessionStatus::Idle);
+
     return result;
 }
 
@@ -171,10 +214,15 @@ LoopResult SessionLoop::process_user_message(const std::string& content) {
     // Update token count
     token_count_.fetch_add(estimate_tokens(content), std::memory_order_relaxed);
     
-    // Callback
+    // Invoke legacy callback and publish Bus event (both fire simultaneously for
+    // backward compatibility).
     if (on_message_) {
         on_message_(user_msg);
     }
+    turbot::core::EventBus::instance().publish(
+        SessionMessageEvent::kEventName,
+        SessionMessageEvent{session_.id(), user_msg}
+    );
     
     // Update session state
     session_.update(UpdateParams{.state = SessionState::Active});
@@ -212,20 +260,73 @@ LoopResult SessionLoop::process_llm_response() {
     StepInfo step_info;
     step_info.step_number = iteration_count_.load(std::memory_order_relaxed) + 1;
     
-    // Stream from LLM
-    auto stream_result = llm::LLM::stream(*provider_, model_id_, params,
-        [this](const StreamEvent& event) {
-            if (on_stream_event_) {
-                on_stream_event_(event);
+    // Stream from LLM — wrapped in RetryManager for automatic 429/5xx retry
+    llm::LLMStreamResult stream_result;
+    RetryConfig retry_config;
+    // Snapshot cumulative token count before this LLM step so we can compute
+    // the per-step delta (needed for M-1 fix: always use fetch_add semantics).
+    int64_t prev_cumulative_tokens = total_usage_.total();
+    try {
+        stream_result = RetryManager::with_retry(
+            [&]() -> llm::LLMStreamResult {
+                // Re-check abort before each attempt; use AbortRetryException so
+                // the signal propagates cleanly without going through is_retryable.
+                if (abort_flag_->load(std::memory_order_acquire)) {
+                    throw AbortRetryException{};
+                }
+                return llm::LLM::stream(*provider_, model_id_, params,
+                    [this](const StreamEvent& event) {
+                        if (on_stream_event_) {
+                            on_stream_event_(event);
+                        }
+                        turbot::core::EventBus::instance().publish(
+                            SessionStreamEvent::kEventName,
+                            SessionStreamEvent{session_.id(), event}
+                        );
+                    }
+                );
+            },
+            retry_config,
+            [this, &retry_config](int attempt, const APIError& err, int delay_ms) {
+                // Abort during retry wait — AbortRetryException propagates cleanly
+                // past with_retry's catch block (C-1 fix).
+                if (abort_flag_->load(std::memory_order_acquire)) {
+                    throw AbortRetryException{};
+                }
+                TURBOT_LOG_WARN("LLM retry attempt {}: {} (waiting {}ms)", attempt + 1, err.what(), delay_ms);
+                // Legacy callback
+                if (on_error_) {
+                    on_error_(fmt::format("Retrying ({}/{}): {}", attempt + 1, retry_config.max_attempts, err.what()), "retry");
+                }
+                // Bus: broadcast Retry status with next-fire time estimate
+                int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                publish_status(
+                    session_.id(), SessionStatus::Retry,
+                    attempt,
+                    fmt::format("Retrying ({}/{}): {}", attempt + 1, retry_config.max_attempts, err.what()),
+                    now_ms + delay_ms
+                );
+                // Bus: error event for retry notification
+                turbot::core::EventBus::instance().publish(
+                    SessionErrorEvent::kEventName,
+                    SessionErrorEvent{session_.id(), fmt::format("Retrying ({}/{}): {}", attempt + 1, retry_config.max_attempts, err.what()), "retry"}
+                );
             }
-        }
-    );
-    
-    // Check for errors
-    if (stream_result.has_error()) {
+        );
+    } catch (const AbortRetryException&) {
+        // User requested stop — treat as graceful Stop, not an error
+        return LoopResult::Stop;
+    } catch (const APIError& e) {
+        // Non-retryable or exhausted retries
+        const std::string code = e.code.value_or("llm_error");
         if (on_error_) {
-            on_error_(stream_result.error().value_or("Unknown error"), "llm_error");
+            on_error_(e.what(), code);
         }
+        turbot::core::EventBus::instance().publish(
+            SessionErrorEvent::kEventName,
+            SessionErrorEvent{session_.id(), e.what(), code}
+        );
         return LoopResult::Error;
     }
     
@@ -233,11 +334,27 @@ LoopResult SessionLoop::process_llm_response() {
     auto tool_calls = stream_result.tool_calls();
     step_info.has_tool_calls = !tool_calls.empty();
     
-    // Update token usage
+    // Get token usage — use real LLM usage (not character estimation)
     auto usage = stream_result.usage();
     step_info.tokens = usage;
     total_usage_ = total_usage_ + usage;
-    token_count_.fetch_add(static_cast<int>(usage.total()), std::memory_order_relaxed);
+    // Update token_count_ using fetch_add with the per-step delta so that
+    // tool-result estimates (fetch_add'd below) are never overwritten by a
+    // subsequent store.  When the provider returns no usage, fall back to a
+    // character-based estimate of the assistant text (same fetch_add path).
+    int64_t step_tokens = usage.total();
+    if (step_tokens > 0) {
+        // Compute the delta this LLM step contributed (avoids overwriting
+        // tool-token estimates accumulated between steps).
+        int64_t delta = total_usage_.total() - prev_cumulative_tokens;
+        token_count_.fetch_add(
+            static_cast<int>(std::clamp<int64_t>(delta, 0, std::numeric_limits<int>::max())),
+            std::memory_order_relaxed
+        );
+    } else {
+        // Provider returned no usage — accumulate character-based estimate
+        token_count_.fetch_add(static_cast<int>(estimate_tokens(stream_result.final_text())), std::memory_order_relaxed);
+    }
     
     // Create assistant message
     core::Message assistant_msg(session_.id(), core::Role::Assistant,
@@ -253,17 +370,26 @@ LoopResult SessionLoop::process_llm_response() {
     if (on_message_) {
         on_message_(assistant_msg);
     }
-    
+    turbot::core::EventBus::instance().publish(
+        SessionMessageEvent::kEventName,
+        SessionMessageEvent{session_.id(), assistant_msg}
+    );
+
     // Process tool calls
     for (const auto& tc : tool_calls) {
         step_info.tool_names.push_back(tc.name);
         
         // Check for doom loop
         if (is_doom_loop(tc.name, tc.arguments)) {
+            const std::string msg = fmt::format("Doom loop detected: tool '{}' called {} times consecutively",
+                                                  tc.name, config_.doom_loop_threshold);
             if (on_error_) {
-                on_error_(fmt::format("Doom loop detected: tool '{}' called {} times consecutively",
-                                      tc.name, config_.doom_loop_threshold), "doom_loop");
+                on_error_(msg, "doom_loop");
             }
+            turbot::core::EventBus::instance().publish(
+                SessionErrorEvent::kEventName,
+                SessionErrorEvent{session_.id(), msg, "doom_loop"}
+            );
             return LoopResult::Error;
         }
         
@@ -273,6 +399,10 @@ LoopResult SessionLoop::process_llm_response() {
         if (on_tool_call_) {
             on_tool_call_(tc.name, tc.id, tc.arguments);
         }
+        turbot::core::EventBus::instance().publish(
+            SessionToolCallEvent::kEventName,
+            SessionToolCallEvent{session_.id(), tc.name, tc.id, tc.arguments}
+        );
         
         // Execute tool
         auto result = execute_tool(tc.name, tc.id, tc.arguments);
@@ -281,6 +411,10 @@ LoopResult SessionLoop::process_llm_response() {
         if (on_tool_result_) {
             on_tool_result_(tc.name, tc.id, result);
         }
+        turbot::core::EventBus::instance().publish(
+            SessionToolResultEvent::kEventName,
+            SessionToolResultEvent{session_.id(), tc.name, tc.id, result}
+        );
         
         // Add tool result message
         core::Message tool_msg(session_.id(), core::Role::Tool, tc.name, "", "");
@@ -299,10 +433,21 @@ LoopResult SessionLoop::process_llm_response() {
         token_count_.fetch_add(estimate_tokens(result.output), std::memory_order_relaxed);
     }
     
-    // Fire step callback
+    // Fire step callback (legacy) and publish Bus event
     if (on_step_) {
         on_step_(step_info);
     }
+    turbot::core::EventBus::instance().publish(
+        SessionStepEvent::kEventName,
+        SessionStepEvent{
+            session_.id(),
+            step_info.step_number,
+            step_info.tokens,
+            step_info.cost,
+            step_info.has_tool_calls,
+            step_info.tool_names
+        }
+    );
     
     // If there were tool calls, continue the loop
     if (!tool_calls.empty()) {
@@ -377,8 +522,25 @@ bool SessionLoop::needs_compaction() const noexcept {
 }
 
 int SessionLoop::estimate_tokens(const std::string& text) noexcept {
-    // Simple estimation: ~4 characters per token on average
-    return static_cast<int>(text.size() / 4) + 1;
+    // Improved token estimation:
+    // - ASCII characters: ~4 chars per token (standard BPE assumption)
+    // - Multi-byte UTF-8 sequences (CJK, emoji, etc.): ~1–1.5 chars per token
+    //   We use a conservative ratio of 1.5 bytes-per-token for non-ASCII bytes.
+    //
+    // Strategy: count ASCII bytes and multi-byte sequence starters separately.
+    //   ascii_chars / 4  +  non_ascii_chars * 1  ≈ token estimate
+    int ascii_count = 0;
+    int non_ascii_count = 0;
+    for (unsigned char c : text) {
+        if (c < 0x80) {
+            ++ascii_count;
+        } else if ((c & 0xC0) != 0x80) {
+            // Leading byte of a multi-byte sequence (0xC0..0xFF) = one logical code-point
+            ++non_ascii_count;
+        }
+        // Continuation bytes (0x80..0xBF) are skipped — already counted above
+    }
+    return (ascii_count / 4) + non_ascii_count + 1;
 }
 
 std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() const {
@@ -431,11 +593,19 @@ std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() con
 }
 
 std::vector<turbot::core::llm::LLMToolDefinition> SessionLoop::build_tool_definitions() const {
-    std::vector<turbot::core::llm::LLMToolDefinition> result;
-    
+    // Return cached definitions if still valid.
+    // ToolRegistry tools are registered at startup and do not change at runtime,
+    // so we only rebuild once per run() invocation (tool_defs_dirty_ is reset in run()).
+    if (!tool_defs_dirty_) {
+        return cached_tool_defs_;
+    }
+
+    cached_tool_defs_.clear();
+
     // Get all registered tools
     auto tool_names = tool::ToolRegistry::instance().names();
-    
+    cached_tool_defs_.reserve(tool_names.size());
+
     for (const auto& name : tool_names) {
         auto tool = tool::ToolRegistry::instance().get(name);
         if (tool) {
@@ -443,11 +613,12 @@ std::vector<turbot::core::llm::LLMToolDefinition> SessionLoop::build_tool_defini
             def.name = tool->name();
             def.description = tool->description();
             def.parameters = tool->input_schema();
-            result.push_back(std::move(def));
+            cached_tool_defs_.push_back(std::move(def));
         }
     }
-    
-    return result;
+
+    tool_defs_dirty_ = false;
+    return cached_tool_defs_;
 }
 
 } // namespace turbot::core::session

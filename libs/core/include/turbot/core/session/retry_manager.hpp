@@ -26,6 +26,12 @@ struct TURBOT_CORE_API APIError : public std::runtime_error {
     static APIError from_response(int status, const std::string& body);
 };
 
+/// 专用中止信号：由 operation 或 on_retry 回调抛出，干净地中止重试序列。
+/// 不经过 is_retryable 过滤，直接穿透 with_retry 传播给调用者。
+struct TURBOT_CORE_API AbortRetryException : public std::exception {
+    const char* what() const noexcept override { return "Retry aborted by caller"; }
+};
+
 /// 重试配置
 struct TURBOT_CORE_API RetryConfig {
     int max_attempts = 5;           ///< 最大重试次数
@@ -107,6 +113,10 @@ auto RetryManager::with_retry(
     APIError last_error{0, "Unknown error"};
 
     for (int attempt = 0; attempt < config.max_attempts; attempt++) {
+        // State extracted from catch block to use after it closes
+        bool should_retry = false;
+        int  retry_delay  = 0;
+
         try {
             return operation();
         } catch (const APIError& e) {
@@ -122,16 +132,20 @@ auto RetryManager::with_retry(
                 throw;
             }
 
-            // 计算延迟
-            int delay = calculate_delay(attempt, config, e);
+            // 提取重试信息（在 catch 块内），稍后在块外使用
+            retry_delay  = calculate_delay(attempt, config, e);
+            should_retry = true;
+        }
+        // ↑ catch 块在此关闭。此后 on_retry 抛出的任何异常都不会被本层重捕获，
+        //   会干净地向上传播（包括 AbortRetryException）。
 
-            // 调用回调
+        if (should_retry) {
+            // 调用重试通知回调：可安全抛出 AbortRetryException 或其他异常
             if (on_retry) {
-                on_retry(attempt, e, delay);
+                on_retry(attempt, last_error, retry_delay);
             }
-
-            // 等待
-            sleep(delay);
+            // 等待后重试
+            sleep(retry_delay);
         }
     }
 

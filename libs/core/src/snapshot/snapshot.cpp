@@ -5,6 +5,11 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <set>
+#if defined(__unix__) || defined(__APPLE__)
+#  include <fcntl.h>
+#  include <unistd.h>
+#endif
 
 namespace turbot::core::snapshot {
 
@@ -292,6 +297,14 @@ void SnapshotManager::scan_files(SnapshotData& data) {
         return;
     }
 
+    // Verify root directory is accessible before iterating
+    std::error_code root_ec;
+    if (!std::filesystem::is_directory(root, root_ec) || root_ec) {
+        TURBOT_LOG_ERROR("scan_files: root directory is not accessible: {}{}", root.string(),
+                         root_ec ? fmt::format(" ({})", root_ec.message()) : "");
+        return;
+    }
+
     // Calculate cache budget in bytes (0 means hash-only mode)
     const size_t max_cache_bytes = data.options.max_cache_size_mb * 1024ULL * 1024ULL;
     size_t cached_bytes = 0;
@@ -359,6 +372,10 @@ std::string SnapshotManager::start_tracking(const SnapshotOptions& options) {
     // Set default root directory
     if (data.options.root_directory.empty()) {
         data.options.root_directory = std::filesystem::current_path();
+        TURBOT_LOG_WARN("start_tracking: root_directory not specified; "
+                        "falling back to CWD: {}. "
+                        "Pass an explicit root_directory to avoid scanning unexpected paths.",
+                        data.options.root_directory.string());
     }
 
     // Step 2: Pre-compile glob patterns (once, before scanning)
@@ -475,6 +492,9 @@ PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
 
 bool SnapshotManager::apply_patch(const PatchResult& patch) {
     // No lock needed: patch is a self-contained value type; IO runs outside the critical section
+    // Collect affected parent directories for a single fsync pass after all writes.
+    std::set<std::filesystem::path> dirty_dirs;
+
     for (const auto& change : patch.files) {
         switch (change.type) {
             case FileChangeType::Created:
@@ -482,6 +502,9 @@ bool SnapshotManager::apply_patch(const PatchResult& patch) {
                 if (!write_file_content(change.path, change.new_content)) {
                     TURBOT_LOG_ERROR("Failed to apply patch for: {}", change.path.string());
                     return false;
+                }
+                if (change.path.has_parent_path()) {
+                    dirty_dirs.insert(change.path.parent_path());
                 }
                 break;
                 
@@ -491,17 +514,37 @@ bool SnapshotManager::apply_patch(const PatchResult& patch) {
                     TURBOT_LOG_ERROR("Failed to delete file: {}", change.path.string());
                     return false;
                 }
+                if (change.path.has_parent_path()) {
+                    dirty_dirs.insert(change.path.parent_path());
+                }
                 break;
         }
     }
-    
-    TURBOT_LOG_DEBUG("Applied patch: {}", patch.id);
+
+    // Batch fsync: flush all dirty parent directories once (POSIX only).
+    // This ensures directory entries are persisted even if the process crashes
+    // immediately after apply_patch returns.
+#if defined(__unix__) || defined(__APPLE__)
+    for (const auto& dir : dirty_dirs) {
+        int fd = ::open(dir.c_str(), O_RDONLY);
+        if (fd >= 0) {
+            if (::fsync(fd) != 0) {
+                TURBOT_LOG_WARN("apply_patch: fsync failed for directory: {}", dir.string());
+            }
+            ::close(fd);
+        }
+    }
+#endif
+
+    TURBOT_LOG_DEBUG("Applied patch: {} ({} file(s) changed)", patch.id, patch.files.size());
     return true;
 }
 
 bool SnapshotManager::rollback_patch(const PatchResult& patch) {
     // No lock needed: patch is a self-contained value type; IO runs outside the critical section
-    // Apply changes in reverse
+    // Apply changes in reverse. Collect affected parent directories for batch fsync.
+    std::set<std::filesystem::path> dirty_dirs;
+
     for (auto it = patch.files.rbegin(); it != patch.files.rend(); ++it) {
         const auto& change = *it;
         
@@ -510,7 +553,14 @@ bool SnapshotManager::rollback_patch(const PatchResult& patch) {
                 // Rollback: delete the created file
                 {
                     std::error_code ec;
-                    std::filesystem::remove(change.path, ec);
+                    if (!std::filesystem::remove(change.path, ec) && ec) {
+                        TURBOT_LOG_ERROR("Failed to rollback creation (delete): {}: {}",
+                                         change.path.string(), ec.message());
+                        return false;
+                    }
+                    if (change.path.has_parent_path()) {
+                        dirty_dirs.insert(change.path.parent_path());
+                    }
                 }
                 break;
                 
@@ -520,6 +570,9 @@ bool SnapshotManager::rollback_patch(const PatchResult& patch) {
                     TURBOT_LOG_ERROR("Failed to rollback modification: {}", change.path.string());
                     return false;
                 }
+                if (change.path.has_parent_path()) {
+                    dirty_dirs.insert(change.path.parent_path());
+                }
                 break;
                 
             case FileChangeType::Deleted:
@@ -528,11 +581,27 @@ bool SnapshotManager::rollback_patch(const PatchResult& patch) {
                     TURBOT_LOG_ERROR("Failed to rollback deletion: {}", change.path.string());
                     return false;
                 }
+                if (change.path.has_parent_path()) {
+                    dirty_dirs.insert(change.path.parent_path());
+                }
                 break;
         }
     }
+
+    // Batch fsync: flush all dirty parent directories once (POSIX only).
+#if defined(__unix__) || defined(__APPLE__)
+    for (const auto& dir : dirty_dirs) {
+        int fd = ::open(dir.c_str(), O_RDONLY);
+        if (fd >= 0) {
+            if (::fsync(fd) != 0) {
+                TURBOT_LOG_WARN("rollback_patch: fsync failed for directory: {}", dir.string());
+            }
+            ::close(fd);
+        }
+    }
+#endif
     
-    TURBOT_LOG_DEBUG("Rolled back patch: {}", patch.id);
+    TURBOT_LOG_DEBUG("Rolled back patch: {} ({} file(s) restored)", patch.id, patch.files.size());
     return true;
 }
 

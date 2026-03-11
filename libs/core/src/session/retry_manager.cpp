@@ -1,6 +1,7 @@
 #include <turbot/core/session/retry_manager.hpp>
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 namespace turbot::core::session {
 
@@ -45,6 +46,11 @@ std::mt19937& RetryManager::get_rng() {
     static std::random_device rd;
     static std::mt19937 gen(rd());
     return gen;
+}
+
+static std::mutex& get_rng_mutex() {
+    static std::mutex m;
+    return m;
 }
 
 bool RetryManager::is_retryable(const APIError& error) {
@@ -104,7 +110,8 @@ int RetryManager::apply_jitter(int base_delay, double factor) {
     // Calculate jitter range
     int jitter_range = static_cast<int>(base_delay * factor);
 
-    // Generate random jitter
+    // Generate random jitter (serialised: mt19937 is not thread-safe)
+    std::lock_guard<std::mutex> lock(get_rng_mutex());
     std::uniform_int_distribution<> dist(-jitter_range, jitter_range);
     int jitter = dist(get_rng());
 

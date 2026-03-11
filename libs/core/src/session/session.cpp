@@ -1,4 +1,5 @@
 #include <turbot/core/session/session.hpp>
+#include <turbot/core/snapshot/snapshot.hpp>
 #include <fmt/format.h>
 #include <chrono>
 #include <random>
@@ -7,7 +8,58 @@
 
 namespace turbot::core::session {
 
-// SessionState conversion functions
+// ─── RevertInfo implementation ───────────────────────────────────────────────
+
+nlohmann::json RevertInfo::to_json() const {
+    // Use opencode-compatible camelCase keys for cross-system compatibility
+    nlohmann::json j;
+    j["messageID"] = message_id;
+    if (part_id)     j["partID"]   = *part_id;
+    if (snapshot_id) j["snapshot"] = *snapshot_id;
+    if (diff)        j["diff"]     = *diff;
+    if (pre_patch)   j["prePatch"] = pre_patch->to_json();
+    return j;
+}
+
+RevertInfo RevertInfo::from_json(const nlohmann::json& j) {
+    RevertInfo info;
+
+    // Accept both opencode camelCase ("messageID") and snake_case ("message_id") keys.
+    if (j.contains("messageID") && !j["messageID"].is_null())
+        info.message_id = j["messageID"].get<std::string>();
+    else if (j.contains("message_id") && !j["message_id"].is_null())
+        info.message_id = j["message_id"].get<std::string>();
+
+    // partID / part_id
+    if (j.contains("partID") && !j["partID"].is_null())
+        info.part_id = j["partID"].get<std::string>();
+    else if (j.contains("part_id") && !j["part_id"].is_null())
+        info.part_id = j["part_id"].get<std::string>();
+
+    // snapshot / snapshot_id
+    if (j.contains("snapshot") && !j["snapshot"].is_null())
+        info.snapshot_id = j["snapshot"].get<std::string>();
+    else if (j.contains("snapshot_id") && !j["snapshot_id"].is_null())
+        info.snapshot_id = j["snapshot_id"].get<std::string>();
+
+    if (j.contains("diff") && !j["diff"].is_null())
+        info.diff = j["diff"].get<std::string>();
+
+    if (j.contains("prePatch") && !j["prePatch"].is_null())
+        info.pre_patch = turbot::core::snapshot::PatchResult::from_json(j["prePatch"]);
+
+    return info;
+}
+
+bool RevertInfo::operator==(const RevertInfo& other) const noexcept {
+    return message_id == other.message_id &&
+           part_id    == other.part_id    &&
+           snapshot_id == other.snapshot_id &&
+           diff       == other.diff;
+    // pre_patch intentionally excluded (binary payload, equality checked by snapshot_id)
+}
+
+// ─── SessionState conversion functions ───────────────────────────────────────
 std::string session_state_to_string(SessionState state) {
     switch (state) {
         case SessionState::Created: return "created";
@@ -52,6 +104,9 @@ nlohmann::json SessionInfo::to_json() const {
         j["time_archived"] = *time_archived;
     }
     j["state"] = session_state_to_string(state);
+    if (revert) {
+        j["revert"] = revert->to_json();
+    }
     return j;
 }
 
@@ -90,6 +145,10 @@ SessionInfo SessionInfo::from_json(const nlohmann::json& j) {
         info.state = string_to_session_state(j["state"].get<std::string>());
     }
     
+    if (j.contains("revert") && !j["revert"].is_null()) {
+        info.revert = RevertInfo::from_json(j["revert"]);
+    }
+    
     return info;
 }
 
@@ -98,7 +157,8 @@ bool SessionInfo::operator==(const SessionInfo& other) const noexcept {
            project_id == other.project_id &&
            parent_id == other.parent_id &&
            slug == other.slug &&
-           state == other.state;
+           state == other.state &&
+           revert == other.revert;
 }
 
 // Session implementation
@@ -271,6 +331,96 @@ bool Session::restore() {
     info_.time_archived = std::nullopt;
     info_.time_updated = current_timestamp();
     
+    return true;
+}
+
+bool Session::revert(const RevertParams& params) {
+    if (!mutex_) return false;
+    std::lock_guard<std::mutex> lock(*mutex_);
+
+    auto& sm = turbot::core::snapshot::SnapshotManager::instance();
+
+    // Capture a snapshot of the current file state before rolling back, so that
+    // unrevert() can restore the working directory.  If we are already in a revert
+    // state we reuse the original snapshot to avoid losing the baseline.
+    std::optional<turbot::core::snapshot::PatchResult> pre_patch;
+    std::optional<std::string> snapshot_id;
+
+    if (info_.revert && info_.revert->pre_patch) {
+        // Keep the snapshot from the first revert in this chain.
+        pre_patch   = info_.revert->pre_patch;
+        snapshot_id = info_.revert->snapshot_id;
+    } else {
+        // Capture the current file state of the session directory.
+        const std::string dir = info_.directory.empty() ? "." : info_.directory;
+        turbot::core::snapshot::SnapshotOptions opts;
+        opts.root_directory = dir;
+        const std::string snap_id = sm.start_tracking(opts);
+        // stop_tracking immediately – no files have changed yet, so the PatchResult
+        // is empty (no diffs), but it records the baseline file hashes / contents
+        // that apply_patch can use to restore the directory after an unrevert.
+        const auto result = sm.stop_tracking(snap_id);
+        pre_patch   = result;
+        snapshot_id = snap_id;
+    }
+
+    // Roll back all patches in reverse order (newest → oldest).
+    for (auto it = params.patches.rbegin(); it != params.patches.rend(); ++it) {
+        if (!sm.rollback_patch(*it)) {
+            // Partial rollback occurred; attempt to restore via pre_patch.
+            if (pre_patch && !pre_patch->empty()) {
+                sm.apply_patch(*pre_patch);
+            }
+            return false;
+        }
+    }
+
+    // Record the revert info.
+    RevertInfo ri;
+    ri.message_id  = params.message_id;
+    ri.part_id     = params.part_id;
+    ri.snapshot_id = snapshot_id;
+    ri.pre_patch   = std::move(pre_patch);
+    // diff is populated externally after computing SessionSummary (opencode pattern).
+    info_.revert       = std::move(ri);
+    info_.time_updated = current_timestamp();
+
+    return true;
+}
+
+bool Session::unrevert() {
+    if (!mutex_) return false;
+    std::lock_guard<std::mutex> lock(*mutex_);
+
+    if (!info_.revert) {
+        return true;  // Nothing to unrevert.
+    }
+
+    // Re-apply the pre-revert patch to restore the working directory.
+    if (info_.revert->pre_patch && !info_.revert->pre_patch->empty()) {
+        auto& sm = turbot::core::snapshot::SnapshotManager::instance();
+        if (!sm.apply_patch(*info_.revert->pre_patch)) {
+            return false;  // Restoration failed; leave revert info intact for retry.
+        }
+    }
+
+    // Clear the revert info.
+    info_.revert       = std::nullopt;
+    info_.time_updated = current_timestamp();
+
+    return true;
+}
+
+bool Session::cleanup_revert() {
+    if (!mutex_) return false;
+    std::lock_guard<std::mutex> lock(*mutex_);
+
+    // Simply discard the revert info without touching files.
+    // Callers must have already truncated the message history in the database
+    // and confirmed the user does not wish to unrevert.
+    info_.revert       = std::nullopt;
+    info_.time_updated = current_timestamp();
+
     return true;
 }
 

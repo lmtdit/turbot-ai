@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <unistd.h>   // getpid()
 
 namespace turbot::test {
 
@@ -30,8 +31,12 @@ struct E2EFixture {
     std::filesystem::path test_dir;
 
     void setup() {
-        // Create test directory
-        test_dir = std::filesystem::temp_directory_path() / ("turbot-e2e-" + std::to_string(std::time(nullptr)));
+        // Create test directory — include PID to avoid collisions when multiple
+        // test processes run within the same second (std::time resolution = 1s).
+        test_dir = std::filesystem::temp_directory_path() / (
+            "turbot-e2e-" + std::to_string(std::time(nullptr)) +
+            "-" + std::to_string(static_cast<int>(::getpid()))
+        );
         std::filesystem::create_directories(test_dir);
 
         // Create session

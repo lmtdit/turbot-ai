@@ -4,10 +4,11 @@
 
 ## 文档索引
 
-| 文档                                               | 说明         |
-| -------------------------------------------------- | ------------ |
-| [directory-structure.md](./directory-structure.md) | 目录架构规范 |
-| [config-hierarchy.md](./config-hierarchy.md)       | 配置分级机制 |
+| 文档                                               | 说明                                          |
+| -------------------------------------------------- | --------------------------------------------- |
+| [2.x-architecture.md](./2.x-architecture.md)       | 2.x 版本流程架构与核心模块文档（经 2 次校验） |
+| [directory-structure.md](./directory-structure.md) | 目录架构规范                                  |
+| [config-hierarchy.md](./config-hierarchy.md)       | 配置分级机制                                  |
 
 ## 架构概述
 

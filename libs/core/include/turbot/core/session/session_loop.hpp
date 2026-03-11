@@ -163,6 +163,16 @@ private:
     nlohmann::json last_tool_input_{};   ///< Last tool input for doom loop detection
     int same_tool_count_ = 0;
 
+    // Tool definition cache (rebuilt lazily; invalidated when tool registry changes).
+    // Since ToolRegistry is a singleton and tools are registered at startup,
+    // we build the list once per run() invocation and reuse it throughout.
+    //
+    // Thread-safety note: tool_defs_dirty_ and cached_tool_defs_ are accessed only
+    // from within run() / step() which are single-threaded by design (running_ flag
+    // semantically ensures no concurrent run() calls). No mutex required.
+    mutable std::vector<turbot::core::llm::LLMToolDefinition> cached_tool_defs_;
+    mutable bool tool_defs_dirty_ = true;  ///< true = must rebuild before next LLM call
+
     MessageCallback on_message_;
     ToolCallCallback on_tool_call_;
     ToolResultCallback on_tool_result_;

@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <turbot/core/session/session.hpp>
 #include <turbot/core/session/session_state_machine.hpp>
+#include <turbot/core/snapshot/snapshot.hpp>
+#include <filesystem>
+#include <fstream>
 #include <thread>
 
 using namespace turbot::core::session;
@@ -575,3 +578,282 @@ TEST_CASE("SessionStateMachine can_transition static", "[core][session][state_ma
         REQUIRE_FALSE(SessionStateMachine::can_transition(SessionState::Busy, SessionState::Compacting));
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RevertInfo tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("RevertInfo serialization", "[core][session][revert]") {
+    SECTION("minimal (message_id only)") {
+        RevertInfo ri;
+        ri.message_id = "msg_abc";
+
+        auto j = ri.to_json();
+        REQUIRE(j["message_id"] == "msg_abc");
+        REQUIRE_FALSE(j.contains("part_id"));
+        REQUIRE_FALSE(j.contains("snapshot_id"));
+        REQUIRE_FALSE(j.contains("diff"));
+
+        auto restored = RevertInfo::from_json(j);
+        REQUIRE(restored.message_id == "msg_abc");
+        REQUIRE_FALSE(restored.part_id.has_value());
+        REQUIRE_FALSE(restored.snapshot_id.has_value());
+        REQUIRE_FALSE(restored.diff.has_value());
+    }
+
+    SECTION("full (all fields)") {
+        RevertInfo ri;
+        ri.message_id   = "msg_full";
+        ri.part_id      = "part_1";
+        ri.snapshot_id  = "snap_xyz";
+        ri.diff         = "--- a/foo.txt\n+++ b/foo.txt\n@@ -1 +1 @@\n-old\n+new\n";
+
+        auto j = ri.to_json();
+        REQUIRE(j["message_id"]  == "msg_full");
+        REQUIRE(j["part_id"]     == "part_1");
+        REQUIRE(j["snapshot_id"] == "snap_xyz");
+        REQUIRE(j["diff"].get<std::string>().find("old") != std::string::npos);
+
+        auto restored = RevertInfo::from_json(j);
+        REQUIRE(restored.message_id           == "msg_full");
+        REQUIRE(restored.part_id.value()      == "part_1");
+        REQUIRE(restored.snapshot_id.value()  == "snap_xyz");
+        REQUIRE(restored.diff.has_value());
+    }
+
+    SECTION("round-trip with null optionals in JSON") {
+        nlohmann::json j = {
+            {"message_id", "msg_null"},
+            {"part_id", nullptr},
+            {"snapshot_id", nullptr}
+        };
+
+        auto ri = RevertInfo::from_json(j);
+        REQUIRE(ri.message_id == "msg_null");
+        REQUIRE_FALSE(ri.part_id.has_value());
+        REQUIRE_FALSE(ri.snapshot_id.has_value());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SessionInfo revert field serialization
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("SessionInfo with revert field", "[core][session][revert]") {
+    SECTION("no revert – field absent in JSON") {
+        SessionInfo info;
+        info.id = "sess_no_revert";
+        info.project_id = "proj";
+        info.slug = "s";
+        info.directory = "/d";
+        info.time_created = 1000;
+        info.time_updated = 1000;
+
+        auto j = info.to_json();
+        REQUIRE_FALSE(j.contains("revert"));
+    }
+
+    SECTION("with revert – field present in JSON") {
+        SessionInfo info;
+        info.id = "sess_with_revert";
+        info.project_id = "proj";
+        info.slug = "s";
+        info.directory = "/d";
+        info.time_created = 2000;
+        info.time_updated = 2000;
+
+        RevertInfo ri;
+        ri.message_id = "msg_r1";
+        ri.snapshot_id = "snap_001";
+        info.revert = ri;
+
+        auto j = info.to_json();
+        REQUIRE(j.contains("revert"));
+        REQUIRE(j["revert"]["message_id"] == "msg_r1");
+        REQUIRE(j["revert"]["snapshot_id"] == "snap_001");
+    }
+
+    SECTION("round-trip with revert") {
+        SessionInfo original;
+        original.id = "sess_rt_revert";
+        original.project_id = "proj_rt";
+        original.slug = "rt";
+        original.directory = "/rt";
+        original.time_created = 3000;
+        original.time_updated = 3000;
+
+        RevertInfo ri;
+        ri.message_id = "msg_rt";
+        ri.part_id = "part_rt";
+        original.revert = ri;
+
+        auto j = original.to_json();
+        auto restored = SessionInfo::from_json(j);
+
+        REQUIRE(restored.revert.has_value());
+        REQUIRE(restored.revert->message_id == "msg_rt");
+        REQUIRE(restored.revert->part_id.value() == "part_rt");
+    }
+
+    SECTION("from_json with null revert field") {
+        nlohmann::json j = {
+            {"id", "sess_null_rv"},
+            {"project_id", "proj"},
+            {"slug", "s"},
+            {"directory", "/d"},
+            {"title", "T"},
+            {"time_created", 100},
+            {"time_updated", 100},
+            {"revert", nullptr}
+        };
+
+        auto info = SessionInfo::from_json(j);
+        REQUIRE_FALSE(info.revert.has_value());
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Session::revert / unrevert / cleanup_revert
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+    // Helpers for file-based revert tests
+
+    struct TempDir {
+        std::filesystem::path path;
+        TempDir() {
+            path = std::filesystem::temp_directory_path() /
+                   ("session-revert-test-" + std::to_string(std::time(nullptr)));
+            std::filesystem::create_directories(path);
+        }
+        ~TempDir() {
+            std::error_code ec;
+            std::filesystem::remove_all(path, ec);
+        }
+        std::filesystem::path file(const std::string& name) const { return path / name; }
+    };
+
+    void write_file(const std::filesystem::path& p, const std::string& content) {
+        std::ofstream ofs(p, std::ios::binary);
+        ofs << content;
+    }
+
+    std::string read_file(const std::filesystem::path& p) {
+        std::ifstream ifs(p, std::ios::binary);
+        return {std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>()};
+    }
+
+    Session make_session() {
+        CreateParams cp;
+        cp.project_id = "proj_rv";
+        cp.slug       = "rv";
+        cp.directory  = "/rv";
+        cp.title      = "Revert Test";
+        return Session::create(cp).value();
+    }
+} // namespace
+
+TEST_CASE("Session::revert with empty patches", "[core][session][revert]") {
+    auto session = make_session();
+
+    SECTION("revert with no patches succeeds and sets revert info") {
+        RevertParams params;
+        params.message_id = "msg_001";
+
+        REQUIRE(session.revert(params));
+        REQUIRE(session.info().revert.has_value());
+        REQUIRE(session.info().revert->message_id == "msg_001");
+        REQUIRE_FALSE(session.info().revert->part_id.has_value());
+        REQUIRE(session.info().time_updated > 0);
+    }
+
+    SECTION("revert preserves original snapshot_id on second revert") {
+        RevertParams p1;
+        p1.message_id = "msg_first";
+        REQUIRE(session.revert(p1));
+        auto first_snap = session.info().revert->snapshot_id;
+
+        // Second revert should keep the original snapshot ID
+        RevertParams p2;
+        p2.message_id = "msg_second";
+        REQUIRE(session.revert(p2));
+        REQUIRE(session.info().revert->snapshot_id == first_snap);
+    }
+
+    SECTION("revert with part_id") {
+        RevertParams params;
+        params.message_id = "msg_part";
+        params.part_id    = "part_xyz";
+
+        REQUIRE(session.revert(params));
+        REQUIRE(session.info().revert->message_id == "msg_part");
+        REQUIRE(session.info().revert->part_id.value() == "part_xyz");
+    }
+}
+
+TEST_CASE("Session::revert rolls back file changes", "[core][session][revert]") {
+    TempDir tmp;
+    auto file_path = tmp.file("data.txt");
+    write_file(file_path, "original content");
+
+    auto& sm = turbot::core::snapshot::SnapshotManager::instance();
+
+    // Track a change: modify the file
+    std::string snap_id = sm.start_tracking(turbot::core::snapshot::SnapshotOptions{tmp.path.string()});
+    write_file(file_path, "modified content");
+    auto patch = sm.stop_tracking(snap_id);
+
+    REQUIRE(read_file(file_path) == "modified content");
+
+    // Build session and revert
+    auto session = make_session();
+    RevertParams params;
+    params.message_id = "msg_file";
+    params.patches.push_back(patch);
+
+    REQUIRE(session.revert(params));
+
+    // File should be back to original
+    REQUIRE(read_file(file_path) == "original content");
+    REQUIRE(session.info().revert.has_value());
+    REQUIRE(session.info().revert->message_id == "msg_file");
+}
+
+TEST_CASE("Session::unrevert clears revert info", "[core][session][revert]") {
+    auto session = make_session();
+
+    SECTION("unrevert when no revert is a no-op") {
+        REQUIRE(session.unrevert());
+        REQUIRE_FALSE(session.info().revert.has_value());
+    }
+
+    SECTION("unrevert after revert clears the info") {
+        RevertParams params;
+        params.message_id = "msg_unrev";
+        REQUIRE(session.revert(params));
+        REQUIRE(session.info().revert.has_value());
+
+        REQUIRE(session.unrevert());
+        REQUIRE_FALSE(session.info().revert.has_value());
+    }
+}
+
+TEST_CASE("Session::cleanup_revert clears revert info", "[core][session][revert]") {
+    auto session = make_session();
+
+    SECTION("cleanup_revert when no revert is a no-op") {
+        REQUIRE(session.cleanup_revert());
+        REQUIRE_FALSE(session.info().revert.has_value());
+    }
+
+    SECTION("cleanup_revert after revert clears the info") {
+        RevertParams params;
+        params.message_id = "msg_cleanup";
+        REQUIRE(session.revert(params));
+        REQUIRE(session.info().revert.has_value());
+
+        REQUIRE(session.cleanup_revert());
+        REQUIRE_FALSE(session.info().revert.has_value());
+    }
+}
+
