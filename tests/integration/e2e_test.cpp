@@ -154,26 +154,29 @@ TEST_CASE_METHOD(E2ETest, "E2E-06: Context Compaction", "[e2e][e2e-06]") {
 // ============================================================================
 // E2E-07: Error Retry
 // ============================================================================
-TEST_CASE_METHOD(E2ETest, "E2E-07: Error Retry", "[e2e][e2e-07]") {
-    // Configure error sequence: 2 errors then success
+TEST_CASE_METHOD(E2ETest, "E2E-07: Error Propagation (no internal retry)", "[e2e][e2e-07]") {
+    // Configure: first call returns error; SessionLoop has no internal retry mechanism.
     setup_error_sequence({
         MockError::RateLimitExceeded,
-        MockError::NetworkError,
         MockError::None
     });
 
-    // Set final success response
-    setup_simple_qa("Success after retries!");
+    // The second response would succeed if retried, but SessionLoop won't retry.
+    setup_simple_qa("This would succeed if retried.");
+
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
 
     // Run the loop
-    auto result = loop->run("Test retry logic");
+    auto result = loop->run("Test error propagation");
 
-    // SessionLoop stops on first error (no internal retry); error is propagated via callback
-    // Note: MockProvider error responses may be processed as empty content (Stop), not Error
-    CHECK((result == session::LoopResult::Stop || result == session::LoopResult::Error));
-
-    // Verify at least one LLM call was attempted
-    CHECK(provider->call_count() >= 1);
+    // SessionLoop has no internal retry: stops on first error (2.7.1 conclusion B)
+    CHECK(result == session::LoopResult::Error);
+    CHECK(provider->call_count() == 1);         // Exactly 1 call (no retry)
+    CHECK(error_code == "llm_error");            // Error callback fired with correct code
 }
 
 // ============================================================================
@@ -191,11 +194,19 @@ TEST_CASE_METHOD(E2ETest, "E2E-08: Doom Loop Detection", "[e2e][e2e-08]") {
         setup_tool_call("same_tool", "tool-" + std::to_string(i), same_input);
     }
 
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
     // Run the loop
     auto result = loop->run("Keep doing the same thing");
 
-    // Verify: the loop terminates (either by doom loop Error or natural Stop)
-    CHECK((result == session::LoopResult::Error || result == session::LoopResult::Stop));
+    // Doom loop MUST terminate with Error (not Stop).
+    // Note: LoopResult has no DoomLoop variant; doom loop detection returns LoopResult::Error.
+    CHECK(result == session::LoopResult::Error);
+    CHECK(error_code == "doom_loop");
 
     // Verify LLM was not called more than threshold+1 times
     CHECK(provider->call_count() <= config.doom_loop_threshold + 1);

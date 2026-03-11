@@ -177,12 +177,26 @@ std::string SnapshotManager::generate_id() {
 }
 
 std::string SnapshotManager::compute_file_hash(const std::filesystem::path& path) {
-    auto hash = turbot::utils::crypto::sha256_file(path);
-    if (hash.empty()) {
-        TURBOT_LOG_WARN("compute_file_hash: failed to hash file (unreadable or too large): {}",
-                        path.string());
-    }
-    return hash;
+    auto result = turbot::utils::crypto::sha256_file_ex(path);
+    return std::visit([&](auto&& v) -> std::string {
+        using T = std::decay_t<decltype(v)>;
+        if constexpr (std::is_same_v<T, std::string>) {
+            return v;
+        } else {
+            switch (v) {
+                case turbot::utils::crypto::FileHashError::NotFound:
+                    TURBOT_LOG_DEBUG("compute_file_hash: file not found: {}", path.string());
+                    break;
+                case turbot::utils::crypto::FileHashError::TooLarge:
+                    TURBOT_LOG_WARN("compute_file_hash: file too large (>100MB): {}", path.string());
+                    break;
+                case turbot::utils::crypto::FileHashError::IOError:
+                    TURBOT_LOG_ERROR("compute_file_hash: IO error reading: {}", path.string());
+                    break;
+            }
+            return "";
+        }
+    }, result);
 }
 
 std::string SnapshotManager::read_file_content(const std::filesystem::path& path) {
@@ -277,27 +291,55 @@ void SnapshotManager::scan_files(SnapshotData& data) {
     if (root.empty()) {
         return;
     }
-    
+
+    // Calculate cache budget in bytes (0 means hash-only mode)
+    const size_t max_cache_bytes = data.options.max_cache_size_mb * 1024ULL * 1024ULL;
+    size_t cached_bytes = 0;
+
     std::error_code ec;
     for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
         if (ec) {
             ec.clear();  // reset so subsequent entries are not skipped
             continue;
         }
-        
+
         if (!entry.is_regular_file()) {
             continue;
         }
-        
+
         const auto& path = entry.path();
-        
+
         if (!should_track(path, data)) {
             continue;
         }
-        
+
         std::string path_str = path.string();
         data.file_hashes[path_str] = compute_file_hash(path);
-        data.file_contents[path_str] = read_file_content(path);
+
+        // Content caching: only if budget allows.
+        // Use content.size() (actual bytes in memory) rather than file_size (disk size) for
+        // budget accounting — they may differ (e.g., text newline translation, truncation).
+        // Note: empty files (content.size() == 0) are not cached; this is intentional since
+        // they contribute nothing to the old_content diff and would clutter file_contents.
+        if (max_cache_bytes > 0 && cached_bytes < max_cache_bytes) {
+            auto content = read_file_content(path);
+            if (!content.empty()) {
+                if (cached_bytes + content.size() <= max_cache_bytes) {
+                    cached_bytes += content.size();
+                    data.file_contents[path_str] = std::move(content);
+                } else {
+                    TURBOT_LOG_DEBUG("scan_files: skipping content cache for {} "
+                                     "(cache budget {}MB reached)", path_str,
+                                     data.options.max_cache_size_mb);
+                }
+            }
+            // Empty files are intentionally not cached (content is empty; old_content = "")
+        }
+    }
+
+    if (cached_bytes > 0) {
+        TURBOT_LOG_DEBUG("scan_files: cached {:.1f} MB of file content",
+                         static_cast<double>(cached_bytes) / (1024.0 * 1024.0));
     }
 }
 
@@ -393,6 +435,10 @@ PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
         } else if (old_it->second != current_hash) {
             // File modified
             auto content_it = data.file_contents.find(path_str);
+            if (content_it == data.file_contents.end()) {
+                TURBOT_LOG_DEBUG("stop_tracking: old_content unavailable for {} "
+                                 "(file not cached, may exceed size limit)", path_str);
+            }
             result.files.push_back({
                 .path = path,
                 .type = FileChangeType::Modified,
@@ -407,6 +453,10 @@ PatchResult SnapshotManager::stop_tracking(const std::string& snapshot_id) {
     for (const auto& [path_str, hash] : data.file_hashes) {
         if (current_hashes.find(path_str) == current_hashes.end()) {
             auto content_it = data.file_contents.find(path_str);
+            if (content_it == data.file_contents.end()) {
+                TURBOT_LOG_DEBUG("stop_tracking: old_content unavailable for deleted file {} "
+                                 "(file not cached, may exceed size limit)", path_str);
+            }
             result.files.push_back({
                 .path = path_str,
                 .type = FileChangeType::Deleted,

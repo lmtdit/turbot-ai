@@ -10,51 +10,62 @@ using namespace turbot::core;
 using namespace turbot::test;
 
 // ============================================================================
-// ERR-01: API error auto retry
+// ERR-01: API error propagation (no internal retry in SessionLoop)
 // ============================================================================
 
-TEST_CASE_METHOD(E2ETest, "ERR-01: API error auto retry", "[integration][error]") {
-    // Configure error sequence: 2 errors then success
+TEST_CASE_METHOD(E2ETest, "ERR-01: API error propagation (no internal retry)", "[integration][error]") {
+    // Configure: first call returns rate limit error.
+    // SessionLoop has no internal retry; it stops on the first error.
     setup_error_sequence({
-        MockError::RateLimitExceeded,
         MockError::RateLimitExceeded,
         MockError::None
     });
-    
-    // Set final success response
-    setup_simple_qa("Success after retries!");
-    
+
+    // The second response would succeed if retried, but SessionLoop won't retry.
+    setup_simple_qa("Would succeed if retried.");
+
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
     // Run the loop
     auto result = loop->run("Hello");
-    
-    // SessionLoop reports the first error encountered (no internal retry loop)
-    // The error is reported via on_error_ callback; result reflects final state
-    // Note: MockProvider error responses may be processed as empty content (Stop), not Error
-    CHECK((result == session::LoopResult::Stop || result == session::LoopResult::Error));
 
-    // Verify at least one LLM call was made
-    CHECK(provider->call_count() >= 1);
+    // SessionLoop stops on first LLM error (2.7.1 conclusion B: RetryManager not integrated)
+    CHECK(result == session::LoopResult::Error);
+    CHECK(provider->call_count() == 1);   // Exactly 1 call (no retry)
+    CHECK(error_code == "llm_error");      // Error callback fired with correct code
 }
 
 // ============================================================================
-// ERR-02: Network timeout recovery
+// ERR-02: Network timeout error propagation (no internal retry)
 // ============================================================================
 
-TEST_CASE_METHOD(E2ETest, "ERR-02: Network timeout recovery", "[integration][error]") {
-    // Configure timeout error then success
+TEST_CASE_METHOD(E2ETest, "ERR-02: Network timeout error propagation", "[integration][error]") {
+    // Configure timeout error; SessionLoop has no internal retry mechanism.
     setup_error_sequence({
         MockError::TimeoutError,
         MockError::None
     });
-    
-    // Set success response
-    setup_simple_qa("Recovered from timeout!");
-    
+
+    // The second response would succeed if retried, but SessionLoop won't retry.
+    setup_simple_qa("Would recover if retried.");
+
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
     // Run the loop
     auto result = loop->run("Hello");
-    
-    // Verify recovery
-    CHECK(result == session::LoopResult::Stop);
+
+    // SessionLoop stops on first LLM error (no internal retry)
+    CHECK(result == session::LoopResult::Error);
+    CHECK(provider->call_count() == 1);
+    CHECK(error_code == "llm_error");
 }
 
 // ============================================================================
@@ -98,63 +109,87 @@ TEST_CASE_METHOD(E2ETest, "ERR-04: Tool execution error", "[integration][error]"
 }
 
 // ============================================================================
-// ERR-05: Server error recovery
+// ERR-05: Server error propagation (no internal retry)
 // ============================================================================
 
-TEST_CASE_METHOD(E2ETest, "ERR-05: Server error recovery", "[integration][error]") {
-    // Configure server error then success
+TEST_CASE_METHOD(E2ETest, "ERR-05: Server error propagation", "[integration][error]") {
+    // Configure server error; SessionLoop has no internal retry mechanism.
     setup_error_sequence({
         MockError::ServerError,
         MockError::None
     });
-    
-    setup_simple_qa("Recovered from server error!");
-    
+
+    setup_simple_qa("Would recover if retried.");
+
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
     // Run the loop
     auto result = loop->run("Hello");
-    
-    // Verify recovery
-    CHECK(result == session::LoopResult::Stop);
+
+    // SessionLoop stops on first LLM error (no internal retry)
+    CHECK(result == session::LoopResult::Error);
+    CHECK(provider->call_count() == 1);
+    CHECK(error_code == "llm_error");
 }
 
 // ============================================================================
-// ERR-06: Invalid API key error
+// ERR-06: Invalid API key error — not retryable, terminates immediately
 // ============================================================================
 
 TEST_CASE_METHOD(E2ETest, "ERR-06: Invalid API key error", "[integration][error]") {
-    // Configure invalid API key error (should not retry)
+    // InvalidApiKey is a permanent (non-retryable) error; SessionLoop stops immediately.
     setup_error_sequence({
         MockError::InvalidApiKey
     });
-    
+
     setup_simple_qa("Response after API key error.");
-    
+
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
     // Run the loop
     auto result = loop->run("Hello");
-    
-    // Should complete (error was handled)
-    CHECK(provider->call_count() >= 1);
+
+    // Permanent error — must terminate with Error, exactly 1 call (no retry)
+    CHECK(result == session::LoopResult::Error);
+    CHECK(provider->call_count() == 1);
+    CHECK_FALSE(error_code.empty());  // Error callback must fire
 }
 
 // ============================================================================
-// ERR-07: Multiple consecutive errors
+// ERR-07: Multiple consecutive errors — first error terminates immediately
 // ============================================================================
 
-TEST_CASE_METHOD(E2ETest, "ERR-07: Multiple consecutive errors", "[integration][error]") {
-    // Configure multiple different errors
+TEST_CASE_METHOD(E2ETest, "ERR-07: Multiple consecutive errors — first error terminates", "[integration][error]") {
+    // Configure multiple errors; SessionLoop has no internal retry, stops on first error.
     setup_error_sequence({
         MockError::NetworkError,
         MockError::RateLimitExceeded,
         MockError::None
     });
-    
-    setup_simple_qa("Recovered from multiple errors!");
-    
+
+    setup_simple_qa("Would recover if retried.");
+
+    // Capture error callback
+    std::string error_code;
+    loop->set_on_error([&](const std::string& /*msg*/, const std::string& code) {
+        error_code = code;
+    });
+
     // Run the loop
     auto result = loop->run("Hello");
-    
-    // Verify recovery after multiple errors
-    CHECK(result == session::LoopResult::Stop);
+
+    // SessionLoop stops on the first LLM error — subsequent error entries are never reached
+    CHECK(result == session::LoopResult::Error);
+    CHECK(provider->call_count() == 1);   // Only one call attempted
+    CHECK(error_code == "llm_error");
 }
 
 // ============================================================================

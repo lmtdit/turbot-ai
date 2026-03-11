@@ -2,6 +2,7 @@
 
 #include <turbot/utils/export.hpp>
 #include <string>
+#include <variant>
 #include <vector>
 #include <cstdint>
 #include <optional>
@@ -132,7 +133,25 @@ struct AesGcmResult {
  * @brief 计算文件内容的 SHA-256 哈希
  * @param path 文件路径
  * @return 十六进制 SHA-256 哈希字符串，文件不存在或无法读取时返回空字符串
+ * @deprecated Prefer sha256_file_ex() for distinguishable error handling.
  */
 [[nodiscard]] TURBOT_UTILS_API std::string sha256_file(const std::filesystem::path& path);
+
+/// Errors that can occur when hashing a file
+enum class FileHashError {
+    NotFound,  ///< File does not exist or cannot be opened
+    TooLarge,  ///< File exceeds the 100MB size limit
+    IOError    ///< Other IO failure
+};
+
+/// Strong-typed result of sha256_file_ex()
+using FileHashResult = std::variant<std::string, FileHashError>;
+
+/**
+ * @brief Compute the SHA-256 hash of a file with distinguishable error types.
+ * @param path File path
+ * @return FileHashResult — either the hex-encoded hash string or a FileHashError value.
+ */
+[[nodiscard]] TURBOT_UTILS_API FileHashResult sha256_file_ex(const std::filesystem::path& path);
 
 } // namespace turbot::utils::crypto

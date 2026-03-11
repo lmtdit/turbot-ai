@@ -480,4 +480,32 @@ std::string sha256_file(const std::filesystem::path& path) {
     return sha256(*content);
 }
 
+FileHashResult sha256_file_ex(const std::filesystem::path& path) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+
+    // Note: There is a TOCTOU window between exists()/file_size() and read_file().
+    // The 100MB cap inside read_file() provides the final safety net:
+    // if the file grows beyond the limit between our check and the actual read,
+    // read_file() will return nullopt and we map that to IOError (acceptable fallback).
+
+    // Check existence
+    if (!fs::exists(path, ec) || ec) {
+        return FileHashError::NotFound;
+    }
+
+    // Check size limit (same as read_file's 100MB cap)
+    constexpr uintmax_t MAX_SIZE = 100ULL * 1024 * 1024;
+    auto sz = fs::file_size(path, ec);
+    if (!ec && sz > MAX_SIZE) {
+        return FileHashError::TooLarge;
+    }
+
+    auto content = turbot::utils::read_file(path.string());
+    if (!content.has_value()) {
+        return FileHashError::IOError;
+    }
+    return sha256(*content);
+}
+
 } // namespace turbot::utils::crypto

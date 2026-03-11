@@ -582,3 +582,53 @@ TEST_CASE("crypto::sha256_file", "[utils][crypto]") {
         fs::remove(tmp);
     }
 }
+
+// ============================================================================
+// sha256_file_ex: strong-typed error variant
+// ============================================================================
+
+TEST_CASE("crypto::sha256_file_ex: non-existent file returns NotFound", "[utils][crypto]") {
+    namespace fs = std::filesystem;
+    auto non_existent = fs::temp_directory_path() / "turbot_test_nonexistent_xyz_abc.txt";
+    // Ensure it really doesn't exist
+    fs::remove(non_existent);
+
+    auto result = sha256_file_ex(non_existent);
+    REQUIRE(std::holds_alternative<FileHashError>(result));
+    CHECK(std::get<FileHashError>(result) == FileHashError::NotFound);
+}
+
+TEST_CASE("crypto::sha256_file_ex: valid file returns hash string", "[utils][crypto]") {
+    namespace fs = std::filesystem;
+    auto tmp = fs::temp_directory_path() / "turbot_sha256ex_test.txt";
+    {
+        std::ofstream ofs(tmp);
+        ofs << "hello world";
+    }
+
+    auto result = sha256_file_ex(tmp);
+    REQUIRE(std::holds_alternative<std::string>(result));
+    const auto& hash = std::get<std::string>(result);
+    CHECK(hash.size() == 64);         // SHA-256 hex is 64 chars
+    CHECK_FALSE(hash.empty());
+
+    fs::remove(tmp);
+}
+
+TEST_CASE("crypto::sha256_file_ex: result matches sha256_file for same file", "[utils][crypto]") {
+    namespace fs = std::filesystem;
+    auto tmp = fs::temp_directory_path() / "turbot_sha256ex_match.txt";
+    const std::string content = "consistency check content";
+    {
+        std::ofstream ofs(tmp);
+        ofs << content;
+    }
+
+    auto ex_result = sha256_file_ex(tmp);
+    std::string legacy = sha256_file(tmp);
+
+    REQUIRE(std::holds_alternative<std::string>(ex_result));
+    CHECK(std::get<std::string>(ex_result) == legacy);  // Must match legacy interface
+
+    fs::remove(tmp);
+}

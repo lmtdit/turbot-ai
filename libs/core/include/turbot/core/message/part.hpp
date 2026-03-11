@@ -228,6 +228,9 @@ enum class Role {
 [[nodiscard]] TURBOT_CORE_API std::string_view role_to_string(Role role) noexcept;
 
 /// Parse Role from string
-[[nodiscard]] TURBOT_CORE_API Role role_from_string(std::string_view str);
+/// Convert string to Role.
+/// \param strict  If true, throws std::invalid_argument for unknown roles.
+///                If false (default), logs WARN and returns Role::User (backward-compatible).
+[[nodiscard]] TURBOT_CORE_API Role role_from_string(std::string_view str, bool strict = false);
 
 } // namespace turbot::core

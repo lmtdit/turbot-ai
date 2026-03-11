@@ -410,8 +410,13 @@ SQLiteTransaction::~SQLiteTransaction() {
     if (active_.load() && is_db_alive() && db_) {
         try {
             rollback();
+        } catch (const std::exception& e) {
+            // Log rollback failure for diagnostics; force-deactivate to keep state consistent.
+            spdlog::warn("SQLiteTransaction::~SQLiteTransaction: rollback failed: {}", e.what());
+            active_.store(false);
         } catch (...) {
-            // Ignore errors in destructor
+            spdlog::warn("SQLiteTransaction::~SQLiteTransaction: rollback failed with unknown exception");
+            active_.store(false);
         }
     }
 }

@@ -1,6 +1,7 @@
 #include <turbot/core/session/session_loop.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
 #include <turbot/core/llm/llm.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <fmt/format.h>
 #include <atomic>
 #include <filesystem>
@@ -49,6 +50,7 @@ void SessionLoop::set_config(const SessionLoopConfig& config) {
 }
 
 void SessionLoop::set_agent(std::shared_ptr<agent::Agent> agent) {
+    std::lock_guard<std::mutex> lock(agent_mutex_);
     agent_ = std::move(agent);
 }
 
@@ -146,9 +148,16 @@ void SessionLoop::stop() {
 }
 
 LoopResult SessionLoop::process_user_message(const std::string& content) {
+    // Snapshot agent_ under its own lock (lock ordering: agent_mutex_ before messages_mutex_)
+    std::shared_ptr<agent::Agent> local_agent;
+    {
+        std::lock_guard<std::mutex> lock(agent_mutex_);
+        local_agent = agent_;
+    }
+
     // Create a user message
-    core::Message user_msg(session_.id(), core::Role::User, 
-                           agent_ ? agent_->name() : "system", "", "");
+    core::Message user_msg(session_.id(), core::Role::User,
+                           local_agent ? local_agent->name() : "system", "", "");
     
     // Add text part
     user_msg.add_part(core::Part::create_text(content));
@@ -180,7 +189,14 @@ LoopResult SessionLoop::process_llm_response() {
         }
         return LoopResult::Error;
     }
-    
+
+    // Snapshot agent_ under its own lock before acquiring messages_mutex_
+    std::shared_ptr<agent::Agent> local_agent;
+    {
+        std::lock_guard<std::mutex> lock(agent_mutex_);
+        local_agent = agent_;
+    }
+
     // Build messages for LLM
     auto llm_messages = build_llm_messages();
     auto tools = build_tool_definitions();
@@ -225,7 +241,7 @@ LoopResult SessionLoop::process_llm_response() {
     
     // Create assistant message
     core::Message assistant_msg(session_.id(), core::Role::Assistant,
-                                agent_ ? agent_->name() : "assistant", "", "");
+                                local_agent ? local_agent->name() : "assistant", "", "");
     assistant_msg.add_part(core::Part::create_text(stream_result.final_text()));
     
     // Add assistant message to history
@@ -297,7 +313,7 @@ LoopResult SessionLoop::process_llm_response() {
     return LoopResult::Stop;
 }
 
-tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name, 
+tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name,
                                             const std::string& call_id,
                                             const nlohmann::json& input) {
     // Get the tool from registry
@@ -306,18 +322,33 @@ tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name,
         return tool::ToolResult::error("Tool Not Found",
             fmt::format("Tool '{}' is not registered", tool_name));
     }
-    
+
+    // Snapshot agent_ under its own lock
+    std::shared_ptr<agent::Agent> local_agent;
+    {
+        std::lock_guard<std::mutex> lock(agent_mutex_);
+        local_agent = agent_;
+    }
+
     // Build execution context
     tool::ToolContext ctx;
     ctx.session_id = session_.id();
     ctx.message_id = fmt::format("msg_{}", iteration_count_.load(std::memory_order_relaxed));
-    ctx.agent = agent_ ? agent_->name() : "unknown";
+    ctx.agent = local_agent ? local_agent->name() : "unknown";
     ctx.call_id = call_id;
     ctx.abort_flag = abort_flag_;
     ctx.working_directory = session_.info().directory;
-    
-    // Execute the tool
-    return tool->execute(input, ctx);
+
+    // Execute the tool (wrap in try-catch to prevent tool exceptions from crashing the session)
+    try {
+        return tool->execute(input, ctx);
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("Tool '{}' threw exception: {}", tool_name, e.what());
+        return tool::ToolResult::error("ToolException", e.what());
+    } catch (...) {
+        TURBOT_LOG_ERROR("Tool '{}' threw unknown exception", tool_name);
+        return tool::ToolResult::error("ToolException", "Unknown exception in tool execution");
+    }
 }
 
 bool SessionLoop::is_doom_loop(const std::string& tool_name, const nlohmann::json& input) const {
@@ -352,10 +383,17 @@ int SessionLoop::estimate_tokens(const std::string& text) noexcept {
 
 std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() const {
     std::vector<turbot::core::llm::LLMMessage> result;
-    
+
+    // Snapshot agent_ under its own lock (lock ordering: agent_mutex_ before messages_mutex_)
+    std::shared_ptr<agent::Agent> local_agent;
+    {
+        std::lock_guard<std::mutex> lock(agent_mutex_);
+        local_agent = agent_;
+    }
+
     // Add system message if agent has a prompt
-    if (agent_ && agent_->prompt().has_value() && !agent_->prompt()->empty()) {
-        result.push_back(llm::LLMMessage::system(*agent_->prompt()));
+    if (local_agent && local_agent->prompt().has_value() && !local_agent->prompt()->empty()) {
+        result.push_back(llm::LLMMessage::system(*local_agent->prompt()));
     }
     
     // Add conversation messages

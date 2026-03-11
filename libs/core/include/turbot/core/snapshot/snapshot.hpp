@@ -71,6 +71,12 @@ struct TURBOT_CORE_API SnapshotOptions {
     std::vector<std::string> exclude_patterns;  ///< Glob patterns to exclude
     FileFilter file_filter;  ///< Custom file filter
 
+    /// Maximum total size (MB) of file content to cache in memory for diff generation.
+    /// Files that would push the total cached size over this limit are hashed only
+    /// (their old_content will be "" in PatchResult::FileChange).
+    /// Default: 50 MB. Set to 0 to disable content caching entirely (hash-only mode).
+    size_t max_cache_size_mb = 50;
+
     /// Default exclude patterns
     static std::vector<std::string> default_exclude_patterns();
 };
@@ -125,7 +131,7 @@ public:
     void cancel_tracking(const std::string& snapshot_id);
 
     /// Get number of active tracking sessions
-    [[nodiscard]] size_t active_tracking_count() const noexcept {
+    [[nodiscard]] size_t active_tracking_count() const {
         std::lock_guard<std::mutex> lock(mutex_);
         return snapshots_.size();
     }

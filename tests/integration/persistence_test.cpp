@@ -385,8 +385,15 @@ TEST_CASE_METHOD(PersistenceTestFixture, "PERSIST-07b: Concurrent message creati
             for (int i = 0; i < msgs_per_thread; i++) {
                 Message msg(session_result->id(), Role::User, "build", "", "");
                 msg.add_text("Thread " + std::to_string(t) + " msg " + std::to_string(i));
-                thread_dao.create_message(msg.info());
-                success_count.fetch_add(1, std::memory_order_relaxed);
+                // create_message throws on failure; catch to avoid crashing the thread.
+                // Note: REQUIRE() is intentionally NOT used here because Catch2's
+                // global assertion state is not thread-safe; check in the main thread instead.
+                try {
+                    thread_dao.create_message(msg.info());
+                    success_count.fetch_add(1, std::memory_order_relaxed);
+                } catch (const std::exception& /*e*/) {
+                    // write failed; success_count is NOT incremented
+                }
             }
         });
     }

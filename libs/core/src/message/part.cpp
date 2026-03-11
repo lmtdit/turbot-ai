@@ -1,7 +1,9 @@
 #include <turbot/core/message/part.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <turbot/utils/crypto_utils.hpp>
+#include <fmt/format.h>
 #include <chrono>
+#include <stdexcept>
 #include <sstream>
 #include <iomanip>
 #include <unordered_map>
@@ -51,7 +53,11 @@ PartType part_type_from_string(std::string_view str) {
         {"source", PartType::Source}
     };
     auto it = str_to_type.find(str);
-    return it != str_to_type.end() ? it->second : PartType::Text;
+    if (it == str_to_type.end()) {
+        TURBOT_LOG_WARN("part_type_from_string: unknown type '{}', defaulting to Text", str);
+        return PartType::Text;
+    }
+    return it->second;
 }
 
 // ===== Role conversion =====
@@ -67,7 +73,7 @@ std::string_view role_to_string(Role role) noexcept {
     return it != role_to_str.end() ? it->second : "user";
 }
 
-Role role_from_string(std::string_view str) {
+Role role_from_string(std::string_view str, bool strict) {
     static const std::unordered_map<std::string_view, Role> str_to_role = {
         {"user", Role::User},
         {"assistant", Role::Assistant},
@@ -75,7 +81,15 @@ Role role_from_string(std::string_view str) {
         {"tool", Role::Tool}
     };
     auto it = str_to_role.find(str);
-    return it != str_to_role.end() ? it->second : Role::User;
+    if (it == str_to_role.end()) {
+        if (strict) {
+            throw std::invalid_argument(
+                fmt::format("Unknown role string: '{}'. Valid: user, assistant, system, tool", str));
+        }
+        TURBOT_LOG_WARN("role_from_string: unknown role '{}', defaulting to User", str);
+        return Role::User;
+    }
+    return it->second;
 }
 
 // ===== Helper functions =====

@@ -133,7 +133,14 @@ public:
 
 private:
     Session session_;
+
+    // agent_ is protected by agent_mutex_.
+    // Lock ordering rule: agent_mutex_ must NEVER be acquired while
+    // messages_mutex_ is already held. Always acquire agent_mutex_ first,
+    // then release it before acquiring messages_mutex_.
+    mutable std::mutex agent_mutex_;
     std::shared_ptr<agent::Agent> agent_;
+
     provider::Provider* provider_ = nullptr;
     std::string model_id_;
     SessionLoopConfig config_;

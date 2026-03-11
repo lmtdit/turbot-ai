@@ -400,7 +400,7 @@ std::optional<MessageInfo> MessageDao::get_message(const std::string& id) {
     MessageInfo info;
     info.id = result->value("id", std::string{});
     info.session_id = result->value("session_id", std::string{});
-    info.role = role_from_string(result->value("role", std::string{"user"}));
+    info.role = role_from_string(result->value("role", std::string{"user"}), /*strict=*/true);
     info.time_created = result->value("time_created", int64_t{0});
     info.time_updated = result->value("time_updated", int64_t{0});
     info.agent = result->value("agent", std::string{});
@@ -541,7 +541,7 @@ std::vector<MessageInfo> MessageDao::list_messages_by_session(
         MessageInfo info;
         info.id = row.value("id", std::string{});
         info.session_id = row.value("session_id", std::string{});
-        info.role = role_from_string(row.value("role", std::string{"user"}));
+        info.role = role_from_string(row.value("role", std::string{"user"}), /*strict=*/true);
         info.time_created = row.value("time_created", int64_t{0});
         info.time_updated = row.value("time_updated", int64_t{0});
         info.agent = row.value("agent", std::string{});
