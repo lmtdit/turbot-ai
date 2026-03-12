@@ -306,6 +306,14 @@ LoopResult SessionLoop::process_llm_response() {
     params.messages = std::move(llm_messages);
     params.tools = std::move(tools);
     params.is_aborted = [this]() { return abort_flag_->load(std::memory_order_acquire); };
+
+    // Apply agent-level tool_choice if configured (e.g. "auto", "required", "none")
+    if (local_agent) {
+        const auto& agent_opts = local_agent->info().options;
+        if (agent_opts.contains("tool_choice") && agent_opts["tool_choice"].is_string()) {
+            params.tool_choice = agent_opts["tool_choice"].get<std::string>();
+        }
+    }
     
     // Track step info
     StepInfo step_info;

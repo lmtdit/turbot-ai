@@ -441,6 +441,12 @@ provider::ChatOptions LLM::to_chat_options(const StreamParams& params) {
         options.tools.push_back(to_provider_tool(tool));
     }
 
+    // Transparently forward tool_choice to the provider via extra so that all
+    // OpenAI-compatible backends (including LiteLLM, Bailian, etc.) receive it.
+    if (params.tool_choice.has_value()) {
+        options.extra["tool_choice"] = *params.tool_choice;
+    }
+
     return options;
 }
 
