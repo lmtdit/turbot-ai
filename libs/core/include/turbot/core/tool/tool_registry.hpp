@@ -59,6 +59,11 @@ public:
     /// Register all built-in tools
     void register_builtin_tools();
 
+    /// Enable or disable the interactive question tool.
+    /// Must be called before register_builtin_tools() to take effect.
+    /// Default: disabled (question tool requires interactive UI support).
+    void enable_question_tool(bool enable = true);
+
 private:
     ToolRegistry() = default;
     ~ToolRegistry() = default;
@@ -68,6 +73,7 @@ private:
 
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, ToolPtr> tools_;
+    bool question_tool_enabled_ = false;  ///< Opt-in flag for QuestionTool
 };
 
 } // namespace turbot::core::tool

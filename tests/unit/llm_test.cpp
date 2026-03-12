@@ -573,3 +573,67 @@ TEST_CASE("LLM full conversation flow", "[llm][integration]") {
     REQUIRE(result.finish_reason() == FinishReason::Stop);
     REQUIRE(result.usage().total() == 150);  // input=100, output=50
 }
+
+// ============================================================================
+// 2.8.7 – toolChoice transparent forwarding
+// ============================================================================
+
+TEST_CASE("LLM::to_chat_options forwards tool_choice via extra", "[llm][toolchoice]") {
+    SECTION("tool_choice=required is written into options.extra") {
+        StreamParams params;
+        params.session_id = "tc-test";
+        params.temperature = 1.0;
+        params.tool_choice = "required";
+
+        auto opts = LLM::to_chat_options(params);
+
+        REQUIRE(opts.extra.contains("tool_choice"));
+        REQUIRE(opts.extra["tool_choice"] == "required");
+    }
+
+    SECTION("tool_choice=none is written into options.extra") {
+        StreamParams params;
+        params.tool_choice = "none";
+
+        auto opts = LLM::to_chat_options(params);
+
+        REQUIRE(opts.extra.contains("tool_choice"));
+        REQUIRE(opts.extra["tool_choice"] == "none");
+    }
+
+    SECTION("tool_choice=auto is written into options.extra") {
+        StreamParams params;
+        params.tool_choice = "auto";
+
+        auto opts = LLM::to_chat_options(params);
+
+        REQUIRE(opts.extra.contains("tool_choice"));
+        REQUIRE(opts.extra["tool_choice"] == "auto");
+    }
+
+    SECTION("no tool_choice — extra does NOT contain tool_choice key") {
+        StreamParams params;
+        // params.tool_choice is std::nullopt by default
+
+        auto opts = LLM::to_chat_options(params);
+
+        REQUIRE_FALSE(opts.extra.contains("tool_choice"));
+    }
+
+    SECTION("tool_choice forwarded alongside other tools in params") {
+        StreamParams params;
+        params.tool_choice = "required";
+
+        LLMToolDefinition td;
+        td.name = "bash";
+        td.description = "Run bash commands";
+        td.parameters = {{"type", "object"}, {"properties", nlohmann::json::object()}};
+        params.tools.push_back(td);
+
+        auto opts = LLM::to_chat_options(params);
+
+        REQUIRE(opts.tools.size() == 1);
+        REQUIRE(opts.extra.contains("tool_choice"));
+        REQUIRE(opts.extra["tool_choice"] == "required");
+    }
+}

@@ -6,12 +6,114 @@
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/core/provider/provider.hpp>
+#include <nlohmann/json.hpp>
+#include <atomic>
 #include <memory>
+#include <string>
+#include <vector>
 
 using namespace turbot::core::session;
 using namespace turbot::core::agent;
 using namespace turbot::core;
 using namespace turbot::core::tool;
+
+// ============================================================================
+// Minimal MockProvider for 2.8.7 tests
+// ============================================================================
+
+/// A minimal Provider mock that can be configured to emit one tool-call event
+/// followed by a finish event on the first invocation, then pure text on the
+/// second invocation (so the loop terminates cleanly).
+class ToolCallMockProvider : public provider::Provider {
+public:
+    std::string id() const override { return provider_id_; }
+    std::string name() const override { return "ToolCallMock"; }
+    bool is_ready() const override { return true; }
+
+    std::vector<provider::ModelInfo> list_models() const override {
+        return {{"mock-model", id(), "Mock", ""}};
+    }
+    std::optional<provider::ModelInfo> get_model(const std::string& mid) const override {
+        if (mid == "mock-model") return {{"mock-model", id(), "Mock", ""}};
+        return std::nullopt;
+    }
+    bool supports_model(const std::string& mid) const override { return mid == "mock-model"; }
+
+    provider::ChatResponse chat(
+        const std::vector<provider::ChatMessage>&,
+        const std::string&,
+        const provider::ChatOptions&
+    ) override { return {}; }
+
+    provider::ChatResponse chat_stream(
+        const std::vector<provider::ChatMessage>& messages,
+        const std::string&,
+        const provider::ChatOptions& options,
+        provider::StreamCallback callback
+    ) override {
+        provider::ChatResponse resp;
+        resp.finish_reason = "stop";
+
+        last_received_options_ = options;
+
+        // First invocation: emit a tool call; subsequent: emit plain text stop
+        if (call_count_++ == 0 && !tool_calls_.empty()) {
+            for (const auto& tc : tool_calls_) {
+                provider::ChatStreamEvent ev;
+                ev.type = provider::StreamEventType::ToolCall;
+                ev.tool_call = tc;
+                callback(ev);
+            }
+        }
+
+        provider::ChatStreamEvent finish;
+        finish.type = provider::StreamEventType::Finish;
+        finish.finish_reason = "stop";
+        callback(finish);
+        return resp;
+    }
+
+    int64_t count_tokens(const std::vector<provider::ChatMessage>&, const std::string&) const override {
+        return 0;
+    }
+    bool validate() override { return true; }
+
+    void set_tool_calls(const std::vector<provider::ToolCall>& tcs) { tool_calls_ = tcs; }
+    void set_provider_id(const std::string& pid) { provider_id_ = pid; }
+    const provider::ChatOptions& last_options() const { return last_received_options_; }
+
+private:
+    std::string provider_id_ = "mock";
+    std::vector<provider::ToolCall> tool_calls_;
+    provider::ChatOptions last_received_options_;
+    int call_count_ = 0;
+};
+
+// Minimal Tool mock for repairToolCall tests.
+// Named RepairEchoTool (not EchoTool) to avoid ODR conflict with the EchoTool
+// defined in tool_test.cpp, which is compiled into the same test binary.
+class RepairEchoTool : public Tool {
+public:
+    explicit RepairEchoTool(const std::string& tool_name) : tool_name_(tool_name) {}
+    std::string name() const override { return tool_name_; }
+    std::string description() const override { return "Echo tool for repairToolCall tests"; }
+    nlohmann::json input_schema() const override {
+        return {{"type", "object"}, {"properties", nlohmann::json::object()}};
+    }
+    ToolResult execute(const nlohmann::json&, ToolContext&) override {
+        return ToolResult::success("repair_echo", "ok");
+    }
+private:
+    std::string tool_name_;
+};
+
+/// RAII guard that clears the global ToolRegistry on construction and
+/// destruction, ensuring test isolation even when an assertion fires early.
+struct ToolRegistryGuard {
+    ToolRegistryGuard()  { ToolRegistry::instance().clear(); }
+    ~ToolRegistryGuard() { ToolRegistry::instance().clear(); }
+};
 
 // ============================================================================
 // LoopResult
@@ -680,4 +782,143 @@ TEST_CASE("TokenUsage operator+= multi-step accumulation", "[core][session][toke
     REQUIRE(total.output == 250);
     REQUIRE(total.cache.read == 100);
     REQUIRE(total.total() == 850);
+}
+
+// ============================================================================
+// 2.8.7 – repairToolCall (tool name case correction + invalid fallback)
+// ============================================================================
+
+TEST_CASE("repairToolCall: uppercase tool name is lowercased and executed",
+          "[core][session][repair_tool_call]") {
+    ToolRegistryGuard registry_guard;  // clears registry on entry and exit
+
+    // Create session first
+    CreateParams cp;
+    cp.project_id = "repair-test"; cp.slug = "rt"; cp.directory = "/tmp"; cp.title = "Repair";
+    auto session = Session::create(cp);
+    REQUIRE(session.has_value());
+
+    // Register "echo_tool" (lowercase)
+    ToolRegistry::instance().register_tool(std::make_unique<RepairEchoTool>("echo_tool"));
+
+    // Verify the tool is actually registered
+    REQUIRE(ToolRegistry::instance().get("echo_tool") != nullptr);
+    REQUIRE(ToolRegistry::instance().get("ECHO_TOOL") == nullptr);  // exact match fails
+
+    // Provider returns a tool call with uppercase name "ECHO_TOOL"
+    ToolCallMockProvider provider;
+    provider::ToolCall tc;
+    tc.id   = "call-repair-1";
+    tc.name = "ECHO_TOOL";        // LLM hallucinated uppercase
+    tc.arguments = nlohmann::json::object();
+    provider.set_tool_calls({tc});
+
+    SessionLoop loop(std::move(*session));
+    loop.set_provider(&provider);
+    loop.set_model("mock-model");
+
+    bool tool_result_received = false;
+    bool tool_errored = false;
+    std::string tool_result_output;
+    loop.set_on_tool_result([&](const std::string& name, const std::string&, const ToolResult& result) {
+        tool_result_received = true;
+        // The result should NOT be an error — the lowercase lookup succeeded
+        tool_errored = result.is_error;
+        tool_result_output = result.output;
+        (void)name;
+    });
+
+    auto result = loop.run("test repair");
+    // Loop should complete normally (not error)
+    REQUIRE(result != LoopResult::Error);
+    // Tool result callback must have fired
+    REQUIRE(tool_result_received);
+    // The repaired lookup should have succeeded (no error)
+    REQUIRE_FALSE(tool_errored);
+}
+
+TEST_CASE("repairToolCall: completely unknown tool returns structured error",
+          "[core][session][repair_tool_call]") {
+    ToolRegistryGuard registry_guard;  // clears registry on entry and exit (no tools)
+
+    // Provider returns a tool call with a name that does not exist at all
+    ToolCallMockProvider provider;
+    provider::ToolCall tc;
+    tc.id   = "call-unknown-1";
+    tc.name = "nonexistent_tool_xyz";
+    tc.arguments = nlohmann::json::object();
+    provider.set_tool_calls({tc});
+
+    CreateParams cp;
+    cp.project_id = "repair-test2"; cp.slug = "rt2"; cp.directory = "/tmp"; cp.title = "Repair2";
+    auto session = Session::create(cp);
+    REQUIRE(session.has_value());
+
+    SessionLoop loop(std::move(*session));
+    loop.set_provider(&provider);
+    loop.set_model("mock-model");
+
+    bool result_received = false;
+    std::string result_output;
+    loop.set_on_tool_result([&](const std::string&, const std::string&, const ToolResult& r) {
+        result_received = true;
+        result_output = r.output;
+    });
+
+    loop.run("test unknown tool");
+    REQUIRE(result_received);
+
+    // The structured error payload must contain the tool name and an error field
+    auto payload = nlohmann::json::parse(result_output);
+    REQUIRE(payload.contains("tool"));
+    REQUIRE(payload["tool"] == "nonexistent_tool_xyz");
+    REQUIRE(payload.contains("error"));
+}
+
+// ============================================================================
+// 2.8.7 – LiteLLM noop tool injection
+// ============================================================================
+
+TEST_CASE("LiteLLM noop injected when history has tool role messages and tools list is empty",
+          "[core][session][litellm_noop]") {
+    // This test verifies the noop-injection path by checking that the loop
+    // completes without error when provider id contains "litellm" and the
+    // message history already contains tool-role messages but no active tools.
+    //
+    // Strategy: run two sessions — the second one has no registered tools,
+    // uses a LiteLLM-id provider, and has pre-populated tool role messages.
+
+    ToolRegistryGuard registry_guard;  // clears registry on entry and exit
+    ToolRegistry::instance().register_tool(std::make_unique<RepairEchoTool>("echo_tool"));
+
+    ToolCallMockProvider provider;
+    provider.set_provider_id("litellm-proxy");
+
+    // First call: emit a tool-call so history gets a Tool role message
+    provider::ToolCall tc;
+    tc.id = "call-noop-1"; tc.name = "echo_tool"; tc.arguments = nlohmann::json::object();
+    provider.set_tool_calls({tc});
+
+    CreateParams cp;
+    cp.project_id = "litellm-noop"; cp.slug = "lln"; cp.directory = "/tmp"; cp.title = "Noop";
+    auto session = Session::create(cp);
+    REQUIRE(session.has_value());
+
+    SessionLoop loop(std::move(*session));
+    loop.set_provider(&provider);
+    loop.set_model("mock-model");
+
+    // First run: populates history with a Tool role message via echo_tool
+    auto r1 = loop.run("first turn");
+    // Should not error — echo_tool exists
+    REQUIRE(r1 != LoopResult::Error);
+
+    // Now clear the registry so next LLM step has no active tools
+    ToolRegistry::instance().clear();
+
+    // Second run: no tools registered, LiteLLM provider, history has Tool msg
+    // The noop injection path should keep the loop from crashing and allow
+    // the second LLM call to complete (provider ignores the noop tool).
+    auto r2 = loop.run("second turn — no tools");
+    REQUIRE(r2 != LoopResult::Error);
 }

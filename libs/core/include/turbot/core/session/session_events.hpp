@@ -5,6 +5,7 @@
 #include <turbot/core/message/message.hpp>
 #include <turbot/core/message/token_usage.hpp>
 #include <turbot/core/tool/tool.hpp>
+#include <turbot/core/tool/builtin/question_tool.hpp>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -137,6 +138,43 @@ struct TURBOT_CORE_API SessionCompactionEvent {
     int  pruned_parts   = 0;    ///< Number of tool-result parts that were pruned
     int64_t freed_tokens = 0;   ///< Estimated token count freed by pruning
     bool did_prune      = false;///< false = not enough tokens to warrant pruning
+};
+
+// ============================================================================
+// Question events — published by QuestionTool ask/reply/reject
+// ============================================================================
+
+/**
+ * @brief Broadcast when the LLM agent asks the user one or more questions.
+ *
+ * UI clients subscribe to this event to display the question UI.
+ * After displaying, they call Question::reply() or Question::reject().
+ */
+struct TURBOT_CORE_API QuestionAskedEvent {
+    static constexpr const char* kEventName = "question.asked";
+
+    turbot::core::tool::builtin::QuestionRequest request;
+};
+
+/**
+ * @brief Broadcast when the user provides answers to a pending question.
+ */
+struct TURBOT_CORE_API QuestionRepliedEvent {
+    static constexpr const char* kEventName = "question.replied";
+
+    std::string session_id;
+    std::string request_id;
+    std::vector<std::vector<std::string>> answers; ///< answers[i] = selected labels for question[i]
+};
+
+/**
+ * @brief Broadcast when the user dismisses (rejects) a pending question.
+ */
+struct TURBOT_CORE_API QuestionRejectedEvent {
+    static constexpr const char* kEventName = "question.rejected";
+
+    std::string session_id;
+    std::string request_id;
 };
 
 } // namespace turbot::core::session

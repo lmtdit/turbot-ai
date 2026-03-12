@@ -69,6 +69,8 @@ set(UNIT_TEST_SOURCES
     unit/skill_tool_test.cpp
     # v2.5 Snapshot module
     unit/snapshot_test.cpp
+    # v2.8 Question Tool
+    unit/question_tool_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})

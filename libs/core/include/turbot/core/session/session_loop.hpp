@@ -154,6 +154,10 @@ private:
 
     mutable std::shared_ptr<std::atomic<bool>> abort_flag_;
 
+    /// Set to true when the user rejects a question (Question::RejectedError).
+    /// Causes run() to return LoopResult::Stop at the start of the next step.
+    bool blocked_ = false;
+
     // Token and cost tracking
     TokenUsage total_usage_;
     double total_cost_ = 0.0;

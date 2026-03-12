@@ -4,6 +4,7 @@
 #include <turbot/core/tool/builtin/glob_tool.hpp>
 #include <turbot/core/tool/builtin/grep_tool.hpp>
 #include <turbot/core/tool/builtin/list_tool.hpp>
+#include <turbot/core/tool/builtin/question_tool.hpp>
 #include <turbot/core/tool/builtin/read_file_tool.hpp>
 #include <turbot/core/tool/builtin/write_file_tool.hpp>
 #include <turbot/core/tool/builtin/task_tool.hpp>
@@ -118,6 +119,17 @@ void ToolRegistry::register_builtin_tools() {
     
     // Task management
     register_tool(std::make_unique<TaskTool>());
+
+    // Interactive question tool — only registered when explicitly enabled
+    // (e.g. for CLI/app/desktop clients that support interactive UI).
+    // Call ToolRegistry::enable_question_tool() before register_builtin_tools().
+    if (question_tool_enabled_) {
+        register_tool(std::make_unique<builtin::QuestionTool>());
+    }
+}
+
+void ToolRegistry::enable_question_tool(bool enable) {
+    question_tool_enabled_ = enable;
 }
 
 } // namespace turbot::core::tool

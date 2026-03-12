@@ -4,8 +4,10 @@
 #include <turbot/core/session/retry_manager.hpp>
 #include <turbot/core/event/event_bus.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/core/tool/builtin/question_tool.hpp>
 #include <turbot/core/llm/llm.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/utils/string_utils.hpp>
 #include <fmt/format.h>
 #include <algorithm>
 #include <atomic>
@@ -131,6 +133,7 @@ LoopResult SessionLoop::run(const std::string& user_message) {
     last_tool_call_.clear();
     last_tool_input_ = {};
     same_tool_count_ = 0;
+    blocked_ = false;  // Reset blocked flag from any previous question rejection
 
     // Invalidate tool definition cache so it is rebuilt once for this run().
     // (Tools are registered at startup; the cache remains valid across steps.)
@@ -149,6 +152,12 @@ LoopResult SessionLoop::run(const std::string& user_message) {
         
         // Check for abort
         if (abort_flag_->load(std::memory_order_acquire)) {
+            break;
+        }
+
+        // Check for blocked state (user rejected a question)
+        if (blocked_) {
+            result = LoopResult::Stop;
             break;
         }
         
@@ -307,8 +316,10 @@ LoopResult SessionLoop::process_llm_response() {
     // tool defined, LiteLLM proxies reject the request when prior tool calls
     // are present in the conversation context.
     if (tools.empty() && provider_) {
-        const std::string pid = provider_->id();
-        const bool is_litellm = pid.find("litellm") != std::string::npos;
+        // Case-insensitive match so that "LiteLLM-Proxy" or "LITELLM" variants
+        // are also covered. Uses turbot::utils::to_lower for consistency.
+        const bool is_litellm =
+            turbot::utils::to_lower(provider_->id()).find("litellm") != std::string::npos;
         if (is_litellm) {
             bool history_has_tool_calls = false;
             {
@@ -558,10 +569,9 @@ tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name,
     auto tool = tool::ToolRegistry::instance().get(tool_name);
 
     if (!tool) {
-        // Try case-insensitive lowercase match
-        std::string lower_name = tool_name;
-        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        // Try case-insensitive ASCII-lowercase match (repairToolCall fallback).
+        // Uses turbot::utils::to_lower for consistency with the rest of the codebase.
+        const std::string lower_name = turbot::utils::to_lower(tool_name);
 
         if (lower_name != tool_name) {
             tool = tool::ToolRegistry::instance().get(lower_name);
@@ -599,6 +609,12 @@ tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name,
     // Execute the tool (wrap in try-catch to prevent tool exceptions from crashing the session)
     try {
         return tool->execute(input, ctx);
+    } catch (const tool::builtin::Question::RejectedError& e) {
+        // User dismissed the question — set blocked_ so the main loop stops
+        // after this tool result is appended to the conversation.
+        TURBOT_LOG_INFO("QuestionTool: user rejected question in session {}", session_.id());
+        blocked_ = true;
+        return tool::ToolResult::error("QuestionRejected", e.what());
     } catch (const std::exception& e) {
         TURBOT_LOG_ERROR("Tool '{}' threw exception: {}", tool_name, e.what());
         return tool::ToolResult::error("ToolException", e.what());
