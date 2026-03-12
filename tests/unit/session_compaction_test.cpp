@@ -274,3 +274,212 @@ TEST_CASE("SessionCompaction custom summary generator", "[core][session][compact
     std::string summary = compactor.generate_summary(messages);
     REQUIRE(summary == "Custom summary: 5 messages");
 }
+
+// =============================================================================
+// SessionCompaction::prune tests
+// =============================================================================
+
+/// Helper: add a tool-result part to an existing Message (assistant role).
+static void add_tool_result(Message& msg,
+                             const std::string& tool_name,
+                             const std::string& result_text) {
+    nlohmann::json result = {{"output", result_text}};
+    msg.add_tool("tool-" + tool_name, tool_name, {{"path", "/test"}}, result);
+}
+
+/// Helper: create an assistant message that contains a single tool call + result.
+static Message create_tool_message(const std::string& tool_name,
+                                   const std::string& result_text,
+                                   bool with_result = true) {
+    Message msg("test-session", Role::Assistant, "agent", "model", "provider");
+    if (with_result) {
+        add_tool_result(msg, tool_name, result_text);
+    } else {
+        msg.add_tool("tool-" + tool_name, tool_name, {{"path", "/test"}});
+    }
+    return msg;
+}
+
+TEST_CASE("Part::is_tool_compacted / set_tool_compacted_at / get_tool_compacted_at",
+          "[core][message][part][prune]") {
+    SECTION("fresh tool part is not compacted") {
+        nlohmann::json result = {{"output", "hello"}};
+        Part p = Part::create_tool("id1", "read_file", {{"path", "/f"}}, result);
+        REQUIRE_FALSE(p.is_tool_compacted());
+        REQUIRE_FALSE(p.get_tool_compacted_at().has_value());
+    }
+
+    SECTION("set_tool_compacted_at marks the part and clears result") {
+        nlohmann::json result = {{"output", "big result content"}};
+        Part p = Part::create_tool("id1", "read_file", {{"path", "/f"}}, result);
+
+        REQUIRE_FALSE(p.is_tool_compacted());
+        p.set_tool_compacted_at(1234567890LL);
+
+        REQUIRE(p.is_tool_compacted());
+        REQUIRE(p.get_tool_compacted_at().has_value());
+        REQUIRE(*p.get_tool_compacted_at() == 1234567890LL);
+
+        // result payload should have been cleared
+        const auto tool_data = p.get_tool();
+        REQUIRE_FALSE(tool_data.contains("result"));
+
+        // metadata fields should still exist
+        REQUIRE(tool_data.contains("tool_name"));
+        REQUIRE(tool_data.contains("tool_id"));
+    }
+
+    SECTION("set_tool_compacted_at is no-op on non-tool part") {
+        Part p = Part::create_text("hello");
+        p.set_tool_compacted_at(999LL);
+        REQUIRE_FALSE(p.is_tool_compacted());
+    }
+}
+
+TEST_CASE("SessionCompaction::prune — no-op when not enough tokens to prune",
+          "[core][session][compaction][prune]") {
+    // Create a small history that barely exceeds protect_tokens.
+    // protect_tokens=40K but result payloads are tiny → freed_tokens < minimum_prune.
+    std::vector<Message> messages;
+    for (int i = 0; i < 10; ++i) {
+        messages.push_back(create_tool_message("read_file", "small result " + std::to_string(i)));
+    }
+
+    PruneConfig cfg;
+    cfg.protect_tokens = 40'000;
+    cfg.minimum_prune  = 20'000;  // far more than tiny payloads can supply
+
+    auto result = SessionCompaction::prune(messages, cfg);
+
+    REQUIRE_FALSE(result.did_prune);
+    REQUIRE(result.pruned_parts == 0);
+    REQUIRE(result.freed_tokens == 0);
+
+    // No part should have been compacted.
+    for (const auto& msg : messages) {
+        for (const auto& part : msg.parts()) {
+            if (part.is_tool()) {
+                REQUIRE_FALSE(part.is_tool_compacted());
+            }
+        }
+    }
+}
+
+TEST_CASE("SessionCompaction::prune — prunes old tool results when tokens exceed protect window",
+          "[core][session][compaction][prune]") {
+    // Build ~100K-token history: 200 tool-result messages, each result ~500 tokens
+    // (≈2000 chars × 1/4 chars-per-token).
+    const std::string big_result(2000, 'x');  // ~500 tokens per result
+
+    std::vector<Message> messages;
+    // 200 old tool-result messages (oldest first)
+    for (int i = 0; i < 200; ++i) {
+        messages.push_back(create_tool_message("read_file", big_result));
+    }
+    // Append a few recent messages to act as the protected window
+    for (int i = 0; i < 10; ++i) {
+        messages.push_back(create_test_message(Role::User, "Recent user message " + std::to_string(i)));
+    }
+
+    PruneConfig cfg;
+    cfg.protect_tokens = 40'000;   // ~80 recent tool results
+    cfg.minimum_prune  = 20'000;   // need ≥20K freed
+
+    auto result = SessionCompaction::prune(messages, cfg);
+
+    REQUIRE(result.did_prune);
+    REQUIRE(result.pruned_parts > 0);
+    REQUIRE(result.freed_tokens >= cfg.minimum_prune);
+
+    // Count compacted vs uncompacted tool parts
+    int compacted = 0;
+    int uncompacted = 0;
+    for (const auto& msg : messages) {
+        for (const auto& part : msg.parts()) {
+            if (!part.is_tool()) continue;
+            if (part.is_tool_compacted()) {
+                compacted++;
+                // Compacted parts must not carry the result payload.
+                REQUIRE_FALSE(part.get_tool().contains("result"));
+            } else {
+                uncompacted++;
+            }
+        }
+    }
+
+    REQUIRE(compacted > 0);
+    REQUIRE(uncompacted > 0);  // protected window remains intact
+
+    // Compacted parts must be older than uncompacted ones
+    // (i.e., all compacted come from the first N messages).
+    // Find last compacted message index and first uncompacted message index.
+    int last_compacted_msg  = -1;
+    int first_uncompacted_msg = INT_MAX;
+    for (int mi = 0; mi < static_cast<int>(messages.size()); ++mi) {
+        for (const auto& part : messages[static_cast<size_t>(mi)].parts()) {
+            if (!part.is_tool()) continue;
+            if (part.is_tool_compacted())    last_compacted_msg  = std::max(last_compacted_msg, mi);
+            else                             first_uncompacted_msg = std::min(first_uncompacted_msg, mi);
+        }
+    }
+    // The protected (uncompacted) window must start at or after all compacted messages.
+    if (first_uncompacted_msg != INT_MAX && last_compacted_msg != -1) {
+        REQUIRE(last_compacted_msg < first_uncompacted_msg);
+    }
+}
+
+TEST_CASE("SessionCompaction::prune — exempt tools are never pruned",
+          "[core][session][compaction][prune]") {
+    const std::string big_result(2000, 'x');
+
+    std::vector<Message> messages;
+    // Mix of 'skill' (exempt) and 'read_file' (non-exempt) calls
+    for (int i = 0; i < 100; ++i) {
+        messages.push_back(create_tool_message(i % 2 == 0 ? "skill" : "read_file", big_result));
+    }
+
+    PruneConfig cfg;
+    cfg.protect_tokens = 1'000;  // very small window → prune aggressively
+    cfg.minimum_prune  = 1;      // accept any savings
+    cfg.exempt_tools   = {"skill"};
+
+    auto result = SessionCompaction::prune(messages, cfg);
+
+    REQUIRE(result.did_prune);
+
+    for (const auto& msg : messages) {
+        for (const auto& part : msg.parts()) {
+            if (!part.is_tool()) continue;
+            const auto tool_name = part.get_tool().value("tool_name", "");
+            if (tool_name == "skill") {
+                // Exempt tools must never be compacted.
+                REQUIRE_FALSE(part.is_tool_compacted());
+            }
+        }
+    }
+}
+
+TEST_CASE("SessionCompaction::prune — already compacted parts are skipped",
+          "[core][session][compaction][prune]") {
+    const std::string big_result(2000, 'x');
+
+    std::vector<Message> messages;
+    for (int i = 0; i < 50; ++i) {
+        messages.push_back(create_tool_message("read_file", big_result));
+    }
+
+    PruneConfig cfg;
+    cfg.protect_tokens = 1'000;
+    cfg.minimum_prune  = 1;
+
+    // First prune
+    auto r1 = SessionCompaction::prune(messages, cfg);
+    REQUIRE(r1.did_prune);
+    int first_pruned = r1.pruned_parts;
+    REQUIRE(first_pruned > 0);
+
+    // Second prune — nothing new to prune (all candidates already compacted)
+    auto r2 = SessionCompaction::prune(messages, cfg);
+    // Either did_prune=false (no new parts) or pruned_parts=0
+    REQUIRE(r2.pruned_parts == 0);
+}

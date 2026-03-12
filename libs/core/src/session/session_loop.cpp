@@ -1,5 +1,6 @@
 #include <turbot/core/session/session_loop.hpp>
 #include <turbot/core/session/session_events.hpp>
+#include <turbot/core/session/session_compaction.hpp>
 #include <turbot/core/session/retry_manager.hpp>
 #include <turbot/core/event/event_bus.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
@@ -156,6 +157,56 @@ LoopResult SessionLoop::run(const std::string& user_message) {
         
         // Check for compaction
         if (result == LoopResult::Compact && config_.auto_compact) {
+            // Step 1: prune old tool outputs before full compaction.
+            // This follows opencode's strategy: reduce context cheaply first,
+            // then fall back to full summarization compaction if still needed.
+            //
+            // IMPORTANT lock ordering: prune() modifies messages_ under
+            // messages_mutex_, but EventBus::publish() MUST be called after
+            // the lock is released.  Calling publish() while holding
+            // messages_mutex_ would allow a subscriber (e.g. one that calls
+            // SessionLoop::messages()) to attempt a recursive lock on
+            // messages_mutex_, causing a guaranteed deadlock on the same thread
+            // since std::mutex is not recursive.
+            PruneResult prune_result;
+            {
+                std::lock_guard<std::mutex> lock(messages_mutex_);
+                prune_result = SessionCompaction::prune(messages_);
+            } // messages_mutex_ released here
+
+            // Publish compaction event (no lock held — safe for re-entrant subscribers).
+            {
+                SessionCompactionEvent ce;
+                ce.session_id   = session_.id();
+                ce.pruned_parts = prune_result.pruned_parts;
+                ce.freed_tokens = prune_result.freed_tokens;
+                ce.did_prune    = prune_result.did_prune;
+                turbot::core::EventBus::instance().publish(SessionCompactionEvent::kEventName, std::move(ce));
+            }
+
+            // If pruning freed enough tokens we might not need full compaction.
+            if (prune_result.did_prune) {
+                // Clamp to [0, INT_MAX] before subtracting to guard against
+                // token-estimation drift turning token_count_ negative.
+                const int freed = static_cast<int>(std::clamp<int64_t>(
+                    prune_result.freed_tokens, 0,
+                    static_cast<int64_t>(std::numeric_limits<int>::max())));
+                // Atomic subtract with a non-negative floor.
+                int expected = token_count_.load(std::memory_order_relaxed);
+                int desired;
+                do {
+                    desired = std::max(0, expected - freed);
+                } while (!token_count_.compare_exchange_weak(
+                    expected, desired, std::memory_order_relaxed));
+
+                // Re-check whether we still need full compaction after pruning.
+                if (!needs_compaction()) {
+                    result = LoopResult::Continue;
+                    continue;
+                }
+            }
+
+            // Step 2: full compaction (summarize old messages).
             session_.compact();
             token_count_.store(0, std::memory_order_relaxed);
             result = LoopResult::Continue;

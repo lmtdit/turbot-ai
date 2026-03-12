@@ -10,6 +10,25 @@
 
 namespace turbot::core::session {
 
+/// 剪枝配置 — 对齐 opencode SessionCompaction.prune() 策略
+struct TURBOT_CORE_API PruneConfig {
+    /// Token 数量，低于此值的近期工具结果受到保护，不会被剪枝
+    int64_t protect_tokens = 40'000;
+
+    /// 最小剪枝收益（token 数），低于此值时不执行剪枝（避免无效压缩）
+    int64_t minimum_prune = 20'000;
+
+    /// 始终豁免剪枝的工具名称列表（e.g. "skill"）
+    std::vector<std::string> exempt_tools = {"skill"};
+};
+
+/// 剪枝结果
+struct TURBOT_CORE_API PruneResult {
+    int pruned_parts = 0;       ///< 已剪枝的 Part 数量
+    int64_t freed_tokens = 0;   ///< 释放的 token 估算数
+    bool did_prune = false;     ///< 是否实际执行了剪枝（false = minimum_prune 不足）
+};
+
 /// 压缩配置
 struct TURBOT_CORE_API CompactionConfig {
     double overflow_threshold = 0.9;    ///< 溢出阈值（上下文使用率）
@@ -48,6 +67,21 @@ struct TURBOT_CORE_API MessageImportance {
 /// 会话压缩器
 class TURBOT_CORE_API SessionCompaction {
 public:
+    /// 剪枝旧工具输出以减少 token 消耗（对齐 opencode SessionCompaction.prune()）
+    ///
+    /// 策略：
+    ///  - 从最新工具结果向前扫描，累积 token；
+    ///  - 一旦累积超过 protect_tokens，其余旧工具结果标记为 compacted；
+    ///  - PruneConfig.exempt_tools 中列出的工具名始终豁免；
+    ///  - 若本次可释放 token < minimum_prune，则跳过（did_prune=false）。
+    ///
+    /// @param messages   当前会话消息列表（将被原地修改）
+    /// @param config     剪枝配置
+    /// @return           剪枝结果（包含剪枝数量和释放 token 数）
+    [[nodiscard]] static PruneResult prune(
+        std::vector<Message>& messages,
+        const PruneConfig& config = {}
+    );
     /// 检查是否需要压缩
     /// @param current_tokens 当前 token 数
     /// @param max_tokens 最大 token 数

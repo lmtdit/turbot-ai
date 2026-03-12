@@ -79,6 +79,10 @@ public:
     [[nodiscard]] const TokenUsage& tokens() const noexcept { return info_.tokens; }
     [[nodiscard]] double cost() const noexcept { return info_.cost; }
 
+    /// Non-const access to a specific part (for in-place mutation, e.g. prune compaction).
+    /// @throws std::out_of_range if idx >= parts_.size()
+    [[nodiscard]] Part& mutable_part(size_t idx) { return parts_.at(idx); }
+
     // ===== Part management =====
 
     /// Add a part to this message

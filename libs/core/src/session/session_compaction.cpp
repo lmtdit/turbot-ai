@@ -1,10 +1,108 @@
 #include <turbot/core/session/session_compaction.hpp>
 #include <algorithm>
+#include <chrono>
 #include <sstream>
 #include <set>
 #include <ctime>
 
 namespace turbot::core::session {
+
+// ============================================================================
+// Helper — current time in milliseconds
+// ============================================================================
+
+static int64_t now_ms() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+// ============================================================================
+// PruneResult::prune()
+// ============================================================================
+
+PruneResult SessionCompaction::prune(
+    std::vector<Message>& messages,
+    const PruneConfig& config
+) {
+    PruneResult result;
+
+    // Build a helper to check if a tool name is exempt from pruning.
+    auto is_exempt = [&](const std::string& tool_name) -> bool {
+        for (const auto& ex : config.exempt_tools) {
+            if (tool_name == ex) return true;
+        }
+        return false;
+    };
+
+    // Pass 1 (reverse): walk from the newest message to the oldest, accumulating
+    // the token cost of tool-result parts.  Once we exceed protect_tokens, every
+    // subsequent (older) tool-result part is a candidate for pruning.
+    //
+    // "Tool-result part" = a PartType::Tool part that has a "result" key in data
+    // AND has NOT been compacted yet.
+
+    int64_t accumulated = 0;
+    bool protection_exhausted = false;
+
+    // Collect candidate parts (message index, part index) in reverse order.
+    struct Candidate { size_t msg_idx; size_t part_idx; int64_t tokens; };
+    std::vector<Candidate> candidates;
+
+    for (int64_t mi = static_cast<int64_t>(messages.size()) - 1; mi >= 0; --mi) {
+        auto& msg = messages[static_cast<size_t>(mi)];
+        for (int64_t pi = static_cast<int64_t>(msg.parts().size()) - 1; pi >= 0; --pi) {
+            const auto& part = msg.parts()[static_cast<size_t>(pi)];
+            if (!part.is_tool()) continue;
+            if (part.is_tool_compacted()) continue;  // already pruned
+
+            const auto tool_data = part.get_tool();
+            const std::string tool_name =
+                tool_data.contains("tool_name") ? tool_data["tool_name"].get<std::string>() : "";
+
+            if (is_exempt(tool_name)) continue;
+
+            // Only prune parts that actually carry a result payload.
+            if (!tool_data.contains("result")) continue;
+
+            int64_t part_tokens = estimate_text_tokens(tool_data["result"].dump());
+
+            if (!protection_exhausted) {
+                accumulated += part_tokens;
+                if (accumulated > config.protect_tokens) {
+                    protection_exhausted = true;
+                }
+                // Still within protected window — do not prune.
+            } else {
+                // Outside protected window — candidate for pruning.
+                candidates.push_back({
+                    static_cast<size_t>(mi),
+                    static_cast<size_t>(pi),
+                    part_tokens
+                });
+                result.freed_tokens += part_tokens;
+            }
+        }
+    }
+
+    // Pass 2: apply the prune only if freed_tokens >= minimum_prune.
+    if (result.freed_tokens < config.minimum_prune) {
+        // Not worth pruning — reset freed_tokens and return early.
+        result.freed_tokens = 0;
+        result.did_prune = false;
+        return result;
+    }
+
+    const int64_t ts = now_ms();
+    for (const auto& c : candidates) {
+        messages[c.msg_idx].mutable_part(c.part_idx).set_tool_compacted_at(ts);
+        result.pruned_parts++;
+    }
+
+    result.did_prune = true;
+    return result;
+}
+
+
 
 // ============================================================================
 // CompactionConfig Implementation

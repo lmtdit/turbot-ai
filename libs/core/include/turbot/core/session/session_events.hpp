@@ -124,4 +124,19 @@ struct TURBOT_CORE_API SessionErrorEvent {
     std::string code;   ///< e.g. "llm_error", "retry", "doom_loop"
 };
 
+/**
+ * @brief Broadcast when context-window pruning (prune old tool outputs) completes.
+ *
+ * Allows UI/consumers to show "Context was automatically summarized" indicators
+ * and to update token-count displays without a round-trip.
+ */
+struct TURBOT_CORE_API SessionCompactionEvent {
+    static constexpr const char* kEventName = "session.compaction";
+
+    std::string session_id;
+    int  pruned_parts   = 0;    ///< Number of tool-result parts that were pruned
+    int64_t freed_tokens = 0;   ///< Estimated token count freed by pruning
+    bool did_prune      = false;///< false = not enough tokens to warrant pruning
+};
+
 } // namespace turbot::core::session

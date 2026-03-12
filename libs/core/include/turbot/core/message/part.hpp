@@ -150,6 +150,29 @@ struct TURBOT_CORE_API Part {
     [[nodiscard]] bool is_text() const noexcept { return type == PartType::Text; }
     [[nodiscard]] bool is_tool() const noexcept { return type == PartType::Tool; }
     [[nodiscard]] bool is_reasoning() const noexcept { return type == PartType::Reasoning; }
+
+    // ===== Tool compaction helpers =====
+
+    /// Returns true when this Tool part has been pruned (compacted_at is set).
+    [[nodiscard]] bool is_tool_compacted() const noexcept {
+        return type == PartType::Tool && data.contains("compacted_at") && !data["compacted_at"].is_null();
+    }
+
+    /// Mark this Tool part as compacted (sets compacted_at to the given epoch-ms timestamp).
+    /// No-op if the part is not a Tool part.
+    void set_tool_compacted_at(int64_t timestamp_ms) {
+        if (type == PartType::Tool) {
+            data["compacted_at"] = timestamp_ms;
+            // Clear the heavy result payload; keep tool_id / tool_name / arguments for context.
+            data.erase("result");
+        }
+    }
+
+    /// Returns the compacted_at epoch-ms timestamp, or nullopt if not compacted.
+    [[nodiscard]] std::optional<int64_t> get_tool_compacted_at() const noexcept {
+        if (!is_tool_compacted()) return std::nullopt;
+        return data["compacted_at"].get<int64_t>();
+    }
     [[nodiscard]] bool is_file() const noexcept { return type == PartType::File; }
     [[nodiscard]] bool is_image() const noexcept { return type == PartType::Image; }
     [[nodiscard]] bool is_error() const noexcept { return type == PartType::Error; }
