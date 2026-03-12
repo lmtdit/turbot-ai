@@ -443,3 +443,79 @@ TEST_CASE("SystemPrompt::build unicode content", "[llm][system_prompt][edge]") {
     REQUIRE(prompt.find("Привет") != std::string::npos);
     REQUIRE(prompt.find("/home/user/项目") != std::string::npos);
 }
+
+// ============================================================================
+// SystemPrompt provider-specific template methods (direct fallback coverage)
+// ============================================================================
+
+TEST_CASE("SystemPrompt::prompt_codex returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_codex();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::prompt_beast returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_beast();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::prompt_anthropic returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_anthropic();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::prompt_openai returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_openai();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::prompt_gemini returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_gemini();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::prompt_qwen returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_qwen();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::prompt_trinity returns non-empty", "[llm][system_prompt][template]") {
+    auto s = SystemPrompt::prompt_trinity();
+    REQUIRE_FALSE(s.empty());
+}
+
+TEST_CASE("SystemPrompt::provider_prompt for various providers", "[llm][system_prompt][template]") {
+    SECTION("openai provider returns non-empty prompt") {
+        auto s = SystemPrompt::provider_prompt("openai", "gpt-4");
+        REQUIRE_FALSE(s.empty());
+    }
+
+    SECTION("anthropic provider returns non-empty prompt") {
+        auto s = SystemPrompt::provider_prompt("anthropic", "claude-3-opus");
+        REQUIRE_FALSE(s.empty());
+    }
+
+    SECTION("gemini provider returns non-empty prompt") {
+        auto s = SystemPrompt::provider_prompt("gemini", "gemini-pro");
+        REQUIRE_FALSE(s.empty());
+    }
+
+    SECTION("deepseek provider returns non-empty prompt") {
+        auto s = SystemPrompt::provider_prompt("deepseek", "deepseek-r1");
+        REQUIRE_FALSE(s.empty());
+    }
+
+    SECTION("ollama provider returns non-empty prompt") {
+        auto s = SystemPrompt::provider_prompt("ollama", "llama3");
+        REQUIRE_FALSE(s.empty());
+    }
+
+    SECTION("unknown provider returns non-empty prompt (default)") {
+        auto s = SystemPrompt::provider_prompt("unknown-provider", "some-model");
+        REQUIRE_FALSE(s.empty());
+    }
+}
+
+TEST_CASE("SystemPrompt::instructions returns non-empty", "[llm][system_prompt]") {
+    auto s = SystemPrompt::instructions();
+    REQUIRE_FALSE(s.empty());
+}

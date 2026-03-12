@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <turbot/utils/string_utils.hpp>
+#include <turbot/utils/env_utils.hpp>
+#include <cstdlib>
 
 using namespace turbot::utils;
 
@@ -369,5 +371,145 @@ TEST_CASE("string::join with char delimiter", "[utils][string]") {
         auto result = join(parts, ',');
 
         REQUIRE(result == "a");
+    }
+}
+
+// ============================================================================
+// env_utils Tests
+// ============================================================================
+
+TEST_CASE("env_utils::get_env", "[utils][env]") {
+    SECTION("existing variable returns value") {
+        set_env("TURBOT_TEST_GET", "hello");
+        REQUIRE(get_env("TURBOT_TEST_GET") == "hello");
+        unset_env("TURBOT_TEST_GET");
+    }
+
+    SECTION("non-existing variable returns empty string") {
+        unset_env("TURBOT_TEST_NONEXIST");
+        REQUIRE(get_env("TURBOT_TEST_NONEXIST") == "");
+    }
+
+    SECTION("empty value variable returns empty string") {
+        set_env("TURBOT_TEST_EMPTY", "");
+        REQUIRE(get_env("TURBOT_TEST_EMPTY") == "");
+        unset_env("TURBOT_TEST_EMPTY");
+    }
+}
+
+TEST_CASE("env_utils::get_env_or", "[utils][env]") {
+    SECTION("existing variable returns value") {
+        set_env("TURBOT_TEST_OR", "world");
+        REQUIRE(get_env_or("TURBOT_TEST_OR", "default") == "world");
+        unset_env("TURBOT_TEST_OR");
+    }
+
+    SECTION("non-existing variable returns default") {
+        unset_env("TURBOT_TEST_OR_MISSING");
+        REQUIRE(get_env_or("TURBOT_TEST_OR_MISSING", "mydefault") == "mydefault");
+    }
+}
+
+TEST_CASE("env_utils::set_env and has_env", "[utils][env]") {
+    SECTION("set creates variable") {
+        unset_env("TURBOT_TEST_SET");
+        REQUIRE_FALSE(has_env("TURBOT_TEST_SET"));
+        set_env("TURBOT_TEST_SET", "value123");
+        REQUIRE(has_env("TURBOT_TEST_SET"));
+        REQUIRE(get_env("TURBOT_TEST_SET") == "value123");
+        unset_env("TURBOT_TEST_SET");
+    }
+
+    SECTION("set overwrites existing variable") {
+        set_env("TURBOT_TEST_OVERWRITE", "first");
+        set_env("TURBOT_TEST_OVERWRITE", "second");
+        REQUIRE(get_env("TURBOT_TEST_OVERWRITE") == "second");
+        unset_env("TURBOT_TEST_OVERWRITE");
+    }
+}
+
+TEST_CASE("env_utils::unset_env", "[utils][env]") {
+    SECTION("unset removes variable") {
+        set_env("TURBOT_TEST_UNSET", "toremove");
+        REQUIRE(has_env("TURBOT_TEST_UNSET"));
+        unset_env("TURBOT_TEST_UNSET");
+        REQUIRE_FALSE(has_env("TURBOT_TEST_UNSET"));
+    }
+
+    SECTION("unset non-existing variable is safe") {
+        unset_env("TURBOT_TEST_UNSET_SAFE");
+        REQUIRE_NOTHROW(unset_env("TURBOT_TEST_UNSET_SAFE"));
+    }
+}
+
+TEST_CASE("env_utils::env_key_to_config_key", "[utils][env]") {
+    SECTION("normal conversion strips prefix and lowercases") {
+        // TURBOT_LOG_LEVEL -> log.level
+        REQUIRE(env_key_to_config_key("TURBOT_LOG_LEVEL", "TURBOT_") == "log.level");
+    }
+
+    SECTION("nested key with multiple underscores") {
+        REQUIRE(env_key_to_config_key("TURBOT_HTTP_TIMEOUT_MS", "TURBOT_") == "http.timeout.ms");
+    }
+
+    SECTION("key already lowercase") {
+        REQUIRE(env_key_to_config_key("PREFIX_key_name", "PREFIX_") == "key.name");
+    }
+
+    SECTION("missing prefix returns empty string") {
+        REQUIRE(env_key_to_config_key("OTHER_KEY", "TURBOT_") == "");
+    }
+
+    SECTION("key equal to prefix returns empty string") {
+        REQUIRE(env_key_to_config_key("TURBOT_", "TURBOT_") == "");
+    }
+
+    SECTION("key shorter than prefix returns empty string") {
+        REQUIRE(env_key_to_config_key("SHORT", "TURBOT_") == "");
+    }
+
+    SECTION("empty prefix returns empty string (prefix guard)") {
+        // starts_with("") is always true, but size <= 0 guard applies
+        REQUIRE(env_key_to_config_key("", "") == "");
+    }
+}
+
+TEST_CASE("env_utils::resolve_env_refs", "[utils][env]") {
+    SECTION("no references returns as-is") {
+        REQUIRE(resolve_env_refs("plain string") == "plain string");
+    }
+
+    SECTION("${VAR} with set variable") {
+        set_env("TURBOT_RESOLVE_VAR", "resolved");
+        REQUIRE(resolve_env_refs("prefix_${TURBOT_RESOLVE_VAR}_suffix") == "prefix_resolved_suffix");
+        unset_env("TURBOT_RESOLVE_VAR");
+    }
+
+    SECTION("${VAR} with unset variable uses empty string") {
+        unset_env("TURBOT_RESOLVE_MISSING");
+        REQUIRE(resolve_env_refs("x${TURBOT_RESOLVE_MISSING}y") == "xy");
+    }
+
+    SECTION("${VAR:-default} with unset variable uses default") {
+        unset_env("TURBOT_RESOLVE_DEF");
+        REQUIRE(resolve_env_refs("${TURBOT_RESOLVE_DEF:-fallback}") == "fallback");
+    }
+
+    SECTION("${VAR:-default} with set variable uses value") {
+        set_env("TURBOT_RESOLVE_SET", "actual");
+        REQUIRE(resolve_env_refs("${TURBOT_RESOLVE_SET:-fallback}") == "actual");
+        unset_env("TURBOT_RESOLVE_SET");
+    }
+
+    SECTION("multiple references in one string") {
+        set_env("TURBOT_A", "foo");
+        set_env("TURBOT_B", "bar");
+        REQUIRE(resolve_env_refs("${TURBOT_A}-${TURBOT_B}") == "foo-bar");
+        unset_env("TURBOT_A");
+        unset_env("TURBOT_B");
+    }
+
+    SECTION("empty string returns empty") {
+        REQUIRE(resolve_env_refs("") == "");
     }
 }

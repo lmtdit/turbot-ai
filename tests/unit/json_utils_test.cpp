@@ -431,3 +431,158 @@ TEST_CASE("json::query advanced", "[utils][json]") {
         REQUIRE_FALSE(result.has_value());
     }
 }
+
+// ============================================================================
+// json_utils additional coverage: merge, validate_schema edge cases,
+// remove_path, has_path, clone, equals, pretty_print
+// ============================================================================
+
+TEST_CASE("json::validate_schema - type array", "[utils][json]") {
+    SECTION("type as array matches one of the types") {
+        nlohmann::json schema = {{"type", nlohmann::json::array({"string", "null"})}};
+        nlohmann::json data_str = "hello";
+        nlohmann::json data_null = nullptr;
+        nlohmann::json data_num = 42;
+        REQUIRE(validate_schema(data_str, schema) == true);
+        REQUIRE(validate_schema(data_null, schema) == true);
+        REQUIRE(validate_schema(data_num, schema) == false);
+    }
+
+    SECTION("malformed schema type - not string or array returns false") {
+        nlohmann::json schema = {{"type", 123}};
+        REQUIRE(validate_schema(nlohmann::json("hello"), schema) == false);
+    }
+
+    SECTION("type null") {
+        nlohmann::json schema = {{"type", "null"}};
+        REQUIRE(validate_schema(nullptr, schema) == true);
+        REQUIRE(validate_schema("x", schema) == false);
+    }
+
+    SECTION("type unknown returns false") {
+        nlohmann::json schema = {{"type", "unknown_type"}};
+        REQUIRE(validate_schema("hello", schema) == false);
+    }
+}
+
+TEST_CASE("json::merge - array merge", "[utils][json]") {
+    SECTION("array + array concatenates") {
+        nlohmann::json a = nlohmann::json::array({1, 2});
+        nlohmann::json b = nlohmann::json::array({3, 4});
+        auto result = merge(a, b);
+        REQUIRE(result.is_array());
+        REQUIRE(result.size() == 4);
+    }
+
+    SECTION("non-object non-array returns b") {
+        nlohmann::json a = "hello";
+        nlohmann::json b = "world";
+        auto result = merge(a, b);
+        REQUIRE(result == "world");
+    }
+
+    SECTION("a is object b is non-object returns b") {
+        nlohmann::json a = {{"key", "val"}};
+        nlohmann::json b = 42;
+        auto result = merge(a, b);
+        REQUIRE(result == 42);
+    }
+}
+
+TEST_CASE("json::remove_path - object key", "[utils][json]") {
+    SECTION("remove existing key") {
+        nlohmann::json data = {{"a", 1}, {"b", 2}};
+        REQUIRE(remove_path(data, "a") == true);
+        REQUIRE_FALSE(data.contains("a"));
+        REQUIRE(data.contains("b"));
+    }
+
+    SECTION("remove missing key returns false") {
+        nlohmann::json data = {{"a", 1}};
+        REQUIRE(remove_path(data, "missing") == false);
+    }
+
+    SECTION("remove empty path returns false") {
+        nlohmann::json data = {{"a", 1}};
+        REQUIRE(remove_path(data, "") == false);
+    }
+
+    SECTION("remove nested key") {
+        nlohmann::json data = {{"outer", {{"inner", 42}, {"keep", "yes"}}}};
+        REQUIRE(remove_path(data, "outer.inner") == true);
+        REQUIRE_FALSE(data["outer"].contains("inner"));
+        REQUIRE(data["outer"].contains("keep"));
+    }
+
+    SECTION("remove array element by index") {
+        nlohmann::json data = {{"arr", {10, 20, 30}}};
+        REQUIRE(remove_path(data, "arr[1]") == true);
+        REQUIRE(data["arr"].size() == 2);
+        REQUIRE(data["arr"][0] == 10);
+        REQUIRE(data["arr"][1] == 30);
+    }
+
+    SECTION("remove out-of-range array index returns false") {
+        nlohmann::json data = {{"arr", {1, 2}}};
+        REQUIRE(remove_path(data, "arr[10]") == false);
+    }
+
+    SECTION("remove from non-array with index returns false") {
+        nlohmann::json data = {{"obj", {{"k", "v"}}}};
+        REQUIRE(remove_path(data, "obj[0]") == false);
+    }
+}
+
+TEST_CASE("json::has_path", "[utils][json]") {
+    nlohmann::json data = {{"a", {{"b", 42}}}};
+    REQUIRE(has_path(data, "a") == true);
+    REQUIRE(has_path(data, "a.b") == true);
+    REQUIRE(has_path(data, "a.c") == false);
+    REQUIRE(has_path(data, "x") == false);
+}
+
+TEST_CASE("json::clone", "[utils][json]") {
+    nlohmann::json original = {{"key", "value"}, {"num", 42}};
+    auto cloned = clone(original);
+    REQUIRE(cloned == original);
+    // Mutating clone doesn't affect original
+    cloned["key"] = "changed";
+    REQUIRE(original["key"] == "value");
+}
+
+TEST_CASE("json::equals", "[utils][json]") {
+    REQUIRE(equals(nlohmann::json(42), nlohmann::json(42)) == true);
+    REQUIRE(equals(nlohmann::json("a"), nlohmann::json("b")) == false);
+    REQUIRE(equals(nlohmann::json::object(), nlohmann::json::object()) == true);
+}
+
+TEST_CASE("json::pretty_print", "[utils][json]") {
+    nlohmann::json data = {{"name", "test"}, {"value", 123}};
+    auto output = pretty_print(data, 2);
+    REQUIRE(output.find("name") != std::string::npos);
+    REQUIRE(output.find("test") != std::string::npos);
+    REQUIRE(output.find('\n') != std::string::npos);
+}
+
+TEST_CASE("json::query - path edge cases", "[utils][json]") {
+    SECTION("empty part skipped (consecutive dots)") {
+        // 'a..b' splits into parts ["a","","b"] - empty part skipped
+        nlohmann::json data = {{"a", {{"b", 1}}}};
+        // consecutive dots would skip empty part, landing on 'b'
+        auto r = query(data, "a.b");
+        REQUIRE(r.has_value());
+        REQUIRE(r.value() == 1);
+    }
+
+    SECTION("index with empty brackets returns nullopt") {
+        nlohmann::json data = nlohmann::json::array({1, 2, 3});
+        // '[]' → close == 1 → nullopt
+        auto r = query(data, "[]");
+        REQUIRE_FALSE(r.has_value());
+    }
+
+    SECTION("query on non-object with key returns nullopt") {
+        nlohmann::json data = 42;
+        REQUIRE_FALSE(query(data, "key").has_value());
+    }
+}

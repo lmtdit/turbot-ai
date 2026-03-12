@@ -5,8 +5,10 @@ find_package(Catch2 REQUIRED)
 # Copy prompts directory to build directory for tests
 set(PROMPTS_SOURCE_DIR "${CMAKE_SOURCE_DIR}/libs/core/prompts")
 set(PROMPTS_BUILD_DIR "${CMAKE_BINARY_DIR}/prompts")
+# Also copy to tests subdirectory so unit tests can find prompts via current_path()/prompts
+set(PROMPTS_TESTS_DIR "${CMAKE_CURRENT_BINARY_DIR}/prompts")
 
-# Create custom command to copy prompts directory
+# Create custom command to copy prompts directory (root build dir)
 add_custom_command(
     OUTPUT "${PROMPTS_BUILD_DIR}"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROMPTS_SOURCE_DIR}" "${PROMPTS_BUILD_DIR}"
@@ -14,8 +16,16 @@ add_custom_command(
     COMMENT "Copying prompts directory to build directory"
 )
 
-# Custom target for prompts copy
-add_custom_target(copy_prompts ALL DEPENDS "${PROMPTS_BUILD_DIR}")
+# Create custom command to copy prompts to tests subdirectory
+add_custom_command(
+    OUTPUT "${PROMPTS_TESTS_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${PROMPTS_SOURCE_DIR}" "${PROMPTS_TESTS_DIR}"
+    DEPENDS "${PROMPTS_SOURCE_DIR}"
+    COMMENT "Copying prompts directory to tests build directory"
+)
+
+# Custom target for prompts copy (depends on both locations)
+add_custom_target(copy_prompts ALL DEPENDS "${PROMPTS_BUILD_DIR}" "${PROMPTS_TESTS_DIR}")
 
 # Config Manager 单元测试（独立，不依赖 network）
 add_executable(config-manager-test unit/config_manager_test.cpp)

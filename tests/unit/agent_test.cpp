@@ -4,6 +4,8 @@
 #include <turbot/core/agent/builtin/build_agent.hpp>
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
+#include <turbot/core/agent/builtin/configurable_agent.hpp>
+#include <nlohmann/json.hpp>
 
 using namespace turbot::core::agent;
 
@@ -764,9 +766,6 @@ TEST_CASE("agent_loader::reload", "[core][agent][loader]") {
     AgentRegistry::instance().clear();
 }
 
-// ============================================================================
-// Agent Generator Tests (v2.0)
-// ============================================================================
 
 TEST_CASE("agent_generator::generate", "[core][agent][generator]") {
     agent_generator::GenerateParams params;
@@ -796,3 +795,234 @@ TEST_CASE("AgentGenerateResult::to_agent_info", "[core][agent][generator]") {
     REQUIRE(info.mode == AgentMode::Primary);
     REQUIRE(info.native == false);
 }
+
+// ============================================================================
+// agent_loader::load_from_config Tests
+// ============================================================================
+
+TEST_CASE("agent_loader::load_from_config - basic", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"custom_agent", {
+            {"description", "A custom agent for testing"},
+            {"mode", "primary"},
+            {"hidden", false},
+            {"prompt", "You are a custom agent."}
+        }}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 1);
+    REQUIRE(AgentRegistry::instance().has("custom_agent"));
+
+    auto agent = AgentRegistry::instance().get("custom_agent");
+    REQUIRE(agent != nullptr);
+    REQUIRE(agent->info().description == "A custom agent for testing");
+    REQUIRE(agent->info().mode == AgentMode::Primary);
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - subagent mode", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"sub_agent", {
+            {"description", "A subagent"},
+            {"mode", "subagent"},
+            {"hidden", true}
+        }}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 1);
+
+    auto agent = AgentRegistry::instance().get("sub_agent");
+    REQUIRE(agent != nullptr);
+    REQUIRE(agent->info().mode == AgentMode::Subagent);
+    REQUIRE(agent->info().hidden == true);
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - temperature and steps", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"tuned_agent", {
+            {"description", "Agent with tuned params"},
+            {"temperature", 0.3},
+            {"top_p", 0.9},
+            {"steps", 10}
+        }}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 1);
+
+    auto agent = AgentRegistry::instance().get("tuned_agent");
+    REQUIRE(agent != nullptr);
+    REQUIRE(agent->info().temperature.has_value());
+    REQUIRE(agent->info().temperature.value() == Catch::Approx(0.3));
+    REQUIRE(agent->info().top_p.has_value());
+    REQUIRE(agent->info().top_p.value() == Catch::Approx(0.9));
+    REQUIRE(agent->info().steps.has_value());
+    REQUIRE(agent->info().steps.value() == 10);
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - with model", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"model_agent", {
+            {"description", "Agent with preferred model"},
+            {"model", {
+                {"model_id", "claude-3-opus"},
+                {"provider_id", "anthropic"}
+            }}
+        }}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 1);
+
+    auto agent = AgentRegistry::instance().get("model_agent");
+    REQUIRE(agent != nullptr);
+    REQUIRE(agent->info().model.has_value());
+    REQUIRE(agent->info().model->model_id == "claude-3-opus");
+    REQUIRE(agent->info().model->provider_id == "anthropic");
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - color and variant", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"styled_agent", {
+            {"description", "Agent with styling"},
+            {"color", "#FF5733"},
+            {"variant", "high"}
+        }}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 1);
+
+    auto agent = AgentRegistry::instance().get("styled_agent");
+    REQUIRE(agent != nullptr);
+    REQUIRE(agent->info().color == "#FF5733");
+    REQUIRE(agent->info().variant == "high");
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - disable removes agent", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+    // Register a known agent first
+    agent_loader::initialize_builtin_agents();
+    REQUIRE(AgentRegistry::instance().has("build"));
+
+    // disable: true should remove it
+    nlohmann::json config = {
+        {"build", {{"disable", true}}}
+    };
+
+    agent_loader::load_from_config(config);
+    REQUIRE_FALSE(AgentRegistry::instance().has("build"));
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - skip existing agent", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+    agent_loader::initialize_builtin_agents();
+    size_t initial_size = AgentRegistry::instance().size();
+
+    // Try to add agent with same name as existing — should skip
+    nlohmann::json config = {
+        {"build", {
+            {"description", "A different build agent"}
+        }}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 0); // Skipped because already exists
+    REQUIRE(AgentRegistry::instance().size() == initial_size);
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - invalid config returns 0", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    // Non-object config
+    REQUIRE(agent_loader::load_from_config(nlohmann::json::array()) == 0);
+    REQUIRE(agent_loader::load_from_config("string") == 0);
+    REQUIRE(agent_loader::load_from_config(42) == 0);
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - non-object entry skipped", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"valid_agent", {
+            {"description", "valid"}
+        }},
+        {"invalid_entry", "just a string"},  // non-object: should skip
+        {"another_invalid", 42}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 1); // Only valid_agent
+    REQUIRE(AgentRegistry::instance().has("valid_agent"));
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("agent_loader::load_from_config - multiple agents", "[core][agent][loader]") {
+    AgentRegistry::instance().clear();
+
+    nlohmann::json config = {
+        {"agent_alpha", {{"description", "Alpha"}, {"mode", "primary"}}},
+        {"agent_beta",  {{"description", "Beta"},  {"mode", "subagent"}}},
+        {"agent_gamma", {{"description", "Gamma"}, {"hidden", true}}}
+    };
+
+    size_t count = agent_loader::load_from_config(config);
+    REQUIRE(count == 3);
+    REQUIRE(AgentRegistry::instance().has("agent_alpha"));
+    REQUIRE(AgentRegistry::instance().has("agent_beta"));
+    REQUIRE(AgentRegistry::instance().has("agent_gamma"));
+
+    REQUIRE(AgentRegistry::instance().get("agent_beta")->info().mode == AgentMode::Subagent);
+
+    AgentRegistry::instance().clear();
+}
+
+TEST_CASE("AgentGenerateResult::to_json", "[core][agent][generator]") {
+    AgentGenerateResult result;
+    result.identifier = "my_agent";
+    result.when_to_use = "When you need help";
+    result.system_prompt = "Be helpful.";
+
+    nlohmann::json j = result.to_json();
+    REQUIRE(j["identifier"] == "my_agent");
+    REQUIRE(j["when_to_use"] == "When you need help");
+    REQUIRE(j["system_prompt"] == "Be helpful.");
+}
+
+TEST_CASE("agent_generator::generate - long description truncated", "[core][agent][generator]") {
+    agent_generator::GenerateParams params;
+    // >32 chars to trigger truncation
+    params.description = "This is a very long description that exceeds the 32 character limit";
+
+    auto result = agent_generator::generate(params);
+    REQUIRE(result.identifier.length() <= 32);
+}
+

@@ -7,9 +7,13 @@
 #include <turbot/core/provider/impl/zhipu_provider.hpp>
 #include <turbot/core/provider/impl/kimi_provider.hpp>
 #include <turbot/core/provider/impl/iflow_provider.hpp>
+#include <turbot/core/llm/provider_adapter.hpp>
+#include <turbot/core/llm/llm.hpp>
 #include <nlohmann/json.hpp>
 
 using namespace turbot::core::provider;
+using namespace turbot::core::llm;
+namespace core = turbot::core;
 
 // ============================================================================
 // ModelCapabilities Tests
@@ -925,4 +929,334 @@ TEST_CASE("Find model across providers", "[provider][integration]") {
     REQUIRE(qwen->provider_id == "bailian");
 
     ProviderManager::instance().clear();
+}
+
+// ============================================================================
+// ProviderAdapter Tests
+// ============================================================================
+
+TEST_CASE("ProviderAdapter::detect_format", "[provider][adapter]") {
+    SECTION("anthropic providers return Anthropic format") {
+        REQUIRE(ProviderAdapter::detect_format("anthropic") == core::MessageFormat::Anthropic);
+        REQUIRE(ProviderAdapter::detect_format("claude") == core::MessageFormat::Anthropic);
+        REQUIRE(ProviderAdapter::detect_format("bedrock") == core::MessageFormat::Anthropic);
+        REQUIRE(ProviderAdapter::detect_format("amazon-bedrock") == core::MessageFormat::Anthropic);
+    }
+
+    SECTION("openai providers return OpenAI format") {
+        REQUIRE(ProviderAdapter::detect_format("openai") == core::MessageFormat::OpenAI);
+        REQUIRE(ProviderAdapter::detect_format("azure") == core::MessageFormat::OpenAI);
+        REQUIRE(ProviderAdapter::detect_format("ollama") == core::MessageFormat::OpenAI);
+        REQUIRE(ProviderAdapter::detect_format("groq") == core::MessageFormat::OpenAI);
+    }
+
+    SECTION("gemini providers return OpenAI format (compat)") {
+        REQUIRE(ProviderAdapter::detect_format("gemini") == core::MessageFormat::OpenAI);
+        REQUIRE(ProviderAdapter::detect_format("google") == core::MessageFormat::OpenAI);
+        REQUIRE(ProviderAdapter::detect_format("google-vertex") == core::MessageFormat::OpenAI);
+    }
+
+    SECTION("unknown provider returns OpenAICompat") {
+        REQUIRE(ProviderAdapter::detect_format("unknown_provider") == core::MessageFormat::OpenAICompat);
+        REQUIRE(ProviderAdapter::detect_format("my-custom-llm") == core::MessageFormat::OpenAICompat);
+    }
+
+    SECTION("case-insensitive") {
+        REQUIRE(ProviderAdapter::detect_format("Anthropic") == core::MessageFormat::Anthropic);
+        REQUIRE(ProviderAdapter::detect_format("OPENAI") == core::MessageFormat::OpenAI);
+        REQUIRE(ProviderAdapter::detect_format("Gemini") == core::MessageFormat::OpenAI);
+    }
+}
+
+TEST_CASE("ProviderAdapter::supports_streaming", "[provider][adapter]") {
+    SECTION("all providers support streaming by default") {
+        REQUIRE(ProviderAdapter::supports_streaming("openai") == true);
+        REQUIRE(ProviderAdapter::supports_streaming("anthropic") == true);
+        REQUIRE(ProviderAdapter::supports_streaming("gemini") == true);
+        REQUIRE(ProviderAdapter::supports_streaming("unknown") == true);
+    }
+}
+
+TEST_CASE("ProviderAdapter::supports_tool_calls", "[provider][adapter]") {
+    SECTION("known providers support tool calls") {
+        REQUIRE(ProviderAdapter::supports_tool_calls("openai") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("anthropic") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("gemini") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("claude") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("ollama") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("bailian") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("zhipu") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("kimi") == true);
+    }
+
+    SECTION("unknown provider does not support tool calls") {
+        REQUIRE(ProviderAdapter::supports_tool_calls("unknown_provider") == false);
+    }
+
+    SECTION("case-insensitive") {
+        REQUIRE(ProviderAdapter::supports_tool_calls("OpenAI") == true);
+        REQUIRE(ProviderAdapter::supports_tool_calls("ANTHROPIC") == true);
+    }
+}
+
+TEST_CASE("ProviderAdapter::supports_reasoning", "[provider][adapter]") {
+    SECTION("reasoning-capable providers") {
+        REQUIRE(ProviderAdapter::supports_reasoning("openai") == true);
+        REQUIRE(ProviderAdapter::supports_reasoning("anthropic") == true);
+        REQUIRE(ProviderAdapter::supports_reasoning("deepseek") == true);
+        REQUIRE(ProviderAdapter::supports_reasoning("gemini") == true);
+        REQUIRE(ProviderAdapter::supports_reasoning("xai") == true);
+    }
+
+    SECTION("non-reasoning providers") {
+        REQUIRE(ProviderAdapter::supports_reasoning("ollama") == false);
+        REQUIRE(ProviderAdapter::supports_reasoning("unknown") == false);
+    }
+
+    SECTION("case-insensitive") {
+        REQUIRE(ProviderAdapter::supports_reasoning("Anthropic") == true);
+        REQUIRE(ProviderAdapter::supports_reasoning("DEEPSEEK") == true);
+    }
+}
+
+TEST_CASE("ProviderAdapter::to_provider_message", "[provider][adapter]") {
+    SECTION("basic user message") {
+        LLMMessage msg = LLMMessage::user("Hello");
+        auto pmsg = ProviderAdapter::to_provider_message(msg);
+        REQUIRE(pmsg.role == ChatRole::User);
+        REQUIRE(pmsg.content == "Hello");
+    }
+
+    SECTION("assistant message with tool calls") {
+        core::ToolCallChunk tc;
+        tc.id = "call_1";
+        tc.name = "my_tool";
+        tc.arguments = R"({"key":"val"})";
+        tc.is_complete = true;
+
+        LLMMessage msg = LLMMessage::assistant_with_tools("", {tc});
+        auto pmsg = ProviderAdapter::to_provider_message(msg);
+
+        REQUIRE(pmsg.tool_calls.has_value());
+        REQUIRE(pmsg.tool_calls->size() == 1);
+        REQUIRE((*pmsg.tool_calls)[0].id == "call_1");
+        REQUIRE((*pmsg.tool_calls)[0].name == "my_tool");
+    }
+
+    SECTION("tool result message") {
+        LLMMessage msg = LLMMessage::tool_result("call_abc", "result content");
+        auto pmsg = ProviderAdapter::to_provider_message(msg);
+        REQUIRE(pmsg.role == ChatRole::Tool);
+        REQUIRE(pmsg.tool_call_id.has_value());
+        REQUIRE(*pmsg.tool_call_id == "call_abc");
+        REQUIRE(pmsg.content == "result content");
+    }
+}
+
+TEST_CASE("ProviderAdapter::from_provider_message", "[provider][adapter]") {
+    SECTION("basic assistant message") {
+        ChatMessage pmsg;
+        pmsg.role = ChatRole::Assistant;
+        pmsg.content = "I can help you.";
+
+        auto msg = ProviderAdapter::from_provider_message(pmsg);
+        REQUIRE(msg.role == ChatRole::Assistant);
+        REQUIRE(msg.content == "I can help you.");
+        REQUIRE(msg.tool_calls.empty());
+    }
+
+    SECTION("assistant message with tool calls") {
+        ToolCall tc;
+        tc.id = "tc_1";
+        tc.name = "search";
+        tc.type = "function";
+        tc.arguments = nlohmann::json{{"query", "test"}};
+
+        ChatMessage pmsg;
+        pmsg.role = ChatRole::Assistant;
+        pmsg.content = "";
+        pmsg.tool_calls = std::vector<ToolCall>{tc};
+
+        auto msg = ProviderAdapter::from_provider_message(pmsg);
+        REQUIRE(msg.tool_calls.size() == 1);
+        REQUIRE(msg.tool_calls[0].id == "tc_1");
+        REQUIRE(msg.tool_calls[0].name == "search");
+    }
+}
+
+TEST_CASE("ProviderAdapter::to_provider_messages", "[provider][adapter]") {
+    std::vector<LLMMessage> msgs = {
+        LLMMessage::system("You are helpful."),
+        LLMMessage::user("What is 2+2?"),
+        LLMMessage::assistant("4")
+    };
+
+    auto pmsgs = ProviderAdapter::to_provider_messages(msgs);
+    REQUIRE(pmsgs.size() == 3);
+    REQUIRE(pmsgs[0].role == ChatRole::System);
+    REQUIRE(pmsgs[1].role == ChatRole::User);
+    REQUIRE(pmsgs[2].role == ChatRole::Assistant);
+}
+
+TEST_CASE("ProviderAdapter::to_provider_tool", "[provider][adapter]") {
+    LLMToolDefinition tool;
+    tool.name = "calculator";
+    tool.description = "Perform arithmetic";
+    tool.parameters = nlohmann::json{{"type", "object"}};
+
+    auto ptool = ProviderAdapter::to_provider_tool(tool);
+    REQUIRE(ptool.type == "function");
+    REQUIRE(ptool.name == "calculator");
+    REQUIRE(ptool.description == "Perform arithmetic");
+    REQUIRE(ptool.parameters == tool.parameters);
+}
+
+TEST_CASE("ProviderAdapter::from_provider_tool", "[provider][adapter]") {
+    ToolDefinition ptool;
+    ptool.type = "function";
+    ptool.name = "search";
+    ptool.description = "Search the web";
+    ptool.parameters = nlohmann::json{{"type", "object"}};
+
+    auto tool = ProviderAdapter::from_provider_tool(ptool);
+    REQUIRE(tool.name == "search");
+    REQUIRE(tool.description == "Search the web");
+}
+
+TEST_CASE("ProviderAdapter::to_chat_options", "[provider][adapter]") {
+    StreamParams params;
+    params.temperature = 0.7;
+    params.top_p = 0.9;
+    params.max_tokens = 2048;
+    params.stop = {"<|end|>", "###"};
+
+    LLMToolDefinition tool;
+    tool.name = "get_time";
+    tool.description = "Get current time";
+    params.tools.push_back(tool);
+
+    auto opts = ProviderAdapter::to_chat_options(params);
+    REQUIRE(opts.temperature == 0.7);
+    REQUIRE(opts.top_p == 0.9);
+    REQUIRE(opts.max_tokens == 2048);
+    REQUIRE(opts.stop == params.stop);
+    REQUIRE(opts.stream == true);
+    REQUIRE(opts.tools.size() == 1);
+    REQUIRE(opts.tools[0].name == "get_time");
+}
+
+// StreamEvent is in turbot::core; ChatStreamEvent is in turbot::core::provider
+// Use core:: prefix to disambiguate StreamEventType
+TEST_CASE("ProviderAdapter::to_stream_event - TextDelta", "[provider][adapter]") {
+    ChatStreamEvent ev;
+    ev.type = StreamEventType::TextDelta;  // provider::StreamEventType
+    ev.content = "Hello world";
+
+    auto se = ProviderAdapter::to_stream_event(ev);
+    REQUIRE(se.type == core::StreamEventType::TextDelta);
+    REQUIRE(se.delta == "Hello world");
+}
+
+TEST_CASE("ProviderAdapter::to_stream_event - ToolCall", "[provider][adapter]") {
+    ToolCall tc;
+    tc.id = "call_xyz";
+    tc.name = "my_func";
+    tc.type = "function";
+    tc.arguments = nlohmann::json{{"x", 1}};
+
+    ChatStreamEvent ev;
+    ev.type = StreamEventType::ToolCall;
+    ev.tool_call = tc;
+
+    auto se = ProviderAdapter::to_stream_event(ev);
+    REQUIRE(se.type == core::StreamEventType::ToolCall);
+    REQUIRE(se.tool_call.has_value());
+    REQUIRE(se.tool_call->id == "call_xyz");
+    REQUIRE(se.tool_call->name == "my_func");
+}
+
+TEST_CASE("ProviderAdapter::to_stream_event - ToolCall without tool_call field", "[provider][adapter]") {
+    ChatStreamEvent ev;
+    ev.type = StreamEventType::ToolCall;
+    // No tool_call set -> should produce error event
+
+    auto se = ProviderAdapter::to_stream_event(ev);
+    REQUIRE(se.type == core::StreamEventType::Error);
+}
+
+TEST_CASE("ProviderAdapter::to_stream_event - Reasoning", "[provider][adapter]") {
+    ChatStreamEvent ev;
+    ev.type = StreamEventType::Reasoning;
+    ev.content = "Let me think...";
+
+    auto se = ProviderAdapter::to_stream_event(ev);
+    REQUIRE(se.type == core::StreamEventType::ReasoningDelta);
+    REQUIRE(se.delta == "Let me think...");
+}
+
+TEST_CASE("ProviderAdapter::to_stream_event - Finish", "[provider][adapter]") {
+    ChatStreamEvent ev;
+    ev.type = StreamEventType::Finish;
+    ev.finish_reason = "stop";
+
+    auto se = ProviderAdapter::to_stream_event(ev);
+    REQUIRE(se.type == core::StreamEventType::Finish);
+    REQUIRE(se.finish_reason.has_value());
+    REQUIRE(se.finish_reason.value() == core::FinishReason::Stop);
+}
+
+TEST_CASE("ProviderAdapter::to_stream_event - Error", "[provider][adapter]") {
+    ChatStreamEvent ev;
+    ev.type = StreamEventType::Error;
+    ev.error = nlohmann::json{{"message", "rate limit"}, {"code", "429"}};
+
+    auto se = ProviderAdapter::to_stream_event(ev);
+    REQUIRE(se.type == core::StreamEventType::Error);
+    REQUIRE(se.error_message.has_value());
+    REQUIRE(se.error_message.value() == "rate limit");
+    REQUIRE(se.error_code.has_value());
+    REQUIRE(*se.error_code == "429");
+}
+
+TEST_CASE("ProviderAdapter::to_tool_call_chunk", "[provider][adapter]") {
+    ToolCall tc;
+    tc.id = "call_1";
+    tc.name = "search";
+    tc.type = "function";
+    tc.arguments = nlohmann::json{{"query", "hello"}};
+
+    auto chunk = ProviderAdapter::to_tool_call_chunk(tc);
+    REQUIRE(chunk.id == "call_1");
+    REQUIRE(chunk.name == "search");
+    REQUIRE(chunk.is_complete == true);
+    // arguments should be serialized JSON string
+    auto parsed = nlohmann::json::parse(chunk.arguments);
+    REQUIRE(parsed["query"] == "hello");
+}
+
+TEST_CASE("ProviderAdapter::from_tool_call_chunk", "[provider][adapter]") {
+    core::ToolCallChunk chunk;
+    chunk.id = "call_2";
+    chunk.name = "calculator";
+    chunk.arguments = R"({"op":"add","a":1,"b":2})";
+    chunk.is_complete = true;
+
+    auto tc = ProviderAdapter::from_tool_call_chunk(chunk);
+    REQUIRE(tc.id == "call_2");
+    REQUIRE(tc.name == "calculator");
+    REQUIRE(tc.type == "function");
+    REQUIRE(tc.arguments["op"] == "add");
+    REQUIRE(tc.arguments["a"] == 1);
+}
+
+TEST_CASE("ProviderAdapter::from_tool_call_chunk - invalid json falls back to string", "[provider][adapter]") {
+    core::ToolCallChunk chunk;
+    chunk.id = "call_3";
+    chunk.name = "tool";
+    chunk.arguments = "not valid json {{{";
+
+    auto tc = ProviderAdapter::from_tool_call_chunk(chunk);
+    // Should not throw; arguments stored as string
+    REQUIRE(tc.id == "call_3");
+    REQUIRE(tc.arguments.is_string());
 }

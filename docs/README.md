@@ -60,4 +60,16 @@
 
 **总体估算**: 104-154 天（约 3.5-5 个月）
 
+**v2.9 测试质量提升计划**
+
+- [2.9/2.9-test-coverage-improvement-plan.md](./plans/2.9/2.9-test-coverage-improvement-plan.md) - 单元测试覆盖率提升计划（目标：整体行覆盖率 ≥85%）
+
+### 代码审查
+
+- [2026-03-07-libs-code-review.md](./reviews/2026-03-07-libs-code-review.md) - libs 目录全面代码审核报告
+- [2026-03-08-config-refactor-review.md](./reviews/2026-03-08-config-refactor-review.md) - 配置系统重构代码审查
+- [2026-03-11-v2.5-core-flow-review.md](./reviews/2026-03-11-v2.5-core-flow-review.md) - v2.5 核心流程代码审查
+- [2026-03-11-v2.6-quality-hardening-review.md](./reviews/2026-03-11-v2.6-quality-hardening-review.md) - v2.6 质量加固代码审查
+- [2026-03-13-unit-test-coverage-report.md](./reviews/2026-03-13-unit-test-coverage-report.md) - 单元测试覆盖率报告（整体 70.33%，7 failed）
+
 <!-- ToDo -->
