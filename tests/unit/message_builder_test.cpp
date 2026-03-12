@@ -787,3 +787,84 @@ TEST_CASE("Provider-specific normalization comprehensive", "[message_builder][no
         REQUIRE_FALSE(has_empty_assistant);
     }
 }
+
+// ============================================================================
+// LlmMessage provider_options and additional coverage
+// ============================================================================
+
+TEST_CASE("LlmMessage::to_openai with provider_options", "[message_builder][llm_message]") {
+    SECTION("provider_options with openai key extracts openai sub-object") {
+        LlmMessage msg = LlmMessage::create_user("hello");
+        msg.provider_options = nlohmann::json{{"openai", {{"temperature", 0.5}}}};
+        auto j = msg.to_openai();
+        REQUIRE(j.contains("provider_options"));
+        REQUIRE(j["provider_options"]["temperature"] == 0.5);
+    }
+
+    SECTION("provider_options without openai key stored as-is") {
+        LlmMessage msg = LlmMessage::create_user("hello");
+        msg.provider_options = nlohmann::json{{"custom_opt", "val"}};
+        auto j = msg.to_openai();
+        REQUIRE(j.contains("provider_options"));
+        REQUIRE(j["provider_options"]["custom_opt"] == "val");
+    }
+}
+
+TEST_CASE("LlmMessage::to_anthropic with content_parts tool_use", "[message_builder][llm_message]") {
+    SECTION("assistant message with tool_call part converted to tool_use") {
+        nlohmann::json tc_part = {
+            {"type", "tool_call"},
+            {"id", "call_abc"},
+            {"function", {
+                {"name", "search"},
+                {"arguments", R"({"query":"hello"})"}
+            }}
+        };
+        LlmMessage msg = LlmMessage::create_assistant_parts({tc_part});
+        auto j = msg.to_anthropic();
+        REQUIRE(j["role"] == "assistant");
+        // content should be an array containing a tool_use block
+        REQUIRE(j.contains("content"));
+        bool found_tool_use = false;
+        if (j["content"].is_array()) {
+            for (const auto& block : j["content"]) {
+                if (block.value("type", "") == "tool_use") {
+                    found_tool_use = true;
+                    REQUIRE(block["name"] == "search");
+                    REQUIRE(block["id"] == "call_abc");
+                }
+            }
+        }
+        REQUIRE(found_tool_use);
+    }
+
+    SECTION("user message with text content_part") {
+        nlohmann::json text_part = {
+            {"type", "text"},
+            {"text", "Hello Anthropic"}
+        };
+        LlmMessage msg = LlmMessage::create_user_parts({text_part});
+        auto j = msg.to_anthropic();
+        REQUIRE(j["role"] == "user");
+        bool found_text = false;
+        if (j["content"].is_array()) {
+            for (const auto& block : j["content"]) {
+                if (block.value("type", "") == "text" && block.value("text", "") == "Hello Anthropic") {
+                    found_text = true;
+                }
+            }
+        }
+        REQUIRE(found_text);
+    }
+
+    SECTION("reasoning part in assistant message") {
+        nlohmann::json reasoning_part = {
+            {"type", "reasoning"},
+            {"text", "Let me think..."}
+        };
+        LlmMessage msg = LlmMessage::create_assistant_parts({reasoning_part});
+        auto j = msg.to_anthropic();
+        // reasoning blocks are included in content
+        REQUIRE(j.contains("content"));
+    }
+}
