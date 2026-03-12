@@ -299,6 +299,39 @@ LoopResult SessionLoop::process_llm_response() {
     // Build messages for LLM
     auto llm_messages = build_llm_messages();
     auto tools = build_tool_definitions();
+
+    // LiteLLM / Anthropic-via-LiteLLM compatibility: inject a _noop placeholder
+    // tool when (a) the provider ID contains "litellm", (b) the message history
+    // already contains tool-result messages (i.e. prior tool calls exist), and
+    // (c) there are currently no active tools to offer.  Without at least one
+    // tool defined, LiteLLM proxies reject the request when prior tool calls
+    // are present in the conversation context.
+    if (tools.empty() && provider_) {
+        const std::string pid = provider_->id();
+        const bool is_litellm = pid.find("litellm") != std::string::npos;
+        if (is_litellm) {
+            bool history_has_tool_calls = false;
+            {
+                std::lock_guard<std::mutex> lock(messages_mutex_);
+                for (const auto& msg : messages_) {
+                    if (msg.role() == core::Role::Tool) {
+                        history_has_tool_calls = true;
+                        break;
+                    }
+                }
+            }
+            if (history_has_tool_calls) {
+                llm::LLMToolDefinition noop;
+                noop.name = "_noop";
+                noop.description = "Placeholder for LiteLLM/Anthropic proxy compatibility — "
+                                   "required when message history contains tool calls but no "
+                                   "active tools are needed";
+                noop.parameters = {{"type", "object"}, {"properties", nlohmann::json::object()}};
+                tools.push_back(std::move(noop));
+                TURBOT_LOG_DEBUG("LiteLLM compat: injected _noop tool (history has prior tool calls)");
+            }
+        }
+    }
     
     // Set up stream parameters
     llm::StreamParams params;
