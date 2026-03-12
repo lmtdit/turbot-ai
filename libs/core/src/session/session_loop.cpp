@@ -520,11 +520,31 @@ LoopResult SessionLoop::process_llm_response() {
 tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name,
                                             const std::string& call_id,
                                             const nlohmann::json& input) {
-    // Get the tool from registry
+    // Get the tool from registry — try exact name first, then lowercase fallback
+    // (repairToolCall: mirrors opencode experimental_repairToolCall behaviour).
     auto tool = tool::ToolRegistry::instance().get(tool_name);
+
     if (!tool) {
-        return tool::ToolResult::error("Tool Not Found",
-            fmt::format("Tool '{}' is not registered", tool_name));
+        // Try case-insensitive lowercase match
+        std::string lower_name = tool_name;
+        std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (lower_name != tool_name) {
+            tool = tool::ToolRegistry::instance().get(lower_name);
+            if (tool) {
+                TURBOT_LOG_WARN("repairToolCall: '{}' → '{}' (case correction)", tool_name, lower_name);
+            }
+        }
+    }
+
+    if (!tool) {
+        // Neither exact nor lowercase match — return structured error so the LLM
+        // can self-correct (same as opencode fallback to the "invalid" tool).
+        nlohmann::json err_payload;
+        err_payload["tool"]  = tool_name;
+        err_payload["error"] = fmt::format("Tool '{}' is not registered", tool_name);
+        return tool::ToolResult::error("ToolNotFound", err_payload.dump());
     }
 
     // Snapshot agent_ under its own lock
