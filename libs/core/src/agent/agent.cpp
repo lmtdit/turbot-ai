@@ -84,6 +84,9 @@ nlohmann::json AgentInfo::to_json() const {
     j["mode"] = agent_mode_to_string(mode);
     j["native"] = native;
     j["hidden"] = hidden;
+    if (disable) {
+        j["disable"] = true; // Only serialise when true to keep JSON compact
+    }
     
     // Serialize permission ruleset
     nlohmann::json perm_array = nlohmann::json::array();
@@ -141,6 +144,9 @@ AgentInfo AgentInfo::from_json(const nlohmann::json& j) {
     }
     if (j.contains("hidden")) {
         info.hidden = j["hidden"].get<bool>();
+    }
+    if (j.contains("disable")) {
+        info.disable = j["disable"].get<bool>();
     }
     
     if (j.contains("permission") && j["permission"].is_array()) {
@@ -203,6 +209,7 @@ bool AgentInfo::operator==(const AgentInfo& other) const noexcept {
            mode == other.mode &&
            native == other.native &&
            hidden == other.hidden &&
+           disable == other.disable &&
            permission == other.permission &&
            model == other.model;
     

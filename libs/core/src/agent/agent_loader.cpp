@@ -2,6 +2,8 @@
 #include <turbot/core/agent/builtin/build_agent.hpp>
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
+#include <turbot/core/agent/builtin/configurable_agent.hpp>
+#include <turbot/core/permission/permission.hpp>
 #include <fmt/format.h>
 #include <iostream>
 
@@ -16,28 +18,108 @@ namespace agent_loader {
 size_t initialize_builtin_agents() {
     auto& registry = AgentRegistry::instance();
     size_t count = 0;
-    
-    // Register built-in agents
-    // These are the core agents that match OpenCode's default agents
-    
-    // Build agent - the default primary agent
-    auto build = std::make_shared<BuildAgent>();
-    if (registry.register_agent(build)) {
-        count++;
+
+    // -----------------------------------------------------------------------
+    // 1. Build — default primary agent with full permissions
+    // -----------------------------------------------------------------------
+    {
+        auto agent = std::make_shared<BuildAgent>();
+        if (registry.register_agent(agent)) count++;
     }
-    
-    // Plan agent - for planning mode
-    auto plan = std::make_shared<PlanAgent>();
-    if (registry.register_agent(plan)) {
-        count++;
+
+    // -----------------------------------------------------------------------
+    // 2. Plan — primary agent; edit access limited to plan files
+    // -----------------------------------------------------------------------
+    {
+        auto agent = std::make_shared<PlanAgent>();
+        if (registry.register_agent(agent)) count++;
     }
-    
-    // Explore agent - for codebase exploration
-    auto explore = std::make_shared<ExploreAgent>();
-    if (registry.register_agent(explore)) {
-        count++;
+
+    // -----------------------------------------------------------------------
+    // 3. Explore — subagent; read-only (grep/glob/list/read/bash)
+    // -----------------------------------------------------------------------
+    {
+        auto agent = std::make_shared<ExploreAgent>();
+        if (registry.register_agent(agent)) count++;
     }
-    
+
+    // -----------------------------------------------------------------------
+    // 4. General — subagent; no todo tools
+    // -----------------------------------------------------------------------
+    {
+        using namespace turbot::core::permission;
+        AgentInfo info;
+        info.name        = "general";
+        info.description = "General-purpose subagent (no todo tools)";
+        info.mode        = AgentMode::Subagent;
+        info.native      = true;
+        info.hidden      = false;
+        // Allow everything except todoread / todowrite
+        info.permission.push_back(PermissionRule{"todoread",  "*", PermissionAction::Deny});
+        info.permission.push_back(PermissionRule{"todowrite", "*", PermissionAction::Deny});
+        info.permission.push_back(PermissionRule{"*",         "*", PermissionAction::Allow});
+        if (registry.register_agent(std::make_shared<ConfigurableAgent>(std::move(info)))) count++;
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Compaction — hidden primary; no tools (summarises conversation)
+    // -----------------------------------------------------------------------
+    {
+        using namespace turbot::core::permission;
+        AgentInfo info;
+        info.name        = "compaction";
+        info.description = "Internal agent used during context-window compaction";
+        info.mode        = AgentMode::Primary;
+        info.native      = true;
+        info.hidden      = true;
+        // Deny all tool calls — compaction agent must only produce text
+        info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Deny});
+        if (registry.register_agent(std::make_shared<ConfigurableAgent>(std::move(info)))) count++;
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. Title — hidden primary; no tools; low temperature
+    //    Generates a short session title after the session finishes.
+    // -----------------------------------------------------------------------
+    {
+        using namespace turbot::core::permission;
+        AgentInfo info;
+        info.name        = "title";
+        info.description = "Internal agent that generates a concise session title";
+        info.mode        = AgentMode::Primary;
+        info.native      = true;
+        info.hidden      = true;
+        info.temperature = 0.5;
+        info.steps       = 1;
+        info.prompt      =
+            "Generate an extremely concise (≤ 8 words) title for the session "
+            "based on the user's first message.  Return ONLY the title — no "
+            "punctuation, no quotes, no explanation.";
+        // Deny all tool calls
+        info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Deny});
+        if (registry.register_agent(std::make_shared<ConfigurableAgent>(std::move(info)))) count++;
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Summary — hidden primary; no tools
+    //    Computes a brief summary of what changed in a step.
+    // -----------------------------------------------------------------------
+    {
+        using namespace turbot::core::permission;
+        AgentInfo info;
+        info.name        = "summary";
+        info.description = "Internal agent that generates a step-level change summary";
+        info.mode        = AgentMode::Primary;
+        info.native      = true;
+        info.hidden      = true;
+        info.steps       = 1;
+        info.prompt      =
+            "Summarise the file changes made in this step in one short sentence.  "
+            "Return ONLY the sentence.";
+        info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Deny});
+        if (registry.register_agent(std::make_shared<ConfigurableAgent>(std::move(info)))) count++;
+    }
+
     return count;
 }
 
@@ -132,11 +214,9 @@ size_t load_from_config(const nlohmann::json& config_json) {
                 continue;
             }
             
-            // Create a simple agent with this info
-            // Note: In a full implementation, we'd have a ConfigurableAgent class
-            // For now, we just register the info without a full agent implementation
-            
-            count++;
+            // Create and register a ConfigurableAgent from the parsed info.
+            auto ca = std::make_shared<ConfigurableAgent>(std::move(info));
+            if (registry.register_agent(std::move(ca))) count++;
         } catch (const std::exception& e) {
             std::cerr << fmt::format("Error loading agent '{}': {}\n", name, e.what());
         }

@@ -210,6 +210,11 @@ private:
 
     /// Build tool definitions
     [[nodiscard]] std::vector<turbot::core::llm::LLMToolDefinition> build_tool_definitions() const;
+
+    /// Derive and persist a short session title from the first user message.
+    /// Called once at the end of run() when the session finishes normally.
+    /// Publishes SessionTitleUpdatedEvent via EventBus after setting the title.
+    void generate_title_if_needed();
 };
 
 } // namespace turbot::core::session

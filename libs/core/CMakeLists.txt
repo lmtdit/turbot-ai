@@ -37,6 +37,8 @@ set(CORE_SOURCES
     src/tool/builtin/list_tool.cpp
     src/tool/builtin/task_tool.cpp
         src/tool/builtin/question_tool.cpp
+    # Plugin module
+    src/plugin/plugin.cpp
     # Agent module
     src/agent/agent.cpp
     src/agent/agent_loader.cpp
@@ -101,11 +103,14 @@ set(CORE_HEADERS
     include/turbot/core/tool/builtin/list_tool.hpp
     include/turbot/core/tool/builtin/task_tool.hpp
         include/turbot/core/tool/builtin/question_tool.hpp
+    # Plugin module
+    include/turbot/core/plugin/plugin.hpp
     # Agent module
     include/turbot/core/agent/agent.hpp
     include/turbot/core/agent/builtin/build_agent.hpp
     include/turbot/core/agent/builtin/plan_agent.hpp
     include/turbot/core/agent/builtin/explore_agent.hpp
+        include/turbot/core/agent/builtin/configurable_agent.hpp
     # Session module
     include/turbot/core/session/session.hpp
     include/turbot/core/session/session_state_machine.hpp

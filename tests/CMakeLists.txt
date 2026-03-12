@@ -71,6 +71,10 @@ set(UNIT_TEST_SOURCES
     unit/snapshot_test.cpp
     # v2.8 Question Tool
     unit/question_tool_test.cpp
+    # v2.8.9 Plugin System
+    unit/plugin_test.cpp
+    # v2.8.10 Built-in Agent Presets
+    unit/builtin_agents_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})

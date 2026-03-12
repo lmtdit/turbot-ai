@@ -51,6 +51,7 @@ struct TURBOT_CORE_API AgentInfo {
     AgentMode mode = AgentMode::Primary;   ///< Agent mode
     bool native = false;                   ///< Whether this is a native (built-in) agent
     bool hidden = false;                   ///< Whether this agent should be hidden from UI
+    bool disable = false;                  ///< When true the agent is excluded from the registry
     permission::Ruleset permission;        ///< Permission rules for this agent
     std::optional<ModelRef> model;         ///< Preferred model (model_id + provider_id)
     nlohmann::json options;                ///< Additional agent options (excluded from equality comparison)

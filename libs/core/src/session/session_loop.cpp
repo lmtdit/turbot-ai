@@ -6,6 +6,7 @@
 #include <turbot/core/tool/tool_registry.hpp>
 #include <turbot/core/tool/builtin/question_tool.hpp>
 #include <turbot/core/llm/llm.hpp>
+#include <turbot/core/plugin/plugin.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <turbot/utils/string_utils.hpp>
 #include <fmt/format.h>
@@ -17,6 +18,11 @@
 #include <sstream>
 
 namespace turbot::core::session {
+
+/// Default title assigned to a freshly-created session (before title inference).
+/// Referenced by both run() (when creating the session) and
+/// generate_title_if_needed() (to decide whether inference is needed).
+static constexpr const char* kDefaultSessionTitle = "Interactive Session";
 
 const char* session_status_to_string(SessionStatus status) noexcept {
     switch (status) {
@@ -66,7 +72,7 @@ SessionLoop::SessionLoop(const std::string& session_id)
         params.project_id = "default";
         params.slug = "main";
         params.directory = (std::filesystem::temp_directory_path() / "turbot").string();
-        params.title = "Interactive Session";
+        params.title = kDefaultSessionTitle;
         
         auto created = Session::create(params);
         if (created) {
@@ -216,6 +222,24 @@ LoopResult SessionLoop::run(const std::string& user_message) {
             }
 
             // Step 2: full compaction (summarize old messages).
+            // Hook 5 — experimental.session.compacting
+            // Allow plugins to inject context into the compaction prompt or
+            // adjust behaviour before full summarization begins.
+            // Mirrors opencode Plugin.trigger("experimental.session.compacting").
+            {
+                nlohmann::json ctx = {{"session_id", session_.id()}};
+                nlohmann::json out = {{"system_injection", ""}};
+                plugin::PluginManager::instance().trigger(
+                    plugin::kHookSessionCompacting, ctx, out);
+                // The system_injection value is reserved for future use by
+                // session_.compact() once the compact API supports custom prompts.
+                const std::string injection =
+                    out.value("system_injection", std::string{});
+                if (!injection.empty()) {
+                    TURBOT_LOG_DEBUG("Plugin hook '{}': system injection set (len={})",
+                                     plugin::kHookSessionCompacting, injection.size());
+                }
+            }
             session_.compact();
             token_count_.store(0, std::memory_order_relaxed);
             result = LoopResult::Continue;
@@ -226,6 +250,14 @@ LoopResult SessionLoop::run(const std::string& user_message) {
 
     // Broadcast session lifecycle: Busy → Idle
     publish_status(session_.id(), SessionStatus::Idle);
+
+    // Title Agent — derive a short session title from the first user message.
+    // This runs synchronously (but very cheaply — just string slicing) after the
+    // session finishes so that callers receive an up-to-date title.
+    // The title is only set once: skip if the session already has a custom title.
+    if (result == LoopResult::Stop || result == LoopResult::Error) {
+        generate_title_if_needed();
+    }
 
     return result;
 }
@@ -358,6 +390,61 @@ LoopResult SessionLoop::process_llm_response() {
             params.tool_choice = agent_opts["tool_choice"].get<std::string>();
         }
     }
+
+    // Hook 1 — chat.params
+    // Allow plugins to modify temperature, top_p, and provider-specific options
+    // before the LLM stream call.  Mirrors opencode Plugin.trigger("chat.params").
+    {
+        nlohmann::json ctx = {
+            {"session_id", session_.id()},
+            {"agent",      local_agent ? local_agent->name() : ""},
+            {"model",      model_id_}
+        };
+        nlohmann::json out = {
+            {"temperature", params.temperature},
+            // Use JSON null to signal "no value / keep provider default" when
+            // params.top_p is std::nullopt.  A plugin that explicitly sets top_p
+            // must provide a number; otherwise the field remains null and we
+            // preserve the original optional state.
+            {"top_p",       params.top_p.has_value()
+                                ? nlohmann::json(params.top_p.value())
+                                : nlohmann::json(nullptr)},
+            {"options",     nlohmann::json::object()}
+        };
+        plugin::PluginManager::instance().trigger(plugin::kHookChatParams, ctx, out);
+        if (out.contains("temperature") && out["temperature"].is_number()) {
+            params.temperature = out["temperature"].get<double>();
+        }
+        if (out.contains("top_p") && out["top_p"].is_number()) {
+            // Only overwrite when the plugin provided an explicit numeric value.
+            params.top_p = out["top_p"].get<double>();
+        }
+        TURBOT_LOG_DEBUG("Plugin hook '{}' applied: temperature={:.3f}, top_p={:.3f}",
+                         plugin::kHookChatParams, params.temperature,
+                         params.top_p.value_or(1.0));
+    }
+
+    // Hook 2 — chat.headers
+    // Allow plugins to inject extra HTTP headers into the LLM provider request.
+    // Mirrors opencode Plugin.trigger("chat.headers").
+    // NOTE: Header injection into the HTTP layer is a future extension point;
+    // headers collected here are logged for observability and will be forwarded
+    // once the provider abstraction supports per-request headers.
+    {
+        nlohmann::json ctx = {
+            {"session_id", session_.id()},
+            {"agent",      local_agent ? local_agent->name() : ""},
+            {"model",      model_id_}
+        };
+        nlohmann::json out = {{"headers", nlohmann::json::object()}};
+        plugin::PluginManager::instance().trigger(plugin::kHookChatHeaders, ctx, out);
+        if (out.contains("headers") && out["headers"].is_object() &&
+            !out["headers"].empty()) {
+            TURBOT_LOG_DEBUG("Plugin hook '{}': {} custom header(s) registered (pending provider support)",
+                             plugin::kHookChatHeaders,
+                             out["headers"].size());
+        }
+    }
     
     // Track step info
     StepInfo step_info;
@@ -462,7 +549,19 @@ LoopResult SessionLoop::process_llm_response() {
     // Create assistant message
     core::Message assistant_msg(session_.id(), core::Role::Assistant,
                                 local_agent ? local_agent->name() : "assistant", "", "");
-    assistant_msg.add_part(core::Part::create_text(stream_result.final_text()));
+    // Hook 4 — experimental.text.complete
+    // Allow plugins to post-process the final assistant text (e.g. strip artefacts,
+    // append disclaimers).  Mirrors opencode Plugin.trigger("experimental.text.complete").
+    std::string final_text = stream_result.final_text();
+    {
+        nlohmann::json ctx = {{"session_id", session_.id()}};
+        nlohmann::json out = {{"text", final_text}};
+        plugin::PluginManager::instance().trigger(plugin::kHookTextComplete, ctx, out);
+        if (out.contains("text") && out["text"].is_string()) {
+            final_text = out["text"].get<std::string>();
+        }
+    }
+    assistant_msg.add_part(core::Part::create_text(final_text));
     
     // Add assistant message to history
     {
@@ -685,6 +784,51 @@ std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() con
     if (local_agent && local_agent->prompt().has_value() && !local_agent->prompt()->empty()) {
         result.push_back(llm::LLMMessage::system(*local_agent->prompt()));
     }
+
+    // Hook 3 — experimental.chat.system.transform
+    // Allow plugins to transform the system-prompt array (append, prepend, replace).
+    // Mirrors opencode Plugin.trigger("experimental.chat.system.transform").
+    // We collect all existing system messages into a JSON array, run the hook,
+    // then sync the (possibly modified) array back into result.
+    {
+        nlohmann::json system_array = nlohmann::json::array();
+        for (const auto& m : result) {
+            if (m.role == provider::ChatRole::System) {
+                system_array.push_back(m.content);
+            }
+        }
+
+        nlohmann::json ctx = {
+            {"session_id", session_.id()},
+            {"model",      model_id_}
+        };
+        nlohmann::json out = {{"system", system_array}};
+        plugin::PluginManager::instance().trigger(plugin::kHookSystemTransform, ctx, out);
+
+        // Rebuild the system portion of result if the hook changed anything.
+        if (out.contains("system") && out["system"].is_array() &&
+            out["system"] != system_array) {
+            // Remove old system messages from result (they are always at the front).
+            result.erase(
+                std::remove_if(result.begin(), result.end(),
+                               [](const llm::LLMMessage& m) {
+                                   return m.role == provider::ChatRole::System;
+                               }),
+                result.end());
+            // Prepend the (possibly modified) system messages.
+            std::vector<llm::LLMMessage> new_sys;
+            new_sys.reserve(out["system"].size());
+            for (const auto& s : out["system"]) {
+                if (s.is_string()) {
+                    new_sys.push_back(llm::LLMMessage::system(s.get<std::string>()));
+                }
+            }
+            result.insert(result.begin(), new_sys.begin(), new_sys.end());
+            TURBOT_LOG_DEBUG("Plugin hook '{}' modified system prompt ({} → {} part(s))",
+                             plugin::kHookSystemTransform,
+                             system_array.size(), out["system"].size());
+        }
+    }
     
     // Add conversation messages
     // Copy under lock, then build LLM messages outside the lock
@@ -747,6 +891,66 @@ std::vector<turbot::core::llm::LLMToolDefinition> SessionLoop::build_tool_defini
 
     tool_defs_dirty_ = false;
     return cached_tool_defs_;
+}
+
+// ============================================================================
+// generate_title_if_needed
+// ============================================================================
+
+void SessionLoop::generate_title_if_needed() {
+    // Only set the title if the session does not already have a non-default one.
+    // A freshly created session has the title kDefaultSessionTitle (set in run()).
+    // We replace it with a short snippet derived from the first user message.
+    if (session_.info().title != kDefaultSessionTitle) {
+        return; // Custom title already set — leave it alone.
+    }
+
+    // Find the first user message in the conversation snapshot.
+    std::string first_user_text;
+    {
+        std::lock_guard<std::mutex> lock(messages_mutex_);
+        for (const auto& msg : messages_) {
+            if (msg.role() == core::Role::User) {
+                first_user_text = msg.get_text();
+                break;
+            }
+        }
+    }
+
+    if (first_user_text.empty()) {
+        return;
+    }
+
+    // Derive a title: take the first line, trim whitespace, truncate to 60 chars.
+    // This is the "cheap" title agent implementation: no LLM call required.
+    // A future enhancement could run the `title` AgentInfo prompt through the LLM.
+    std::string title = first_user_text.substr(0, first_user_text.find('\n'));
+    // Strip leading/trailing whitespace
+    const auto ltrim = title.find_first_not_of(" \t\r\n");
+    if (ltrim != std::string::npos) {
+        title = title.substr(ltrim);
+    }
+    const auto rtrim = title.find_last_not_of(" \t\r\n");
+    if (rtrim != std::string::npos) {
+        title = title.substr(0, rtrim + 1);
+    }
+    // Truncate to 60 characters, appending "…" if needed
+    constexpr std::size_t kMaxLen = 60;
+    if (title.size() > kMaxLen) {
+        title = title.substr(0, kMaxLen) + "…";
+    }
+
+    if (title.empty()) {
+        return;
+    }
+
+    // Persist and publish — EventBus::publish must be called outside any lock.
+    session_.set_title(title);
+    turbot::core::EventBus::instance().publish(
+        SessionTitleUpdatedEvent::kEventName,
+        SessionTitleUpdatedEvent{session_.id(), title}
+    );
+    TURBOT_LOG_DEBUG("Title Agent: session '{}' titled '{}'", session_.id(), title);
 }
 
 } // namespace turbot::core::session

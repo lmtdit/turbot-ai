@@ -6,7 +6,7 @@ namespace turbot::core::agent {
 ExploreAgent::ExploreAgent() {
     info_.name = "explore";
     info_.description = "Agent for exploring and analyzing codebases";
-    info_.mode = AgentMode::Primary;
+    info_.mode = AgentMode::Subagent;
     info_.native = true;
     info_.hidden = false;
     // Explore agent has read-only permissions by default

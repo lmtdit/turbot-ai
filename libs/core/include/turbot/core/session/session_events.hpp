@@ -177,4 +177,17 @@ struct TURBOT_CORE_API QuestionRejectedEvent {
     std::string request_id;
 };
 
+/**
+ * @brief Broadcast after the title Agent has derived a short title for the session.
+ *
+ * Consumers (e.g. UI layers) can subscribe to this event to update the
+ * session-title display without polling the Session object.
+ */
+struct TURBOT_CORE_API SessionTitleUpdatedEvent {
+    static constexpr const char* kEventName = "session.title_updated";
+
+    std::string session_id;
+    std::string title;   ///< The newly assigned title
+};
+
 } // namespace turbot::core::session

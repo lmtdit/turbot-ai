@@ -619,7 +619,7 @@ TEST_CASE("ExploreAgent", "[core][agent][builtin][explore_agent]") {
         ExploreAgent agent;
         
         REQUIRE(agent.name() == "explore");
-        REQUIRE(agent.info().mode == AgentMode::Primary);
+        REQUIRE(agent.info().mode == AgentMode::Subagent);
         REQUIRE(agent.info().native == true);
     }
 
