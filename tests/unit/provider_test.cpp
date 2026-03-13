@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <catch2/catch_approx.hpp>
 #include <turbot/core/provider/provider.hpp>
 #include <turbot/core/provider/provider_manager.hpp>
 #include <turbot/core/provider/impl/openai_provider.hpp>
@@ -1259,4 +1260,130 @@ TEST_CASE("ProviderAdapter::from_tool_call_chunk - invalid json falls back to st
     // Should not throw; arguments stored as string
     REQUIRE(tc.id == "call_3");
     REQUIRE(tc.arguments.is_string());
+}
+
+// ============================================================================
+// ProviderAdapter::from_chat_options Tests
+// ============================================================================
+
+TEST_CASE("ProviderAdapter::from_chat_options - basic fields", "[provider][adapter]") {
+    ChatOptions options;
+    options.temperature = 0.7;
+    options.top_p = 0.9;
+    options.max_tokens = 2048;
+    options.stop = {"<|end|>", "DONE"};
+
+    auto params = ProviderAdapter::from_chat_options(options);
+    REQUIRE(params.temperature == Catch::Approx(0.7).epsilon(0.01));
+    REQUIRE(params.top_p == Catch::Approx(0.9).epsilon(0.01));
+    REQUIRE(params.max_tokens == 2048);
+    REQUIRE(params.stop.size() == 2);
+    REQUIRE(params.stop[0] == "<|end|>");
+    REQUIRE(params.stop[1] == "DONE");
+}
+
+TEST_CASE("ProviderAdapter::from_chat_options - with tools", "[provider][adapter]") {
+    ChatOptions options;
+    options.temperature = 1.0;
+
+    ToolDefinition tool;
+    tool.name = "calculator";
+    tool.description = "A math tool";
+    tool.parameters["type"] = "object";
+    options.tools.push_back(tool);
+
+    auto params = ProviderAdapter::from_chat_options(options);
+    REQUIRE(params.tools.size() == 1);
+    REQUIRE(params.tools[0].name == "calculator");
+}
+
+TEST_CASE("ProviderAdapter::from_chat_options - empty options", "[provider][adapter]") {
+    ChatOptions options;
+    auto params = ProviderAdapter::from_chat_options(options);
+    REQUIRE(params.tools.empty());
+    REQUIRE(params.stop.empty());
+}
+
+// ============================================================================
+// ProviderAdapter::to_stream_result Tests
+// ============================================================================
+
+TEST_CASE("ProviderAdapter::to_stream_result - text response", "[provider][adapter]") {
+    ChatResponse response;
+    response.id = "resp-1";
+    response.model = "gpt-4";
+    response.finish_reason = "stop";
+    response.usage = {100, 50, 150};
+
+    ChatMessage msg;
+    msg.role = ChatRole::Assistant;
+    msg.content = "Hello, world!";
+    response.choices.push_back(msg);
+
+    auto result = ProviderAdapter::to_stream_result(response);
+    REQUIRE(result.id == "resp-1");
+    REQUIRE(result.model == "gpt-4");
+    REQUIRE(result.finish_reason == core::FinishReason::Stop);
+    // Events: text_start + text_delta + text_end + finish
+    REQUIRE(result.events.size() >= 3);
+}
+
+TEST_CASE("ProviderAdapter::to_stream_result - error response", "[provider][adapter]") {
+    ChatResponse response;
+    response.id = "resp-err";
+    response.model = "gpt-4";
+    response.error = nlohmann::json{{"message", "Rate limit exceeded"}};
+
+    auto result = ProviderAdapter::to_stream_result(response);
+    REQUIRE(result.error == "Rate limit exceeded");
+}
+
+TEST_CASE("ProviderAdapter::to_stream_result - error without message field", "[provider][adapter]") {
+    ChatResponse response;
+    response.id = "resp-err2";
+    response.model = "gpt-4";
+    response.error = nlohmann::json{{"code", 429}};  // no "message" key
+
+    auto result = ProviderAdapter::to_stream_result(response);
+    REQUIRE(result.error == "API error");
+}
+
+TEST_CASE("ProviderAdapter::to_stream_result - with tool calls", "[provider][adapter]") {
+    ChatResponse response;
+    response.id = "resp-tc";
+    response.model = "gpt-4";
+    response.finish_reason = "tool_calls";
+
+    ChatMessage msg;
+    msg.role = ChatRole::Assistant;
+    msg.content = "";
+    ToolCall tc;
+    tc.id = "call_1";
+    tc.name = "search";
+    tc.arguments = nlohmann::json{{"query", "test"}};
+    msg.tool_calls = {tc};
+    response.choices.push_back(msg);
+
+    auto result = ProviderAdapter::to_stream_result(response);
+    // finish_reason is "tool_calls" from OpenAI; no error expected
+    REQUIRE_FALSE(result.error.has_value());
+    // Should have a tool_call event
+    bool has_tool_event = false;
+    for (const auto& ev : result.events) {
+        if (ev.type == core::StreamEventType::ToolCall) {
+            has_tool_event = true;
+        }
+    }
+    REQUIRE(has_tool_event);
+}
+
+TEST_CASE("ProviderAdapter::to_stream_result - unknown event type in from_chat_stream_event", "[provider][adapter]") {
+    // Test the default branch: create a ChatStreamEvent with an unknown type value
+    ChatStreamEvent ev;
+    ev.type = static_cast<StreamEventType>(999);
+    ev.content = "ignored";
+
+    auto stream_ev = ProviderAdapter::to_stream_event(ev);
+    // Should return an error event
+    REQUIRE(stream_ev.type == core::StreamEventType::Error);
 }

@@ -533,7 +533,7 @@ TEST_CASE("json::remove_path - object key", "[utils][json]") {
     }
 }
 
-TEST_CASE("json::has_path", "[utils][json]") {
+TEST_CASE("json::has_path - additional", "[utils][json]") {
     nlohmann::json data = {{"a", {{"b", 42}}}};
     REQUIRE(has_path(data, "a") == true);
     REQUIRE(has_path(data, "a.b") == true);
@@ -541,7 +541,7 @@ TEST_CASE("json::has_path", "[utils][json]") {
     REQUIRE(has_path(data, "x") == false);
 }
 
-TEST_CASE("json::clone", "[utils][json]") {
+TEST_CASE("json::clone - deep copy", "[utils][json]") {
     nlohmann::json original = {{"key", "value"}, {"num", 42}};
     auto cloned = clone(original);
     REQUIRE(cloned == original);
@@ -550,13 +550,13 @@ TEST_CASE("json::clone", "[utils][json]") {
     REQUIRE(original["key"] == "value");
 }
 
-TEST_CASE("json::equals", "[utils][json]") {
+TEST_CASE("json::equals - additional", "[utils][json]") {
     REQUIRE(equals(nlohmann::json(42), nlohmann::json(42)) == true);
     REQUIRE(equals(nlohmann::json("a"), nlohmann::json("b")) == false);
     REQUIRE(equals(nlohmann::json::object(), nlohmann::json::object()) == true);
 }
 
-TEST_CASE("json::pretty_print", "[utils][json]") {
+TEST_CASE("json::pretty_print - with indent", "[utils][json]") {
     nlohmann::json data = {{"name", "test"}, {"value", 123}};
     auto output = pretty_print(data, 2);
     REQUIRE(output.find("name") != std::string::npos);

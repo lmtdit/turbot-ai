@@ -604,3 +604,49 @@ TEST_CASE("Complex nested schema validation", "[core][llm][tool_schema][validati
             nlohmann::json::array({{{"name", "no_id"}}}), schema));
     }
 }
+
+// ============================================================================
+// ParameterSchema::to_json_schema - array items and object properties
+// ============================================================================
+
+TEST_CASE("ParameterSchema::to_json_schema - array with items", "[core][llm][tool_schema][schema]") {
+    auto item = std::make_shared<ParameterSchema>();
+    item->type = SchemaType::String;
+    item->description = "An item";
+
+    ParameterSchema schema;
+    schema.type = SchemaType::Array;
+    schema.items = item;
+
+    auto j = schema.to_json_schema();
+    REQUIRE(j["type"] == "array");
+    REQUIRE(j.contains("items"));
+    REQUIRE(j["items"]["type"] == "string");
+    REQUIRE(j["items"]["description"] == "An item");
+}
+
+TEST_CASE("ParameterSchema::to_json_schema - object with properties", "[core][llm][tool_schema][schema]") {
+    auto name_prop = std::make_shared<ParameterSchema>();
+    name_prop->type = SchemaType::String;
+    name_prop->required = true;
+
+    auto age_prop = std::make_shared<ParameterSchema>();
+    age_prop->type = SchemaType::Integer;
+
+    ParameterSchema schema;
+    schema.type = SchemaType::Object;
+    schema.properties["name"] = name_prop;
+    schema.properties["age"] = age_prop;
+
+    auto j = schema.to_json_schema();
+    REQUIRE(j["type"] == "object");
+    REQUIRE(j.contains("properties"));
+    REQUIRE(j["properties"].contains("name"));
+    REQUIRE(j["properties"]["name"]["type"] == "string");
+    REQUIRE(j["properties"].contains("age"));
+}
+
+TEST_CASE("schema_type_to_string - invalid SchemaType throws", "[core][llm][tool_schema][schema_type]") {
+    // Cast an out-of-range value to SchemaType to trigger the throw
+    REQUIRE_THROWS_AS(schema_type_to_string(static_cast<SchemaType>(999)), std::invalid_argument);
+}

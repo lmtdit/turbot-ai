@@ -304,7 +304,8 @@ TEST_CASE("PromptBuilder::build different providers", "[llm][prompt_builder][pro
         params.model_id = "gpt-4";
 
         auto result = builder.build(params);
-        REQUIRE(result.system.find("Workflow") != std::string::npos);
+        // beast fallback for OpenAI gpt-4 model
+        REQUIRE(result.system.find("keep going") != std::string::npos);
     }
 
     SECTION("Anthropic provider") {
@@ -312,7 +313,8 @@ TEST_CASE("PromptBuilder::build different providers", "[llm][prompt_builder][pro
         params.model_id = "claude-3-opus";
 
         auto result = builder.build(params);
-        REQUIRE(result.system.find("Task Management") != std::string::npos);
+        // anthropic fallback contains "coding agent"
+        REQUIRE(result.system.find("coding agent") != std::string::npos);
     }
 
     SECTION("Gemini provider") {

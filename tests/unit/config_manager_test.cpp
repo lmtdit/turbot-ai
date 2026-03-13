@@ -226,7 +226,15 @@ TEST_CASE("ConfigManager::load_config", "[core][config_manager]") {
     auto& manager = ConfigManager::instance();
 
     SECTION("load non-existing file returns failure") {
+        // Point to a temp dir that definitely has no turbot.json
+        std::string empty_dir = create_temp_dir("turbot_test_no_config");
+        setenv("TURBOT_PROJECT_CONFIG_PATH", empty_dir.c_str(), 1);
+
         LoadResult result = manager.load_config(ConfigLevel::Project);
+
+        unsetenv("TURBOT_PROJECT_CONFIG_PATH");
+        remove_temp_dir(empty_dir);
+
         REQUIRE_FALSE(result.success);
         REQUIRE_FALSE(result.warnings.empty());
     }
@@ -828,5 +836,89 @@ TEST_CASE("ConfigManager edge cases", "[core][config_manager]") {
         auto value = manager.get<std::string>("a.b.c.d.e");
         REQUIRE(value.has_value());
         REQUIRE(value.value() == "deep_value");
+    }
+}
+
+// ==================== ConfigManager::save_config (User level) ====================
+
+TEST_CASE("ConfigManager::save_config User level", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    SECTION("save to user level") {
+        std::string temp_dir = create_temp_dir("turbot_test_save_user");
+        setenv("TURBOT_USER_CONFIG_PATH", temp_dir.c_str(), 1);
+
+        bool result = manager.save_config(ConfigLevel::User);
+        REQUIRE(result == true);
+
+        // File should exist
+        REQUIRE(std::filesystem::exists(temp_dir + "/turbot.json"));
+
+        unsetenv("TURBOT_USER_CONFIG_PATH");
+        remove_temp_dir(temp_dir);
+    }
+}
+
+// ==================== ConfigManager::merge_config (via initialize) ====================
+
+TEST_CASE("ConfigManager config merging via initialize", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    SECTION("multiple config files merged together") {
+        std::string user_dir = create_temp_dir("turbot_test_merge2_user");
+        std::string project_dir = create_temp_dir("turbot_test_merge2_project");
+
+        create_temp_config(user_dir, "turbot.json", R"({
+            "version": "1.0",
+            "user_exclusive": "from_user",
+            "shared_key": "user_value"
+        })");
+
+        create_temp_config(project_dir, "turbot.json", R"({
+            "version": "1.0",
+            "project_exclusive": "from_project",
+            "shared_key": "project_value"
+        })");
+
+        setenv("TURBOT_USER_CONFIG_PATH", user_dir.c_str(), 1);
+        setenv("TURBOT_PROJECT_CONFIG_PATH", project_dir.c_str(), 1);
+
+        manager.initialize();
+
+        // Both configs merged; project overrides shared key
+        auto shared = manager.get<std::string>("shared_key");
+        REQUIRE(shared.has_value());
+        REQUIRE(shared.value() == "project_value");
+
+        auto user_excl = manager.get<std::string>("user_exclusive");
+        REQUIRE(user_excl.has_value());
+        REQUIRE(user_excl.value() == "from_user");
+
+        auto proj_excl = manager.get<std::string>("project_exclusive");
+        REQUIRE(proj_excl.has_value());
+        REQUIRE(proj_excl.value() == "from_project");
+
+        unsetenv("TURBOT_USER_CONFIG_PATH");
+        unsetenv("TURBOT_PROJECT_CONFIG_PATH");
+        remove_temp_dir(user_dir);
+        remove_temp_dir(project_dir);
+    }
+}
+
+// ==================== ConfigManager::get_log_path (project path) ====================
+
+TEST_CASE("ConfigManager::get_log_path project-based", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    SECTION("project log path uses project config dir") {
+        std::string temp_dir = create_temp_dir("turbot_test_log_path");
+        setenv("TURBOT_PROJECT_CONFIG_PATH", temp_dir.c_str(), 1);
+
+        manager.initialize();
+        std::string log_path = manager.get_log_path();
+        REQUIRE_FALSE(log_path.empty());
+
+        unsetenv("TURBOT_PROJECT_CONFIG_PATH");
+        remove_temp_dir(temp_dir);
     }
 }

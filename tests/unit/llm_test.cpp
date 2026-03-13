@@ -637,3 +637,93 @@ TEST_CASE("LLM::to_chat_options forwards tool_choice via extra", "[llm][toolchoi
         REQUIRE(opts.extra["tool_choice"] == "required");
     }
 }
+
+// ============================================================================
+// ToolCallResult serialization
+// ============================================================================
+
+TEST_CASE("ToolCallResult::to_json and from_json", "[llm][tool_call_result]") {
+    SECTION("normal result") {
+        ToolCallResult result;
+        result.tool_call_id = "call_1";
+        result.content = "Result content";
+        result.is_error = false;
+
+        auto j = result.to_json();
+        REQUIRE(j["tool_call_id"] == "call_1");
+        REQUIRE(j["content"] == "Result content");
+        REQUIRE_FALSE(j.contains("is_error"));
+
+        auto restored = ToolCallResult::from_json(j);
+        REQUIRE(restored.tool_call_id == "call_1");
+        REQUIRE(restored.content == "Result content");
+        REQUIRE_FALSE(restored.is_error);
+    }
+
+    SECTION("error result") {
+        ToolCallResult result;
+        result.tool_call_id = "call_err";
+        result.content = "Error: something went wrong";
+        result.is_error = true;
+
+        auto j = result.to_json();
+        REQUIRE(j["is_error"] == true);
+
+        auto restored = ToolCallResult::from_json(j);
+        REQUIRE(restored.is_error == true);
+    }
+}
+
+// ============================================================================
+// LLMToolDefinition serialization
+// ============================================================================
+
+TEST_CASE("LLMToolDefinition::to_json and from_json", "[llm][tool_definition]") {
+    LLMToolDefinition tool;
+    tool.name = "search";
+    tool.description = "Search the web";
+    tool.parameters = {{"type", "object"}, {"properties", {{"query", {{"type", "string"}}}}}};
+
+    auto j = tool.to_json();
+    REQUIRE(j["type"] == "function");
+    REQUIRE(j["function"]["name"] == "search");
+    REQUIRE(j["function"]["description"] == "Search the web");
+    REQUIRE(j.contains("function"));
+
+    auto restored = LLMToolDefinition::from_json(j);
+    REQUIRE(restored.name == "search");
+    REQUIRE(restored.description == "Search the web");
+}
+
+// ============================================================================
+// LLMMessage with optional fields
+// ============================================================================
+
+TEST_CASE("LLMMessage serialization with optional fields", "[llm][message][json]") {
+    SECTION("message with name") {
+        auto msg = LLMMessage::user("Hello");
+        msg.name = "alice";
+
+        auto j = msg.to_json();
+        REQUIRE(j.contains("name"));
+        REQUIRE(j["name"] == "alice");
+
+        auto restored = LLMMessage::from_json(j);
+        REQUIRE(restored.name.has_value());
+        REQUIRE(restored.name.value() == "alice");
+    }
+
+    SECTION("tool_result message with tool_call_id") {
+        auto msg = LLMMessage::tool_result("call_42", "The answer is 42", false);
+        REQUIRE(msg.tool_call_id.has_value());
+        REQUIRE(msg.tool_call_id.value() == "call_42");
+
+        auto j = msg.to_json();
+        REQUIRE(j.contains("tool_call_id"));
+        REQUIRE(j["tool_call_id"] == "call_42");
+
+        auto restored = LLMMessage::from_json(j);
+        REQUIRE(restored.tool_call_id.has_value());
+        REQUIRE(restored.tool_call_id.value() == "call_42");
+    }
+}

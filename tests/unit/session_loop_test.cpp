@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <turbot/core/session/session_loop.hpp>
+#include <turbot/core/session/session_events.hpp>
 #include <turbot/core/session/retry_manager.hpp>
 #include <turbot/core/agent/agent.hpp>
 #include <turbot/core/agent/builtin/build_agent.hpp>
@@ -921,4 +922,56 @@ TEST_CASE("LiteLLM noop injected when history has tool role messages and tools l
     // the second LLM call to complete (provider ignores the noop tool).
     auto r2 = loop.run("second turn — no tools");
     REQUIRE(r2 != LoopResult::Error);
+}
+
+// ============================================================================
+// loop_result_to_string
+// ============================================================================
+
+TEST_CASE("loop_result_to_string", "[session][loop]") {
+    REQUIRE(loop_result_to_string(LoopResult::Continue) == "continue");
+    REQUIRE(loop_result_to_string(LoopResult::Stop)     == "stop");
+    REQUIRE(loop_result_to_string(LoopResult::Compact)  == "compact");
+    REQUIRE(loop_result_to_string(LoopResult::Error)    == "error");
+    REQUIRE_THROWS(loop_result_to_string(static_cast<LoopResult>(99)));
+}
+
+TEST_CASE("SessionLoop::set callbacks", "[session][loop]") {
+    CreateParams cp;
+    cp.project_id = "test-cb"; cp.slug = "cb"; cp.directory = "/tmp"; cp.title = "CB";
+    auto session = Session::create(cp);
+    REQUIRE(session.has_value());
+
+    SessionLoop loop(std::move(*session));
+
+    bool stream_called = false;
+    bool step_called = false;
+    bool error_called = false;
+
+    loop.set_on_stream_event([&](const StreamEvent& ev) {
+        stream_called = true;
+    });
+    loop.set_on_step([&](const StepInfo& info) {
+        step_called = true;
+    });
+    loop.set_on_error([&](const std::string& err, const std::string& code) {
+        error_called = true;
+    });
+
+    // Callbacks are set; we just verify they compile and don't crash
+    REQUIRE_FALSE(stream_called);
+    REQUIRE_FALSE(step_called);
+    REQUIRE_FALSE(error_called);
+}
+
+TEST_CASE("SessionLoop::stop_requested via request_stop", "[session][loop]") {
+    CreateParams cp;
+    cp.project_id = "test-stop"; cp.slug = "st"; cp.directory = "/tmp"; cp.title = "Stop";
+    auto session = Session::create(cp);
+    REQUIRE(session.has_value());
+
+    SessionLoop loop(std::move(*session));
+    // stop() should not crash when called before run()
+    loop.stop();
+    REQUIRE_FALSE(loop.is_running());
 }
