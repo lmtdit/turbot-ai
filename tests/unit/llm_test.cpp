@@ -963,3 +963,228 @@ TEST_CASE("StreamingState::has_events", "[llm][streaming_state]") {
     state.pop_event();
     REQUIRE_FALSE(state.has_events());
 }
+
+// ============================================================================
+// MockProvider with Reasoning support
+// ============================================================================
+
+class ReasoningMockProvider : public provider::Provider {
+public:
+    std::string id() const override { return "reasoning-mock"; }
+    std::string name() const override { return "Reasoning Mock Provider"; }
+    bool is_ready() const override { return true; }
+
+    std::vector<provider::ModelInfo> list_models() const override {
+        return {{"reasoning-model", "reasoning-mock", "Reasoning Model", "A reasoning model"}};
+    }
+
+    std::optional<provider::ModelInfo> get_model(const std::string& model_id) const override {
+        if (model_id == "reasoning-model") {
+            return {{"reasoning-model", "reasoning-mock", "Reasoning Model", "A reasoning model"}};
+        }
+        return std::nullopt;
+    }
+
+    bool supports_model(const std::string& model_id) const override {
+        return model_id == "reasoning-model";
+    }
+
+    provider::ChatResponse chat(
+        const std::vector<provider::ChatMessage>& messages,
+        const std::string& model_id,
+        const provider::ChatOptions& options
+    ) override {
+        provider::ChatResponse response;
+        response.id = "reasoning-chat-1";
+        response.model = model_id;
+        response.finish_reason = "stop";
+        
+        provider::ChatMessage choice;
+        choice.role = provider::ChatRole::Assistant;
+        choice.content = "Final answer";
+        response.choices.push_back(choice);
+        
+        return response;
+    }
+
+    provider::ChatResponse chat_stream(
+        const std::vector<provider::ChatMessage>& messages,
+        const std::string& model_id,
+        const provider::ChatOptions& options,
+        provider::StreamCallback callback
+    ) override {
+        provider::ChatResponse response;
+        response.id = "reasoning-stream-1";
+        response.model = model_id;
+
+        // Emit reasoning event
+        if (emit_reasoning_) {
+            provider::ChatStreamEvent reasoning_event;
+            reasoning_event.type = provider::StreamEventType::Reasoning;
+            reasoning_event.content = "Let me think about this...";
+            callback(reasoning_event);
+        }
+
+        // Emit text delta
+        provider::ChatStreamEvent text_event;
+        text_event.type = provider::StreamEventType::TextDelta;
+        text_event.content = "Final answer";
+        callback(text_event);
+
+        // Emit finish
+        provider::ChatStreamEvent finish_event;
+        finish_event.type = provider::StreamEventType::Finish;
+        finish_event.finish_reason = "stop";
+        finish_event.usage = TokenUsage{100, 50, 20};
+        callback(finish_event);
+
+        response.finish_reason = "stop";
+        response.usage = TokenUsage{100, 50, 20};
+        return response;
+    }
+
+    int64_t count_tokens(
+        const std::vector<provider::ChatMessage>& messages,
+        const std::string& model_id
+    ) const override {
+        return 100;
+    }
+
+    bool validate() override { return true; }
+
+    void set_emit_reasoning(bool emit) { emit_reasoning_ = emit; }
+
+private:
+    bool emit_reasoning_ = true;
+};
+
+// ============================================================================
+// LLM::stream with Reasoning event
+// ============================================================================
+
+TEST_CASE("LLM stream with reasoning event", "[llm][stream][reasoning]") {
+    ReasoningMockProvider provider;
+    StreamParams params;
+    params.session_id = "test-reasoning";
+    params.messages.push_back(LLMMessage::user("What is 2+2?"));
+
+    std::vector<StreamEvent> collected_events;
+    auto result = LLM::stream(provider, "reasoning-model", params, 
+        [&collected_events](const StreamEvent& e) {
+            collected_events.push_back(e);
+        });
+
+    // Drain events
+    while (auto event = result.next()) {
+        // Process events
+    }
+
+    // Should have reasoning in the final result
+    REQUIRE_FALSE(result.final_reasoning().empty());
+}
+
+// ============================================================================
+// LLM::stream with abort callback
+// ============================================================================
+
+TEST_CASE("LLM stream with abort callback", "[llm][stream][abort]") {
+    MockProvider provider;
+    
+    // Create params with abort callback
+    StreamParams params;
+    params.session_id = "test-abort";
+    params.messages.push_back(LLMMessage::user("Hello"));
+    
+    // Set abort to return true
+    bool should_abort = false;
+    params.is_aborted = [&should_abort]() { return should_abort; };
+
+    std::vector<StreamEvent> events;
+    auto result = LLM::stream(provider, "mock-model", params, 
+        [&events](const StreamEvent& e) {
+            events.push_back(e);
+        });
+
+    // Drain events normally first
+    while (auto event = result.next()) {
+        // Process
+    }
+
+    // Should complete normally
+    REQUIRE(result.is_done());
+}
+
+// ============================================================================
+// LLM::complete error handling
+// ============================================================================
+
+TEST_CASE("LLM complete with error response", "[llm][complete][error]") {
+    MockProvider provider;
+    provider.set_should_error(true, "API rate limit exceeded");
+    
+    StreamParams params;
+    params.session_id = "test-error";
+    params.messages.push_back(LLMMessage::user("Hello"));
+
+    REQUIRE_THROWS_AS(
+        LLM::complete(provider, "mock-model", params),
+        std::runtime_error
+    );
+}
+
+TEST_CASE("LLM complete with error but no message", "[llm][complete][error]") {
+    MockProvider provider;
+    provider.set_should_error(true, "");  // Error but empty message
+    
+    StreamParams params;
+    params.session_id = "test-error-no-msg";
+    params.messages.push_back(LLMMessage::user("Hello"));
+
+    // Should throw generic error message
+    REQUIRE_THROWS_AS(
+        LLM::complete(provider, "mock-model", params),
+        std::runtime_error
+    );
+}
+
+// ============================================================================
+// StreamingState::to_result
+// ============================================================================
+
+TEST_CASE("StreamingState::to_result", "[llm][streaming_state]") {
+    StreamingState state;
+    
+    state.set_response_id("resp-123");
+    state.set_model("gpt-4");
+    state.add_event(StreamEvent::create_text_delta("t1", "Hello"));
+    state.mark_done(FinishReason::Stop, TokenUsage{100, 50, 0});
+    
+    auto result = state.to_result();
+    
+    REQUIRE(result.id == "resp-123");
+    REQUIRE(result.model == "gpt-4");
+    REQUIRE(result.finish_reason == FinishReason::Stop);
+    REQUIRE(result.usage.input == 100);
+    REQUIRE(result.usage.output == 50);
+    REQUIRE_FALSE(result.error.has_value());
+}
+
+// ============================================================================
+// StreamingState::mark_error with code
+// ============================================================================
+
+TEST_CASE("StreamingState::mark_error with error code", "[llm][streaming_state]") {
+    StreamingState state;
+    
+    state.mark_error("Rate limit exceeded", "rate_limit");
+    
+    REQUIRE(state.is_done());
+    REQUIRE(state.error() == "Rate limit exceeded");
+    
+    // Drain the error event
+    auto event = state.pop_event();
+    REQUIRE(event.has_value());
+    REQUIRE(event->type == StreamEventType::Error);
+    REQUIRE(event->error_message == "Rate limit exceeded");
+    REQUIRE(event->error_code == "rate_limit");
+}

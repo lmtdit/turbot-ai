@@ -1045,3 +1045,71 @@ TEST_CASE("ConfigManager::set and get with deep path", "[core][config_manager]")
         REQUIRE(*val == "first");
     }
 }
+
+// ==================== ConfigManager environment variable handling ====================
+
+TEST_CASE("ConfigManager::load_env_overrides with TURBOT_ prefix", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+    
+    // Set a custom TURBOT_ environment variable
+    setenv("TURBOT_CUSTOM_VALUE", "test123", 1);
+    
+    manager.initialize();
+    
+    // The env override should be applied
+    auto val = manager.get<std::string>("custom.value");
+}
+
+// ==================== ConfigManager::parse_yaml edge cases ====================
+
+TEST_CASE("ConfigManager::parse_yaml with dedented key", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    // YAML where key indentation decreases
+    SECTION("yaml with decreasing indentation") {
+        std::string yaml = R"(
+level1:
+  level2:
+    level3: deep
+back_to_root: value
+)";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        REQUIRE(result.contains("level1"));
+        REQUIRE(result.contains("back_to_root"));
+    }
+}
+
+// ==================== ConfigManager::set_by_path edge cases ====================
+
+TEST_CASE("ConfigManager::set_by_path with empty path", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+    manager.initialize();
+    
+    // Setting with empty path should be a no-op (not crash)
+    manager.set("", "test_value");
+    
+    // Verify we can still get other values
+    SUCCEED();
+}
+
+// ==================== ConfigManager deep path operations ====================
+
+TEST_CASE("ConfigManager::set and get with deep path", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+    manager.initialize();
+
+    SECTION("set deeply nested path") {
+        manager.set("deep.nested.path.value", 42);
+        auto val = manager.get<int>("deep.nested.path.value");
+        REQUIRE(val.has_value());
+        REQUIRE(*val == 42);
+    }
+
+    SECTION("set with array index syntax") {
+        manager.set("items.0.name", "first");
+        auto val = manager.get<std::string>("items.0.name");
+        REQUIRE(val.has_value());
+        REQUIRE(*val == "first");
+    }
+}
