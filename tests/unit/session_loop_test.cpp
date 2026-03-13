@@ -975,3 +975,25 @@ TEST_CASE("SessionLoop::stop_requested via request_stop", "[session][loop]") {
     loop.stop();
     REQUIRE_FALSE(loop.is_running());
 }
+
+// ============================================================================
+// SessionLoop construction from existing session id (covers Session::get path)
+// ============================================================================
+
+TEST_CASE("SessionLoop construction from existing session_id", "[core][session][session_loop]") {
+    // Create a session first
+    CreateParams cp;
+    cp.project_id = "test-existing";
+    cp.slug = "existing-sess";
+    cp.directory = "/tmp";
+    cp.title = "Existing Session";
+
+    auto session = Session::create(cp);
+    REQUIRE(session.has_value());
+    std::string session_id = session->id();
+
+    // Now construct SessionLoop using the string id — should find the existing session
+    SessionLoop loop(session_id);
+    REQUIRE_FALSE(loop.is_running());
+    REQUIRE(loop.session().id() == session_id);
+}

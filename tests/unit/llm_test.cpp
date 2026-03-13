@@ -727,3 +727,153 @@ TEST_CASE("LLMMessage serialization with optional fields", "[llm][message][json]
         REQUIRE(restored.tool_call_id.value() == "call_42");
     }
 }
+
+// ============================================================================
+// LLMToolDefinition::from_json flat format (no "function" wrapper)
+// ============================================================================
+
+TEST_CASE("LLMToolDefinition::from_json flat format", "[llm][tool_definition]") {
+    // When JSON has no "function" key, it should fall back to reading fields directly
+    nlohmann::json flat = {
+        {"name", "grep"},
+        {"description", "Search files"},
+        {"parameters", {{"type", "object"}}}
+    };
+
+    auto tool = LLMToolDefinition::from_json(flat);
+    REQUIRE(tool.name == "grep");
+    REQUIRE(tool.description == "Search files");
+    REQUIRE(tool.parameters["type"] == "object");
+}
+
+// ============================================================================
+// StreamParams with optional fields (tool_choice, top_p, stop)
+// ============================================================================
+
+TEST_CASE("StreamParams serialization with optional fields", "[llm][params]") {
+    SECTION("with tool_choice") {
+        StreamParams params;
+        params.session_id = "sess-1";
+        params.tool_choice = "auto";
+
+        auto j = params.to_json();
+        REQUIRE(j.contains("tool_choice"));
+        REQUIRE(j["tool_choice"] == "auto");
+
+        auto restored = StreamParams::from_json(j);
+        REQUIRE(restored.tool_choice.has_value());
+        REQUIRE(restored.tool_choice.value() == "auto");
+    }
+
+    SECTION("with top_p") {
+        StreamParams params;
+        params.top_p = 0.95;
+
+        auto j = params.to_json();
+        REQUIRE(j.contains("top_p"));
+
+        auto restored = StreamParams::from_json(j);
+        REQUIRE(restored.top_p.has_value());
+    }
+
+    SECTION("with stop sequences") {
+        StreamParams params;
+        params.stop = {"<|end|>", "STOP"};
+
+        auto j = params.to_json();
+        REQUIRE(j.contains("stop"));
+        REQUIRE(j["stop"].size() == 2);
+
+        auto restored = StreamParams::from_json(j);
+        REQUIRE(restored.stop.size() == 2);
+        REQUIRE(restored.stop[0] == "<|end|>");
+    }
+
+    SECTION("with max_tokens in from_json") {
+        nlohmann::json j = {
+            {"session_id", "sess-x"},
+            {"temperature", 0.8},
+            {"max_tokens", 2048}
+        };
+        auto params = StreamParams::from_json(j);
+        REQUIRE(params.max_tokens.has_value());
+        REQUIRE(params.max_tokens.value() == 2048);
+    }
+}
+
+// ============================================================================
+// StreamingState::get_reasoning
+// ============================================================================
+
+TEST_CASE("StreamingState::get_reasoning", "[llm][streaming_state]") {
+    StreamingState state;
+
+    SECTION("empty reasoning returns empty string") {
+        REQUIRE(state.get_reasoning().empty());
+    }
+
+    SECTION("accumulates reasoning deltas") {
+        StreamEvent ev1;
+        ev1.type = StreamEventType::ReasoningDelta;
+        ev1.delta = "Think ";
+        state.add_event(ev1);
+
+        StreamEvent ev2;
+        ev2.type = StreamEventType::ReasoningDelta;
+        ev2.delta = "step by step";
+        state.add_event(ev2);
+
+        REQUIRE(state.get_reasoning() == "Think step by step");
+    }
+
+    SECTION("non-reasoning events do not affect reasoning text") {
+        state.add_event(StreamEvent::create_text_delta("t1", "Hello"));
+
+        StreamEvent reason_ev;
+        reason_ev.type = StreamEventType::ReasoningDelta;
+        reason_ev.delta = "reason";
+        state.add_event(reason_ev);
+
+        REQUIRE(state.get_text() == "Hello");
+        REQUIRE(state.get_reasoning() == "reason");
+    }
+}
+
+// ============================================================================
+// LLMStreamResult with null state (no-op / default paths)
+// ============================================================================
+
+TEST_CASE("LLMStreamResult null state", "[llm][stream_result]") {
+    // Construct with null state
+    LLMStreamResult result(nullptr);
+
+    REQUIRE(result.is_done());
+    REQUIRE(result.final_text().empty());
+    REQUIRE(result.final_reasoning().empty());
+    REQUIRE(result.tool_calls().empty());
+    REQUIRE(result.usage().total() == 0);
+    REQUIRE(result.finish_reason() == FinishReason::Stop);
+    REQUIRE_FALSE(result.has_error());
+    REQUIRE_FALSE(result.error().has_value());
+    REQUIRE_FALSE(result.next().has_value());
+}
+
+// ============================================================================
+// LLMStreamResult::final_reasoning with a real state
+// ============================================================================
+
+TEST_CASE("LLMStreamResult::final_reasoning", "[llm][stream_result]") {
+    auto state = std::make_shared<StreamingState>();
+
+    StreamEvent ev;
+    ev.type = StreamEventType::ReasoningDelta;
+    ev.delta = "I think therefore I am";
+    state->add_event(ev);
+    state->mark_done(FinishReason::Stop, TokenUsage{});
+
+    LLMStreamResult result(state);
+    // Drain events first
+    while (result.next().has_value()) {}
+
+    REQUIRE(result.final_reasoning() == "I think therefore I am");
+}

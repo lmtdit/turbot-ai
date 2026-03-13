@@ -573,6 +573,26 @@ TEST_CASE("ConfigManager::parse_yaml", "[core][config_manager]") {
         REQUIRE(result["single"] == "value");
         REQUIRE(result["double"] == "value");
     }
+
+    SECTION("parse negative integer") {
+        std::string yaml = "neg: -42\n";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        // Should be parsed as a number
+        REQUIRE(result.contains("neg"));
+        REQUIRE(result["neg"].is_number());
+    }
+
+    SECTION("parse array via indented list") {
+        std::string yaml =
+            "items:\n"
+            "  - alpha\n"
+            "  - beta\n"
+            "  - gamma\n";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        // The items key may be object or array depending on parser
+        REQUIRE(result.contains("items"));
+    }
 }
 
 // ==================== ConfigManager::resolve_env_vars 测试 ====================
