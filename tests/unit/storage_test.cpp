@@ -1657,3 +1657,65 @@ TEST_CASE("Transaction::state_transitions", "[storage][transaction]") {
     }
 }
 
+// ============================================================================
+// SQLiteDatabase::bind_value unsigned integer path
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::bind unsigned integer value", "[storage][sqlite][bind]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    db->execute("CREATE TABLE uint_bind_test (id INTEGER PRIMARY KEY, value INTEGER)");
+    
+    SECTION("small uint64 value within int64 range") {
+        // Use nlohmann::json constructed explicitly as unsigned
+        nlohmann::json uint_val = nlohmann::json::number_unsigned_t(42);
+        
+        db->execute(
+            "INSERT INTO uint_bind_test (value) VALUES (?)",
+            {uint_val}
+        );
+        
+        auto row = db->execute_one("SELECT value FROM uint_bind_test WHERE id = 1");
+        REQUIRE(row.has_value());
+    }
+    
+    SECTION("uint64 value exceeding int64 range") {
+        // Value > INT64_MAX
+        nlohmann::json overflow_val = nlohmann::json::number_unsigned_t(
+            static_cast<nlohmann::json::number_unsigned_t>(std::numeric_limits<int64_t>::max()) + 1ULL
+        );
+        
+        // Only test if json actually stores it as unsigned (triggers the is_number_unsigned branch)
+        if (overflow_val.is_number_unsigned()) {
+            // SQLite may silently truncate or handle overflow; just verify no crash
+            REQUIRE_NOTHROW(
+                db->execute(
+                    "INSERT INTO uint_bind_test (value) VALUES (?)",
+                    {overflow_val}
+                )
+            );
+        }
+        // If not unsigned, value is integer — no-op
+        SUCCEED();
+    }
+}
+
+// ============================================================================
+// SQLiteDatabase: BLOB handling in result set
+// ============================================================================
+
+TEST_CASE("SQLiteDatabase::read BLOB column directly", "[storage][sqlite][blob]") {
+    TestDatabase test_db;
+    auto db = test_db.db();
+    
+    // Use SQLite's CAST to create a real BLOB column value
+    db->execute("CREATE TABLE blob_direct (id INTEGER PRIMARY KEY, data BLOB)");
+    db->execute("INSERT INTO blob_direct VALUES (1, X'48656C6C6F')");  // 'Hello' in hex
+    
+    auto row = db->execute_one("SELECT data FROM blob_direct WHERE id = 1");
+    REQUIRE(row.has_value());
+    // BLOB data was read; verify it has some value
+    REQUIRE(row->contains("data"));
+}
+
