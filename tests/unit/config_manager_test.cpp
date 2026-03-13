@@ -1004,3 +1004,44 @@ database:
         REQUIRE(result["database"]["connection"]["timeout"] == 30);
     }
 }
+
+// ==================== ConfigManager::parse_yaml edge cases ====================
+
+TEST_CASE("ConfigManager::parse_yaml malformed indentation", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    // YAML with incorrect indentation (should be handled gracefully)
+    SECTION("yaml with dedented key") {
+        std::string yaml = R"(
+root:
+  nested:
+    deep: value
+sibling: data
+)";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        // sibling should be at root level
+        REQUIRE(result.contains("sibling"));
+    }
+}
+
+// ==================== ConfigManager::set_by_path edge cases ====================
+
+TEST_CASE("ConfigManager::set and get with deep path", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+    manager.initialize();
+
+    SECTION("set deeply nested path") {
+        manager.set("deep.nested.path.value", 42);
+        auto val = manager.get<int>("deep.nested.path.value");
+        REQUIRE(val.has_value());
+        REQUIRE(*val == 42);
+    }
+
+    SECTION("set with array index syntax") {
+        manager.set("items.0.name", "first");
+        auto val = manager.get<std::string>("items.0.name");
+        REQUIRE(val.has_value());
+        REQUIRE(*val == "first");
+    }
+}
