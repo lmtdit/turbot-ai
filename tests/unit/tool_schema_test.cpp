@@ -650,3 +650,71 @@ TEST_CASE("schema_type_to_string - invalid SchemaType throws", "[core][llm][tool
     // Cast an out-of-range value to SchemaType to trigger the throw
     REQUIRE_THROWS_AS(schema_type_to_string(static_cast<SchemaType>(999)), std::invalid_argument);
 }
+
+// ============================================================================
+// ParameterSchema: minLength and maxLength handling
+// ============================================================================
+
+TEST_CASE("ParameterSchema::from_json_schema with string constraints", "[core][llm][tool_schema]") {
+    nlohmann::json j = R"({
+        "type": "string",
+        "description": "A string with length constraints",
+        "minLength": 5,
+        "maxLength": 100
+    })"_json;
+
+    auto schema = ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == SchemaType::String);
+    REQUIRE(schema.description == "A string with length constraints");
+    REQUIRE(schema.min_length.has_value());
+    REQUIRE(*schema.min_length == 5);
+    REQUIRE(schema.max_length.has_value());
+    REQUIRE(*schema.max_length == 100);
+}
+
+// ============================================================================
+// ParameterSchema: pattern, items, and properties handling
+// ============================================================================
+
+TEST_CASE("ParameterSchema::from_json_schema with pattern", "[core][llm][tool_schema]") {
+    nlohmann::json j = R"({
+        "type": "string",
+        "pattern": "^[a-z]+$"
+    })"_json;
+
+    auto schema = ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == SchemaType::String);
+    REQUIRE(schema.pattern.has_value());
+    REQUIRE(*schema.pattern == "^[a-z]+$");
+}
+
+TEST_CASE("ParameterSchema::from_json_schema with array items", "[core][llm][tool_schema]") {
+    nlohmann::json j = R"({
+        "type": "array",
+        "items": {
+            "type": "string"
+        }
+    })"_json;
+
+    auto schema = ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == SchemaType::Array);
+    REQUIRE(schema.items != nullptr);
+    REQUIRE((schema.items)->type == SchemaType::String);
+}
+
+TEST_CASE("ParameterSchema::from_json_schema with object properties", "[core][llm][tool_schema]") {
+    nlohmann::json j = R"({
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "age": {"type": "integer"}
+        }
+    })"_json;
+
+    auto schema = ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == SchemaType::Object);
+    REQUIRE(schema.properties.contains("name"));
+    REQUIRE(schema.properties.contains("age"));
+    REQUIRE(schema.properties["name"]->type == SchemaType::String);
+    REQUIRE(schema.properties["age"]->type == SchemaType::Integer);
+}

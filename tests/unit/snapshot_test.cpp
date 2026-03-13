@@ -505,3 +505,46 @@ TEST_CASE("SNAP-PERF-03: wildcard patterns match correctly", "[snapshot][perf]")
     }
     CHECK(found_txt);
 }
+
+// ============================================================================
+// Edge case coverage tests
+// ============================================================================
+
+TEST_CASE("FileChangeType: unknown value returns 'unknown'", "[snapshot]") {
+    auto unknown_type = static_cast<FileChangeType>(999);
+    std::string s = file_change_type_to_string(unknown_type);
+    CHECK(s == "unknown");
+}
+
+TEST_CASE("SnapshotManager: glob pattern with ? wildcard", "[snapshot]") {
+    auto& manager = SnapshotManager::instance();
+    manager.clear();
+
+    SnapshotOptions options;
+    options.root_directory = std::filesystem::temp_directory_path().string();
+    options.exclude_patterns = {"?.txt", "test?"};
+
+    std::string id = manager.start_tracking(options);
+    REQUIRE_FALSE(id.empty());
+    PatchResult result = manager.stop_tracking(id);
+    SUCCEED();
+}
+
+// ============================================================================
+// SnapshotManager: invalid regex pattern handling
+// ============================================================================
+
+TEST_CASE("SnapshotManager: invalid regex pattern", "[snapshot]") {
+    auto& manager = SnapshotManager::instance();
+    manager.clear();
+
+    SnapshotOptions options;
+    options.root_directory = std::filesystem::temp_directory_path().string();
+    // Invalid regex pattern - unmatched bracket
+    options.exclude_patterns = {"[invalid"};
+
+    std::string id = manager.start_tracking(options);
+    REQUIRE_FALSE(id.empty());
+    PatchResult result = manager.stop_tracking(id);
+    SUCCEED();  // Should handle invalid pattern gracefully
+}

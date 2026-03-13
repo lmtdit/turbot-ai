@@ -942,3 +942,65 @@ TEST_CASE("ConfigManager::get_log_path project-based", "[core][config_manager]")
         remove_temp_dir(temp_dir);
     }
 }
+
+// ==================== ConfigManager::parse_yaml edge cases ====================
+
+TEST_CASE("ConfigManager::parse_yaml edge cases", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    SECTION("yaml with tab indentation") {
+        std::string yaml = "key:\n\tsubkey: value\n";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        REQUIRE(result.contains("key"));
+    }
+
+    SECTION("yaml with comment lines") {
+        std::string yaml = "# This is a comment\nkey: value\n# Another comment\n";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        REQUIRE(result["key"] == "value");
+    }
+
+    SECTION("yaml with empty lines") {
+        std::string yaml = "key: value\n\n\nother: data\n";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        REQUIRE(result["key"] == "value");
+        REQUIRE(result["other"] == "data");
+    }
+}
+
+// ==================== ConfigManager::parse_yaml nested objects ====================
+
+TEST_CASE("ConfigManager::parse_yaml nested objects", "[core][config_manager]") {
+    auto& manager = ConfigManager::instance();
+
+    SECTION("deeply nested yaml object") {
+        std::string yaml = R"(
+root:
+  level1:
+    level2:
+      level3: deep_value
+)";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result.is_object());
+        REQUIRE(result["root"]["level1"]["level2"]["level3"] == "deep_value");
+    }
+
+    SECTION("yaml with multiple nested branches") {
+        std::string yaml = R"(
+server:
+  host: localhost
+  port: 8080
+database:
+  name: testdb
+  connection:
+    timeout: 30
+)";
+        nlohmann::json result = manager.parse_yaml(yaml);
+        REQUIRE(result["server"]["host"] == "localhost");
+        REQUIRE(result["server"]["port"] == 8080);
+        REQUIRE(result["database"]["connection"]["timeout"] == 30);
+    }
+}

@@ -591,3 +591,19 @@ TEST_CASE("FinishReason round-trip", "[stream_event][finish]") {
         }
     }
 }
+
+// ============================================================================
+// Edge cases for enum string conversion
+// ============================================================================
+
+TEST_CASE("stream_event_type_to_string unknown value", "[stream_event]") {
+    auto unknown_type = static_cast<StreamEventType>(999);
+    std::string_view s = stream_event_type_to_string(unknown_type);
+    CHECK(s == "unknown");
+}
+
+TEST_CASE("finish_reason_to_string unknown value", "[stream_event]") {
+    auto unknown_reason = static_cast<FinishReason>(999);
+    std::string_view s = finish_reason_to_string(unknown_reason);
+    CHECK(s == "unknown");
+}

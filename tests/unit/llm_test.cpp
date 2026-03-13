@@ -877,3 +877,89 @@ TEST_CASE("LLMStreamResult::final_reasoning", "[llm][stream_result]") {
 
     REQUIRE(result.final_reasoning() == "I think therefore I am");
 }
+
+// ============================================================================
+// LLM::to_provider_message with tool_calls
+// ============================================================================
+
+TEST_CASE("LLM::to_provider_message with tool_calls", "[llm][convert]") {
+    SECTION("assistant message with tool_calls") {
+        LLMMessage msg = LLMMessage::assistant("Let me search");
+        ToolCallChunk tc;
+        tc.id = "call_1";
+        tc.name = "search";
+        tc.arguments = R"({"query":"test"})";
+        tc.is_complete = true;
+        msg.tool_calls.push_back(tc);
+
+        auto pmsg = LLM::to_provider_message(msg);
+        REQUIRE(pmsg.tool_calls.has_value());
+        REQUIRE(pmsg.tool_calls->size() == 1);
+        REQUIRE((*pmsg.tool_calls)[0].id == "call_1");
+        REQUIRE((*pmsg.tool_calls)[0].name == "search");
+    }
+
+    SECTION("assistant message with invalid JSON arguments") {
+        LLMMessage msg = LLMMessage::assistant("...");
+        ToolCallChunk tc;
+        tc.id = "call_bad";
+        tc.name = "tool";
+        tc.arguments = "invalid json {{{";
+        tc.is_complete = true;
+        msg.tool_calls.push_back(tc);
+
+        // Should not throw, invalid JSON falls back to string
+        auto pmsg = LLM::to_provider_message(msg);
+        REQUIRE(pmsg.tool_calls.has_value());
+        // Arguments should be stored as string when JSON parse fails
+    }
+}
+
+// ============================================================================
+// StreamingState::pop_event empty queue
+// ============================================================================
+
+TEST_CASE("StreamingState::pop_event empty queue", "[llm][streaming_state]") {
+    StreamingState state;
+    
+    // Pop from empty queue should return nullopt
+    auto result = state.pop_event();
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("StreamingState::pop_event drains queue", "[llm][streaming_state]") {
+    StreamingState state;
+    
+    state.add_event(StreamEvent::create_text_delta("t1", "Hello"));
+    state.add_event(StreamEvent::create_text_delta("t2", "World"));
+    
+    // Pop first event
+    auto e1 = state.pop_event();
+    REQUIRE(e1.has_value());
+    REQUIRE(e1->delta == "Hello");
+    
+    // Pop second event
+    auto e2 = state.pop_event();
+    REQUIRE(e2.has_value());
+    REQUIRE(e2->delta == "World");
+    
+    // Queue is now empty
+    auto e3 = state.pop_event();
+    REQUIRE_FALSE(e3.has_value());
+}
+
+// ============================================================================
+// StreamingState::has_events
+// ============================================================================
+
+TEST_CASE("StreamingState::has_events", "[llm][streaming_state]") {
+    StreamingState state;
+    
+    REQUIRE_FALSE(state.has_events());
+    
+    state.add_event(StreamEvent::create_text_delta("t1", "test"));
+    REQUIRE(state.has_events());
+    
+    state.pop_event();
+    REQUIRE_FALSE(state.has_events());
+}

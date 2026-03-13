@@ -868,3 +868,19 @@ TEST_CASE("LlmMessage::to_anthropic with content_parts tool_use", "[message_buil
         REQUIRE(j.contains("content"));
     }
 }
+
+// ============================================================================
+// LlmMessage::to_format fallback path
+// ============================================================================
+
+TEST_CASE("LlmMessage::to_format fallback for unknown format", "[core][llm][message_builder]") {
+    LlmMessage msg = LlmMessage::create_assistant("Test message");
+    
+    // Cast an invalid format value to trigger fallback
+    auto unknown_format = static_cast<MessageFormat>(999);
+    auto j = msg.to_format(unknown_format);
+    
+    // Should fall back to OpenAI format
+    REQUIRE(j.contains("role"));
+    REQUIRE(j["role"] == "assistant");
+}
