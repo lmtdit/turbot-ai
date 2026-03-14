@@ -10,6 +10,7 @@
 namespace turbot::cli {
 int run_session(const std::string& session_id);
 int list_sessions();
+int run_acp(const std::string& cwd);
 }
 
 using namespace turbot;
@@ -19,12 +20,15 @@ void print_usage(std::string_view program_name) {
     fmt::print("\nCommands:\n");
     fmt::print("  run [--session <id>]   Run interactive session\n");
     fmt::print("  list                   List sessions\n");
+    fmt::print("  acp [--cwd <dir>]      Start ACP server for IDE integration\n");
     fmt::print("  version                Show version information\n");
     fmt::print("  help                   Show this help message\n");
     fmt::print("\nExamples:\n");
     fmt::print("  {} run                  # Start new interactive session\n", program_name);
     fmt::print("  {} list                 # List all sessions\n", program_name);
     fmt::print("  {} run --session sess_xxx  # Resume existing session\n", program_name);
+    fmt::print("  {} acp                  # Start ACP server (for Zed/Cursor IDE)\n", program_name);
+    fmt::print("  {} acp --cwd /my/proj   # Start ACP server with working directory\n", program_name);
 }
 
 void print_version() {
@@ -66,6 +70,17 @@ int main(int argc, char* argv[]) {
 
     if (command == "list") {
         return cli::list_sessions();
+    }
+
+    if (command == "acp") {
+        std::string cwd = ".";
+        for (int i = 2; i < argc; ++i) {
+            std::string_view arg = argv[i];
+            if (arg == "--cwd" && i + 1 < argc) {
+                cwd = argv[++i];
+            }
+        }
+        return cli::run_acp(cwd);
     }
 
     fmt::print(stderr, "Unknown command: {}\n", command);

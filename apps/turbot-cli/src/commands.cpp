@@ -6,7 +6,10 @@
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/core/acp/server.hpp>
+#include <turbot/core/acp/agent.hpp>
 #include <fmt/format.h>
+#include <csignal>
 #include <filesystem>
 #include <iostream>
 #include <string>
@@ -147,6 +150,38 @@ int list_sessions() {
     fmt::print("(No persisted sessions - sessions are created in memory for this demo)\n");
     fmt::print("\nTo create a new session, use: turbot-cli run\n");
     
+    return 0;
+}
+
+/// Start ACP (Agent Client Protocol) server for IDE integration
+/// Aligned with OpenCode `opencode acp` command implementation
+int run_acp(const std::string& cwd) {
+    // Initialize agents before starting ACP server
+    init_agents();
+
+    // Install SIGTERM/SIGINT handlers for graceful shutdown
+    // (aligned with OpenCode: process.stdin.on("end", resolve))
+    std::signal(SIGTERM, [](int) { core::acp::ACPServer::stop(); });
+    std::signal(SIGINT,  [](int) { core::acp::ACPServer::stop(); });
+
+    const std::string work_dir =
+        cwd.empty() ? std::filesystem::current_path().string() : cwd;
+
+    // Start ACP server (blocking until stdin EOF or stop())
+    // Note: available_commands_update is pushed synchronously before session/new
+    // and session/load results, which differs from OpenCode's async setTimeout(0)
+    // pattern. ACP clients should be tolerant of notification order.
+    try {
+        core::acp::ACPServer::start(
+            [work_dir]() {  // by-value capture to avoid dangling reference
+                return std::make_unique<core::acp::TurbotACPAgent>(work_dir);
+            },
+            work_dir);
+    } catch (const std::exception& ex) {
+        fmt::print(stderr, "[acp] fatal error: {}\n", ex.what());
+        return 1;
+    }
+
     return 0;
 }
 
