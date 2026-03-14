@@ -139,6 +139,9 @@
 - [2026-03-11-v2.5-core-flow-review.md](./reviews/2026-03-11-v2.5-core-flow-review.md) - v2.5 核心流程代码审查
 - [2026-03-11-v2.6-quality-hardening-review.md](./reviews/2026-03-11-v2.6-quality-hardening-review.md) - v2.6 质量加固代码审查
 - [2026-03-13-unit-test-coverage-report.md](./reviews/2026-03-13-unit-test-coverage-report.md) - 单元测试覆盖率报告（整体 70.33%，7 failed）
+- [2026-03-14-v3.0-completeness-review.md](./reviews/2026-03-14-v3.0-completeness-review.md) - v3.0 功能完成度评估报告（综合完成度 65%，SPEARM 70/100 上限锁定）
+- [2026-03-14-v2.x-completeness-review.md](./reviews/2026-03-14-v2.x-completeness-review.md) - v2.x 功能完成度评估报告（综合完成度 78%，SPEARM 80/100）
+- [2026-03-14-turbot-overall-review.md](./reviews/2026-03-14-turbot-overall-review.md) - Turbot 整体功能完成度总结报告（二次核实综合评估）
 
 ### API 文档
 
