@@ -72,6 +72,28 @@
 | 3.9-acp-session-plan.md    | ACP Session 管理    | 3.8      | 1 天   |
 | 3.10-acp-ide-plan.md       | ACP IDE 集成        | 3.8, 3.9 | 1 天   |
 
+### v4.0 修复与加固
+
+**总览**: [4.0-fix-and-hardening-plan.md](./4.0/4.0-fix-and-hardening-plan.md)
+
+| ID   | 问题                                   | 优先级 | 影响版本    | 工时   |
+| ---- | -------------------------------------- | ------ | ----------- | ------ |
+| P0-1 | Session::get/list/delete 占位          | P0     | v2.x + v3.0 | 3 天   |
+| P0-2 | 权限系统旁路（ask_permission 未注入）  | P0     | v2.x + v3.0 | 2 天   |
+| P0-3 | v2.9 修复 7 个失败测试（CMakeLists）   | P0     | v2.x        | 0.5 天 |
+| P0-4 | MCP 单元测试目录为空                   | P0     | v3.0        | 2 天   |
+| P1-1 | BuildAgent/ExploreAgent/PlanAgent 占位 | P1     | v2.x + v3.0 | 3 天   |
+| P1-2 | ACP cancel() 中断信号为 stub           | P1     | v3.0        | 1 天   |
+| P1-3 | set_on_tool_result diff 内容为空       | P1     | v3.0        | 1 天   |
+| P1-4 | generate_agent() LLM 接入              | P1     | v2.x        | 1.5 天 |
+| P1-5 | v2.8 计划文档状态未同步                | P1     | 文档        | 0.5 天 |
+| P1-6 | Provider 初始化与端到端 LLM 验证       | P1     | v2.x + v3.0 | 1.5 天 |
+| P2-1 | multiedit/webfetch/codesearch 工具缺失 | P2     | v2.x        | 3 天   |
+| P2-2 | LSP 语言服务器 3→8 种扩展              | P2     | v3.0        | 2 天   |
+| P2-3 | SSE fallback 降级逻辑集成测试          | P2     | v3.0        | 1 天   |
+
+**总工时估算**：约 22 天
+
 ## 当前进度
 
 - **总体进度**: 75% (40/53 任务完成)
@@ -79,6 +101,7 @@
 - **v2.0**: ✅ 100% (17/17)
 - **v2.5**: 📋 计划中 (0/5)
 - **v3.0**: 📋 计划中 (0/10)
+- **v4.0**: 📋 待启动 (0/13)
 - **测试覆盖**: 680 test cases, 3705 assertions
 - **代码规模**: 102 个库文件 + 5 个应用文件
 
