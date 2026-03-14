@@ -64,6 +64,28 @@ set(CORE_SOURCES
     src/skill/skill.cpp
     # Snapshot module (v2.5)
     src/snapshot/snapshot.cpp
+    # MCP module (v3.0)
+    src/mcp/mcp.cpp
+    src/mcp/stdio_transport.cpp
+    src/mcp/sse_transport.cpp
+    src/mcp/http_transport.cpp
+    src/mcp/client.cpp
+    src/mcp/manager.cpp
+    src/mcp/auth.cpp
+    src/mcp/oauth_provider.cpp
+    src/mcp/config_bridge.cpp
+    # LSP module (v3.0)
+    src/lsp/lsp.cpp
+    src/lsp/client.cpp
+    src/lsp/server.cpp
+    src/lsp/builtin_servers.cpp
+    src/lsp/manager.cpp
+    src/lsp/tools.cpp
+    # ACP module (v3.0)
+    src/acp/acp.cpp
+    src/acp/server.cpp
+    src/acp/session.cpp
+    src/acp/agent.cpp
 )
 
 # Header files - organized by module
@@ -127,6 +149,28 @@ set(CORE_HEADERS
     include/turbot/core/skill/skill.hpp
     # Snapshot module (v2.5)
     include/turbot/core/snapshot/snapshot.hpp
+    # MCP module (v3.0)
+    include/turbot/core/mcp/mcp.hpp
+    include/turbot/core/mcp/transport.hpp
+    include/turbot/core/mcp/stdio_transport.hpp
+    include/turbot/core/mcp/sse_transport.hpp
+    include/turbot/core/mcp/http_transport.hpp
+    include/turbot/core/mcp/client.hpp
+    include/turbot/core/mcp/manager.hpp
+    include/turbot/core/mcp/auth.hpp
+    include/turbot/core/mcp/oauth_provider.hpp
+    # LSP module (v3.0)
+    include/turbot/core/lsp/lsp.hpp
+    include/turbot/core/lsp/client.hpp
+    include/turbot/core/lsp/server.hpp
+    include/turbot/core/lsp/manager.hpp
+    include/turbot/core/lsp/builtin_servers.hpp
+    include/turbot/core/lsp/tools.hpp
+    # ACP module (v3.0)
+    include/turbot/core/acp/acp.hpp
+    include/turbot/core/acp/server.hpp
+    include/turbot/core/acp/session.hpp
+    include/turbot/core/acp/agent.hpp
 )
 
 # Create library
