@@ -32,11 +32,14 @@ set(CORE_SOURCES
     src/tool/builtin/write_file_tool.cpp
     src/tool/builtin/bash_tool.cpp
     src/tool/builtin/edit_tool.cpp
+    src/tool/builtin/multiedit_tool.cpp
     src/tool/builtin/glob_tool.cpp
     src/tool/builtin/grep_tool.cpp
     src/tool/builtin/list_tool.cpp
     src/tool/builtin/task_tool.cpp
-        src/tool/builtin/question_tool.cpp
+    src/tool/builtin/question_tool.cpp
+    src/tool/builtin/webfetch_tool.cpp
+    src/tool/builtin/codesearch_tool.cpp
     # Plugin module
     src/plugin/plugin.cpp
     # Agent module
@@ -47,6 +50,7 @@ set(CORE_SOURCES
     src/agent/builtin/explore_agent.cpp
     # Session module
     src/session/session.cpp
+    src/session/session_store.cpp
     src/session/session_state_machine.cpp
     src/session/session_loop.cpp
     src/session/usage_tracker.cpp

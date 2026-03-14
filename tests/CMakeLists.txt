@@ -90,6 +90,23 @@ set(UNIT_TEST_SOURCES
     unit/acp_server_test.cpp
     unit/acp_agent_test.cpp
     unit/acp_streaming_test.cpp
+    # v4.0 Session persistence
+    unit/session_store_test.cpp
+    # v4.0 Permission injection
+    unit/permission_injection_test.cpp
+    # v4.0 P1-1 Builtin Agent LLM integration
+    unit/builtin_agents_llm_test.cpp
+    # v4.0 P1-4 Agent Generator LLM integration
+    unit/agent_generator_llm_test.cpp
+    # v3.0 MCP module
+    unit/mcp/test_mcp_types.cpp
+    unit/mcp/test_mcp_manager.cpp
+    unit/mcp/test_stdio_transport.cpp
+    unit/mcp/test_mcp_client.cpp
+    # v4.0 P2-3 SSE fallback
+    unit/mcp/test_http_transport_fallback.cpp
+    # v4.0 P2-1 tools unit tests
+    unit/p2_tools_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
@@ -146,6 +163,8 @@ set(E2E_TEST_NAME turbot-e2e-tests)
 
 set(E2E_TEST_SOURCES
     integration/e2e_test.cpp
+    # v4.0 P1-6 LLM provider e2e
+    integration/llm_provider_e2e_test.cpp
 )
 
 add_executable(${E2E_TEST_NAME} ${E2E_TEST_SOURCES})

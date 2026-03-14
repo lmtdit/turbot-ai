@@ -197,6 +197,103 @@ LSPServerInfo make_gopls_server(const std::string& workspace_root) {
     return info;
 }
 
+// ─── Shared factory for simple (command + root-files) LSP servers ───────────
+
+/// Create an LSPServerInfo for a language server that follows the common pattern:
+///   - detect workspace root by finding one of `root_files`
+///   - launch with `command` in that directory
+///   - silently skip if `command[0]` is not on PATH
+static LSPServerInfo make_simple_lsp_server(
+    const std::string& id,
+    const std::vector<std::string>& extensions,
+    const std::vector<std::string>& root_files,
+    const std::vector<std::string>& command,
+    const std::string& skip_log_msg,
+    const std::string& workspace_root)
+{
+    LSPServerInfo info;
+    info.id         = id;
+    info.extensions = extensions;
+    info.global     = false;
+
+    const std::string root = workspace_root;
+    info.root = [root, root_files](const std::string& file) -> std::optional<std::string> {
+        const std::string dir = fs::path(file).parent_path().string();
+        return nearest_root(dir, root_files, {}, root);
+    };
+
+    const std::string exe = command.empty() ? "" : command[0];
+    info.spawn = [command, exe, skip_log_msg](const std::string& root_dir) -> std::optional<ServerHandle> {
+        if (!command_exists(exe)) {
+            TURBOT_LOG_INFO("{}", skip_log_msg);
+            return std::nullopt;
+        }
+        return spawn_process(command, root_dir);
+    };
+
+    return info;
+}
+
+// ─── Deno LSP server ─────────────────────────────────────────────────────────
+
+LSPServerInfo make_deno_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "deno",
+        {".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"},
+        {"deno.json", "deno.jsonc"},
+        {"deno", "lsp"},
+        "deno not found, skipping Deno LSP",
+        workspace_root);
+}
+
+// ─── TypeScript / Node LSP server ─────────────────────────────────────────────
+
+LSPServerInfo make_typescript_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "typescript",
+        {".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".cts", ".cjs"},
+        {"tsconfig.json", "package.json"},
+        {"typescript-language-server", "--stdio"},
+        "typescript-language-server not found, skipping TypeScript/Node LSP",
+        workspace_root);
+}
+
+// ─── Vue LSP server (Volar) ─────────────────────────────────────────────────
+
+LSPServerInfo make_vue_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "vue",
+        {".vue"},
+        {"package.json", "vite.config.ts", "vite.config.js"},
+        {"vue-language-server", "--stdio"},
+        "vue-language-server not found, skipping Vue LSP (Volar)",
+        workspace_root);
+}
+
+// ─── ESLint LSP server ─────────────────────────────────────────────────────
+
+LSPServerInfo make_eslint_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "eslint",
+        {".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".vue"},
+        {"eslint.config.js", ".eslintrc.js", ".eslintrc.json", ".eslintrc", "package.json"},
+        {"vscode-eslint-language-server", "--stdio"},
+        "vscode-eslint-language-server not found, skipping ESLint LSP",
+        workspace_root);
+}
+
+// ─── Biome LSP server ──────────────────────────────────────────────────────
+
+LSPServerInfo make_biome_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "biome",
+        {".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs", ".json", ".jsonc"},
+        {"biome.json", "biome.jsonc", "package.json"},
+        {"biome", "lsp-proxy"},
+        "biome not found, skipping Biome LSP",
+        workspace_root);
+}
+
 // ─── Custom (user-defined) server ─────────────────────────────────────────────
 
 LSPServerInfo make_custom_server(

@@ -1095,7 +1095,7 @@ TEST_CASE("ConfigManager::set_by_path with empty path", "[core][config_manager]"
 
 // ==================== ConfigManager deep path operations ====================
 
-TEST_CASE("ConfigManager::set and get with deep path", "[core][config_manager]") {
+TEST_CASE("ConfigManager::set and get with deep path (duplicate check)", "[core][config_manager]") {
     auto& manager = ConfigManager::instance();
     manager.initialize();
 
