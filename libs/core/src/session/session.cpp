@@ -1,4 +1,5 @@
 #include <turbot/core/session/session.hpp>
+#include <turbot/core/session/session_store.hpp>
 #include <turbot/core/snapshot/snapshot.hpp>
 #include <fmt/format.h>
 #include <chrono>
@@ -197,6 +198,10 @@ std::optional<Session> Session::create(const CreateParams& params) {
     
     Session session(std::move(info));
     session.mutex_ = std::make_shared<std::mutex>();
+
+    // Persist to DB if store is initialised
+    SessionStore::instance().save(session.info_);
+
     return session;
 }
 
@@ -224,29 +229,49 @@ std::optional<Session> Session::fork(const ForkParams& params) {
     
     Session session(std::move(info));
     session.mutex_ = std::make_shared<std::mutex>();
+
+    // Persist the new fork to DB
+    SessionStore::instance().save(session.info_);
+
     return session;
 }
 
 std::optional<Session> Session::get(const std::string& id) {
-    // This is a placeholder - in a real implementation,
-    // this would query the database
-    // For now, return nullopt to indicate not found
-    (void)id; // Suppress unused parameter warning
-    return std::nullopt;
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) {
+        // No DB configured — fall back to placeholder (not found)
+        return std::nullopt;
+    }
+    auto row = store.find_by_id(id);
+    if (!row) return std::nullopt;
+    try {
+        return Session(SessionInfo::from_json(*row));
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
 }
 
 std::vector<Session> Session::list(const std::string& project_id) {
-    // This is a placeholder - in a real implementation,
-    // this would query the database
-    (void)project_id; // Suppress unused parameter warning
-    return {};
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) return {};
+
+    auto rows = store.find_all(project_id);
+    std::vector<Session> sessions;
+    sessions.reserve(rows.size());
+    for (const auto& row : rows) {
+        try {
+            sessions.emplace_back(SessionInfo::from_json(row));
+        } catch (const std::exception&) {
+            // Skip corrupt rows
+        }
+    }
+    return sessions;
 }
 
 bool Session::remove(const std::string& id) {
-    // This is a placeholder - in a real implementation,
-    // this would delete from the database
-    (void)id; // Suppress unused parameter warning
-    return false;
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) return false;
+    return store.remove(id);
 }
 
 bool Session::update(const UpdateParams& params) {
@@ -262,6 +287,8 @@ bool Session::update(const UpdateParams& params) {
         info_.state = *params.state;
     }
     info_.time_updated = current_timestamp();
+    // Persist updated state
+    SessionStore::instance().save(info_);
     return true;
 }
 
@@ -277,12 +304,10 @@ std::vector<nlohmann::json> Session::messages(int limit, int offset) const {
     // Validate parameters
     if (limit < 0) limit = 50;
     if (offset < 0) offset = 0;
-    
-    // This is a placeholder - in a real implementation,
-    // this would query messages from the database
-    (void)limit;
-    (void)offset;
-    return {};
+
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) return {};
+    return store.list_messages(info_.id, limit, offset);
 }
 
 bool Session::compact() {

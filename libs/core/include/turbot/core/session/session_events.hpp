@@ -6,6 +6,7 @@
 #include <turbot/core/message/token_usage.hpp>
 #include <turbot/core/tool/tool.hpp>
 #include <turbot/core/tool/builtin/question_tool.hpp>
+#include <turbot/core/permission/permission.hpp>
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
@@ -188,6 +189,36 @@ struct TURBOT_CORE_API SessionTitleUpdatedEvent {
 
     std::string session_id;
     std::string title;   ///< The newly assigned title
+};
+
+// ============================================================================
+// Permission events — published by SessionLoop when a tool requests permission
+// ============================================================================
+
+/**
+ * @brief Broadcast when a tool needs user permission during execution.
+ *
+ * ACP / UI subscribers display a permission prompt and then publish
+ * PermissionRepliedEvent with the user's decision.
+ */
+struct TURBOT_CORE_API PermissionAskedEvent {
+    static constexpr const char* kEventName = "permission.asked";
+
+    std::string session_id;                         ///< Session that raised the request
+    permission::PermissionRequest request;           ///< Full permission request payload
+};
+
+/**
+ * @brief Broadcast by ACP / UI when the user has decided on a permission request.
+ *
+ * SessionLoop subscribes internally to unblock the ask_permission callback.
+ */
+struct TURBOT_CORE_API PermissionRepliedEvent {
+    static constexpr const char* kEventName = "permission.replied";
+
+    std::string session_id;                         ///< Session that originated the request
+    std::string request_id;                         ///< Matches PermissionRequest::id
+    permission::PermissionReply reply;              ///< User's decision
 };
 
 } // namespace turbot::core::session

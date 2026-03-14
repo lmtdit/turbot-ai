@@ -127,6 +127,10 @@ void SessionLoop::set_on_step(StepCallback callback) {
     on_step_ = std::move(callback);
 }
 
+void SessionLoop::set_on_permission_request(PermissionCallback callback) {
+    on_permission_request_ = std::move(callback);
+}
+
 LoopResult SessionLoop::run(const std::string& user_message) {
     running_.store(true, std::memory_order_release);
     stop_requested_.store(false, std::memory_order_relaxed);
@@ -704,6 +708,64 @@ tool::ToolResult SessionLoop::execute_tool(const std::string& tool_name,
     ctx.call_id = call_id;
     ctx.abort_flag = abort_flag_;
     ctx.working_directory = session_.info().directory;
+
+    // ── Inject ask_permission callback ────────────────────────────────────────
+    // Priority: direct callback > EventBus round-trip > deny (safe default)
+    if (on_permission_request_) {
+        // Direct path: caller has registered a synchronous callback (e.g. CLI/test)
+        ctx.ask_permission = on_permission_request_;
+    } else {
+        // EventBus path: publish PermissionAskedEvent, block until PermissionRepliedEvent
+        // or timeout (30 s), then return the reply.  Uses a per-request subscription
+        // that is automatically unsubscribed after the reply arrives.
+        ctx.ask_permission = [this, alive_weak = std::weak_ptr<bool>(perm_alive_flag_)]
+                (const permission::PermissionRequest& req) -> permission::PermissionReply {
+
+            // Subscribe to PermissionRepliedEvent *before* publishing so we
+            // never miss a race-condition reply.
+            std::string sub_id = EventBus::instance().subscribe<PermissionRepliedEvent>(
+                PermissionRepliedEvent::kEventName,
+                [alive_weak, this, req_id = req.id](const Event<PermissionRepliedEvent>& ev) {
+                    if (!alive_weak.lock()) return;  // SessionLoop already destructed
+                    if (ev.data.request_id != req_id) return;  // not our request
+                    std::lock_guard<std::mutex> lk(perm_reply_mutex_);
+                    perm_reply_map_[req_id] = ev.data.reply;
+                    perm_reply_cv_.notify_all();
+                }
+            );
+
+            // RAII guard ensures unsubscribe even if an exception is thrown
+            struct SubGuard {
+                std::string event_name, sub_id;
+                ~SubGuard() { EventBus::instance().unsubscribe(event_name, sub_id); }
+            } sub_guard{PermissionRepliedEvent::kEventName, sub_id};
+
+            // Publish the permission request via EventBus
+            PermissionAskedEvent asked_ev;
+            asked_ev.session_id = session_.id();
+            asked_ev.request   = req;
+            EventBus::instance().publish(PermissionAskedEvent::kEventName, std::move(asked_ev));
+
+            // Wait up to 30 s for a reply
+            permission::PermissionReply reply = permission::PermissionReply::reject(); // safe default
+            {
+                std::unique_lock<std::mutex> lk(perm_reply_mutex_);
+                perm_reply_cv_.wait_for(lk, std::chrono::seconds(30), [this, &req]() {
+                    return perm_reply_map_.count(req.id) > 0;
+                });
+                auto it = perm_reply_map_.find(req.id);
+                if (it != perm_reply_map_.end()) {
+                    reply = it->second;
+                    perm_reply_map_.erase(it);
+                } else {
+                    TURBOT_LOG_WARN("SessionLoop: permission request '{}' timed out after 30s — defaulting to Reject", req.id);
+                }
+            }
+
+            return reply;
+            // sub_guard destructs here → unsubscribes automatically
+        };
+    }
 
     // Execute the tool (wrap in try-catch to prevent tool exceptions from crashing the session)
     try {

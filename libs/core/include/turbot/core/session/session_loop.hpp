@@ -9,12 +9,15 @@
 #include <turbot/core/llm/stream_event.hpp>
 #include <turbot/core/llm/llm.hpp>
 #include <turbot/core/provider/provider.hpp>
+#include <turbot/core/permission/permission.hpp>
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace turbot::core::session {
@@ -57,6 +60,10 @@ using ErrorCallback = std::function<void(const std::string& error, const std::st
 using StreamEventCallback = std::function<void(const StreamEvent& event)>;
 using StepCallback = std::function<void(const StepInfo& info)>;
 
+/// Permission request callback — invoked by execute_tool() when a tool needs user permission.
+/// Returns the user's PermissionReply (may block until the user responds).
+using PermissionCallback = std::function<permission::PermissionReply(const permission::PermissionRequest&)>;
+
 /// Session loop - manages the main interaction loop for a session
 class TURBOT_CORE_API SessionLoop {
 public:
@@ -92,6 +99,13 @@ public:
     void set_on_error(ErrorCallback callback);
     void set_on_stream_event(StreamEventCallback callback);
     void set_on_step(StepCallback callback);
+
+    /// Set permission request callback.
+    /// When set, this callback is invoked whenever a tool requires user permission.
+    /// If not set, the SessionLoop falls back to publishing PermissionAskedEvent via
+    /// EventBus and waiting for a PermissionRepliedEvent reply (blocking the calling
+    /// thread until the reply arrives or a timeout fires).
+    void set_on_permission_request(PermissionCallback callback);
 
     /// Run the loop with a user message
     /// @param user_message The user message to process
@@ -183,6 +197,20 @@ private:
     ErrorCallback on_error_;
     StreamEventCallback on_stream_event_;
     StepCallback on_step_;
+    PermissionCallback on_permission_request_;  ///< Optional direct callback; if null, uses EventBus
+
+    // ── Permission reply rendezvous ─────────────────────────────────────────
+    // When on_permission_request_ is not set, ask_permission publishes a
+    // PermissionAskedEvent and then blocks on this condvar waiting for a
+    // PermissionRepliedEvent.  The EventBus subscription set up during
+    // execute_tool() stores the reply here.
+    std::mutex              perm_reply_mutex_;
+    std::condition_variable perm_reply_cv_;
+    // keyed by request_id → reply
+    std::unordered_map<std::string, permission::PermissionReply> perm_reply_map_;
+    // Alive flag shared with EventBus lambda to prevent UAF after SessionLoop destructs.
+    // Destroyed before the mutex members; lambda checks weak_ptr before accessing *this.
+    std::shared_ptr<bool> perm_alive_flag_{std::make_shared<bool>(true)};
 
     /// Process a user message
     LoopResult process_user_message(const std::string& content);
