@@ -106,7 +106,7 @@ struct TURBOT_CORE_API ExecuteResult {
 };
 
 /// Abstract base class for all agents
-class TURBOT_CORE_API Agent {
+class TURBOT_CORE_API Agent : public std::enable_shared_from_this<Agent> {
 public:
     virtual ~Agent() = default;
 

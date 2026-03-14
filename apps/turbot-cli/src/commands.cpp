@@ -8,13 +8,62 @@
 #include <turbot/core/tool/tool_registry.hpp>
 #include <turbot/core/acp/server.hpp>
 #include <turbot/core/acp/agent.hpp>
+#include <turbot/core/provider/provider_manager.hpp>
+#include <turbot/core/provider/impl/bailian_provider.hpp>
+#include <nlohmann/json.hpp>
 #include <fmt/format.h>
 #include <csignal>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
 namespace turbot::cli {
+
+/// Load providers from a turbot.json config file and register them in ProviderManager.
+/// Currently supports "bailian" (Alibaba DashScope) provider type.
+/// Safe to call multiple times — duplicate registrations are silently skipped by ProviderManager.
+static void init_provider_from_config(const std::string& config_path) {
+    std::ifstream f(config_path);
+    if (!f.is_open()) {
+        TURBOT_LOG_DEBUG("init_provider_from_config: config not found at '{}'", config_path);
+        return;
+    }
+
+    nlohmann::json cfg;
+    try {
+        cfg = nlohmann::json::parse(f);
+    } catch (const std::exception& e) {
+        TURBOT_LOG_WARN("init_provider_from_config: failed to parse '{}': {}", config_path, e.what());
+        return;
+    }
+
+    auto& pm = core::provider::ProviderManager::instance();
+    for (const auto& p : cfg.value("providers", nlohmann::json::array())) {
+        const auto type = p.value("type", "");
+        if (type != "bailian") continue;  // Only bailian supported in CLI for now
+
+        const auto provider_id = p.value("name", "bailian");
+        if (pm.has_provider(provider_id)) {
+            TURBOT_LOG_DEBUG("init_provider_from_config: provider '{}' already registered", provider_id);
+            continue;
+        }
+
+        core::provider::ProviderConfig config;
+        config.api_key  = p.value("api_key", "");
+        config.base_url = p.value("base_url", "");
+
+        if (config.api_key.empty()) {
+            TURBOT_LOG_WARN("init_provider_from_config: provider '{}' has no api_key, skipping", provider_id);
+            continue;
+        }
+
+        auto bailian = std::make_shared<core::provider::BailianProvider>(config);
+        pm.register_provider(bailian);
+        pm.set_default_provider(provider_id);
+        TURBOT_LOG_INFO("init_provider_from_config: registered provider '{}'", provider_id);
+    }
+}
 
 /// Initialize default agents
 void init_agents() {
@@ -29,6 +78,9 @@ void init_agents() {
 int run_session(const std::string& session_id) {
     // Initialize agents
     init_agents();
+
+    // Load provider configuration from .turbot/turbot.json (relative to CWD)
+    init_provider_from_config(".turbot/turbot.json");
     
     // Create or resume session
     core::session::Session session;
@@ -65,6 +117,24 @@ int run_session(const std::string& session_id) {
     auto agent = core::agent::AgentRegistry::instance().get("build");
     if (agent) {
         loop.set_agent(agent);
+    }
+
+    // Inject provider and model into the session loop
+    {
+        auto& pm = core::provider::ProviderManager::instance();
+        auto prov_opt = pm.get_default_provider();
+        if (prov_opt) {
+            loop.set_provider(prov_opt->get());
+            // Use the default_model from config, or fall back to the first available model
+            auto models = (*prov_opt)->list_models();
+            const std::string default_model = models.empty() ? "" : models.front().id;
+            loop.set_model(default_model);
+            TURBOT_LOG_INFO("run_session: using provider '{}' with model '{}'",
+                            (*prov_opt)->id(), default_model);
+        } else {
+            TURBOT_LOG_WARN("run_session: no provider configured — LLM calls will fail");
+            fmt::print(stderr, "[warn] No LLM provider configured. Set up .turbot/turbot.json with a valid API key.\n");
+        }
     }
     
     // Set callbacks
@@ -144,12 +214,23 @@ int run_session(const std::string& session_id) {
 /// List all sessions
 int list_sessions() {
     fmt::print("Listing sessions...\n\n");
-    
-    // Note: In the current implementation, sessions are not persisted
-    // This is a placeholder that shows the concept
-    fmt::print("(No persisted sessions - sessions are created in memory for this demo)\n");
-    fmt::print("\nTo create a new session, use: turbot-cli run\n");
-    
+
+    auto sessions = core::session::Session::list("cli");
+    if (sessions.empty()) {
+        fmt::print("(No sessions found for project 'cli')\n");
+        fmt::print("\nTo create a new session, use: turbot-cli run\n");
+    } else {
+        fmt::print("{:<38}  {:<30}  {}\n", "ID", "Title", "State");
+        fmt::print("{}\n", std::string(80, '-'));
+        for (const auto& s : sessions) {
+            const auto& info = s.info();
+            fmt::print("{:<38}  {:<30}  {}\n",
+                info.id,
+                info.title.substr(0, 29),
+                core::session::session_state_to_string(info.state));
+        }
+        fmt::print("\n{} session(s) found.\n", sessions.size());
+    }
     return 0;
 }
 
@@ -158,6 +239,10 @@ int list_sessions() {
 int run_acp(const std::string& cwd) {
     // Initialize agents before starting ACP server
     init_agents();
+
+    // Load provider configuration
+    const std::string config_base = cwd.empty() ? std::filesystem::current_path().string() : cwd;
+    init_provider_from_config((std::filesystem::path(config_base) / ".turbot" / "turbot.json").string());
 
     // Install SIGTERM/SIGINT handlers for graceful shutdown
     // (aligned with OpenCode: process.stdin.on("end", resolve))
