@@ -1,6 +1,7 @@
 #include "turbot/core/acp/agent.hpp"
 
 #include "turbot/core/agent/agent.hpp"
+#include "turbot/core/common/logger.hpp"
 #include "turbot/core/common/version.hpp"
 #include "turbot/core/session/session.hpp"
 #include "turbot/core/session/session_loop.hpp"
@@ -9,6 +10,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 
 namespace turbot::core::acp {
 
@@ -22,7 +24,7 @@ std::string to_tool_kind(const std::string& tool_name) {
     if (tool_name == "edit" || tool_name == "patch" || tool_name == "write")
         return "edit";
     if (tool_name == "grep" || tool_name == "glob") return "search";
-    // Exact match for known context7 tools (aligned with OpenCode toToolKind)
+    // Known context7 tools (aligned with OpenCode toToolKind exact matches)
     if (tool_name == "context7_resolve_library_id" ||
         tool_name == "context7_get_library_docs")
         return "search";
@@ -313,6 +315,21 @@ nlohmann::json TurbotACPAgent::prompt(
     // Run the session loop with streaming callbacks
     session::SessionLoop loop(*sess_opt);
 
+    // Register this loop so cancel() can stop it
+    {
+        std::lock_guard<std::mutex> lk(active_loops_mutex_);
+        active_loops_[req.session_id] = &loop;
+    }
+    // RAII guard: always deregister when prompt() exits (normal or exception)
+    struct LoopGuard {
+        TurbotACPAgent& agent;
+        const std::string& session_id;
+        ~LoopGuard() {
+            std::lock_guard<std::mutex> lk(agent.active_loops_mutex_);
+            agent.active_loops_.erase(session_id);
+        }
+    } loop_guard{*this, req.session_id};
+
     // Set stream event callback → agent_message_chunk / agent_thought_chunk
     loop.set_on_stream_event([&on_update, &req](
                                  const turbot::core::StreamEvent& ev) {
@@ -329,11 +346,16 @@ nlohmann::json TurbotACPAgent::prompt(
         }
     });
 
+    // Tool call input cache: call_id → raw input JSON (for diff generation in result callback)
+    auto tool_inputs = std::make_shared<std::unordered_map<std::string, nlohmann::json>>();
+
     // Tool call callbacks → tool_call + tool_call_update
-    loop.set_on_tool_call([&on_update, &req](
+    loop.set_on_tool_call([&on_update, &req, tool_inputs](
                               const std::string& tool_name,
                               const std::string& call_id,
                               const nlohmann::json& input) {
+        // Cache input for diff generation in the result callback
+        (*tool_inputs)[call_id] = input;
         on_update({{"sessionUpdate", "tool_call"},
                    {"sessionId",    req.session_id},
                    {"toolCallId",   call_id},
@@ -344,14 +366,24 @@ nlohmann::json TurbotACPAgent::prompt(
                    {"locations",    nlohmann::json::array()}});
     });
 
-    loop.set_on_tool_result([&on_update, &req](
+    loop.set_on_tool_result([&on_update, &req, tool_inputs](
                                 const std::string& tool_name,
                                 const std::string& call_id,
                                 const tool::ToolResult& result) {
         const std::string status =
             result.is_error ? "failed" : "completed";
         const std::string kind = to_tool_kind(tool_name);
-    
+
+        // Look up the original input for diff generation (best-effort)
+        nlohmann::json raw_input = nlohmann::json::object();
+        {
+            auto it = tool_inputs->find(call_id);
+            if (it != tool_inputs->end()) {
+                raw_input = it->second;
+                tool_inputs->erase(it);  // release after use
+            }
+}
+
         // todowrite completed → emit plan notification first (aligned with OpenCode)
         if (tool_name == "todowrite" && !result.is_error) {
             try {
@@ -381,13 +413,16 @@ nlohmann::json TurbotACPAgent::prompt(
         content.push_back({{"type", "content"},
                             {"content", {{"type", "text"}, {"text", result.output}}}});
     
-        // Edit tool completed: add diff block (aligned with OpenCode)
+        // Edit tool completed: add diff block with real path and content (aligned with OpenCode)
         if (kind == "edit" && !result.is_error) {
-            // rawInput not available in result callback; emit empty-path diff
-            content.push_back({{"type", "diff"},
-                                {"path", ""},
-                                {"oldText", ""},
-                                {"newText", ""}});
+            // Extract file path and diff content from the cached tool call input
+            const std::string file_path  = raw_input.value("filePath", "");
+            const std::string old_string = raw_input.value("oldString", "");
+            const std::string new_string = raw_input.value("newString", "");
+            content.push_back({{"type",    "diff"},
+                               {"path",    file_path},
+                               {"oldText", old_string},
+                               {"newText", new_string}});
         }
     
         nlohmann::json update = {
@@ -437,15 +472,26 @@ nlohmann::json TurbotACPAgent::prompt(
 // ---------------------------------------------------------------------------
 
 void TurbotACPAgent::cancel(const CancelNotification& notif) {
-    // Retrieve and stop the session loop
-    // (SessionLoop::stop() is thread-safe)
-    // We don't hold a reference to the running loop here; the stop signal
-    // propagates through the atomic stop_requested_ flag inside SessionLoop.
-    // For cancel to work, prompt() must check for stop during its loop.
-    (void)notif;
-    // No-op: cancel is handled implicitly via SessionLoop::stop() which
-    // prompt() can expose via a shared handle in a future iteration.
-    // This stub satisfies the interface contract.
+    // Locate the SessionLoop currently running for this session and request stop.
+    // SessionLoop::stop() is thread-safe (sets an atomic flag), so we only need
+    // the mutex to safely read the pointer — not to hold it during the stop call.
+    session::SessionLoop* loop_ptr = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(active_loops_mutex_);
+        auto it = active_loops_.find(notif.session_id);
+        if (it != active_loops_.end()) {
+            loop_ptr = it->second;
+        }
+    }
+
+    if (loop_ptr) {
+        loop_ptr->stop();
+        TURBOT_LOG_DEBUG("TurbotACPAgent::cancel: stop requested for session '{}'",
+                         notif.session_id);
+    } else {
+        TURBOT_LOG_DEBUG("TurbotACPAgent::cancel: no active loop found for session '{}' "
+                         "(may have already completed)", notif.session_id);
+    }
 }
 
 // ---------------------------------------------------------------------------

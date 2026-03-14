@@ -112,7 +112,9 @@ TEST_CASE("to_tool_kind: correct mapping", "[acp][agent]") {
     REQUIRE(to_tool_kind("write")        == "edit");
     REQUIRE(to_tool_kind("grep")         == "search");
     REQUIRE(to_tool_kind("glob")         == "search");
-    REQUIRE(to_tool_kind("context7_xyz") == "search");
+    REQUIRE(to_tool_kind("context7_resolve_library_id") == "search");
+    REQUIRE(to_tool_kind("context7_get_library_docs")   == "search");
+    REQUIRE(to_tool_kind("context7_xyz") == "other");  // unknown context7 variant
     REQUIRE(to_tool_kind("list")         == "read");
     REQUIRE(to_tool_kind("read")         == "read");
     REQUIRE(to_tool_kind("mcp_custom")   == "other");

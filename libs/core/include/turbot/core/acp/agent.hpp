@@ -13,8 +13,10 @@
 
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <unordered_map>
 
 namespace turbot::core::acp {
 
@@ -81,6 +83,17 @@ public:
 private:
     std::string default_cwd_;
     ACPSessionManager session_manager_;
+
+    // -----------------------------------------------------------------------
+    // Active loop registry – used by cancel() to stop a running prompt()
+    // -----------------------------------------------------------------------
+    mutable std::mutex            active_loops_mutex_;
+    /// Maps session_id → raw pointer to the SessionLoop currently executing
+    /// prompt() for that session.  Protected by active_loops_mutex_.
+    /// The pointer is valid only while prompt() is on the call stack for the
+    /// corresponding session; cancel() must hold the mutex long enough to call
+    /// loop->stop() and then release it before the loop object is destroyed.
+    std::unordered_map<std::string, session::SessionLoop*> active_loops_;
 
     // -----------------------------------------------------------------------
     // Internal helpers
