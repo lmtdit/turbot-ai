@@ -85,6 +85,11 @@ set(UNIT_TEST_SOURCES
     unit/plugin_test.cpp
     # v2.8.10 Built-in Agent Presets
     unit/builtin_agents_test.cpp
+    # v3.0 ACP module
+    unit/acp_types_test.cpp
+    unit/acp_server_test.cpp
+    unit/acp_agent_test.cpp
+    unit/acp_streaming_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
