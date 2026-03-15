@@ -13,12 +13,19 @@ set(V2_TEST_SOURCES
     permission/permission_test_v2.cpp
     # session
     session/session_core_test.cpp
+    session/session_lifecycle_test.cpp
+    session/session_store_persistence_test.cpp
+    session/session_loop_test.cpp
+    session/session_state_machine_test.cpp
+    session/retry_manager_test.cpp
     # config
     config/config_test.cpp
     # tool
     tool/tool_test.cpp
     # agent
     agent/agent_test.cpp
+    agent/agent_enhanced_test.cpp
+    agent/agent_flow_test.cpp
     # file
     file/filesystem_test.cpp
     # provider
@@ -27,6 +34,7 @@ set(V2_TEST_SOURCES
     mcp/mcp_test.cpp
     # skill
     skill/skill_test.cpp
+    skill/skill_enhanced_test.cpp
     # storage
     storage/storage_test.cpp
     # lsp
@@ -64,6 +72,7 @@ target_include_directories(turbot-v2-tests
         ${CMAKE_SOURCE_DIR}/libs/core/include
         ${CMAKE_SOURCE_DIR}/libs/utils/include
         ${CMAKE_SOURCE_DIR}/libs/storage/include
+        ${CMAKE_SOURCE_DIR}/tests  # for mock headers
 )
 
 # 编译特性
