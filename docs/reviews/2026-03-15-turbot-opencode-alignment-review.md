@@ -30,19 +30,19 @@
 
 ## 功能对齐矩阵
 
-| 系统                  | OpenCode            | Turbot-AI (C++)   | 对齐度 | 状态        |
-| --------------------- | ------------------- | ----------------- | ------ | ----------- |
-| **Session-Loop 系统** | ✅ 完整             | ✅ 完整           | 98%    | ✅ 已对齐   |
-| **多 Agent 系统**     | ✅ 完整             | ✅ 完整           | 100%   | ✅ 已对齐   |
-| **Prompt 系统**       | ✅ 模板系统         | ✅ 文件模板       | 95%    | ✅ 已对齐   |
-| **Skill 系统**        | ✅ 多源发现         | ✅ SkillRegistry  | 95%    | ✅ 已对齐   |
-| **工具系统**          | ✅ 18 内置 + 动态   | ✅ 22 内置 + 动态 | 100%   | ✅ 已对齐   |
-| **记忆系统**          | ✅ SQLite + 游标分页 | ✅ SQLite + 游标分页 | 100% | ✅ 已对齐   |
-| **权限系统**          | ✅ 完整             | ✅ Ruleset + external-directory | 100% | ✅ 已对齐 |
-| **LLM 供应商**        | ✅ 20+ SDK 供应商   | ✅ 23+ 供应商     | 98%    | ✅ 已对齐   |
-| **LSP 服务器**        | ✅ 完整             | ✅ 20+ 语言       | 95%    | ✅ 已对齐   |
-| **MCP 系统**          | ✅ stdio/SSE/HTTP   | ✅ 三传输 + OAuth | 98%    | ✅ 已对齐   |
-| **ACP 系统**          | ✅ 完整             | ✅ 完整 + usage   | 95%    | ✅ 已对齐   |
+| 系统                  | OpenCode             | Turbot-AI (C++)                 | 对齐度 | 状态      |
+| --------------------- | -------------------- | ------------------------------- | ------ | --------- |
+| **Session-Loop 系统** | ✅ 完整              | ✅ 完整                         | 98%    | ✅ 已对齐 |
+| **多 Agent 系统**     | ✅ 完整              | ✅ 完整                         | 100%   | ✅ 已对齐 |
+| **Prompt 系统**       | ✅ 模板系统          | ✅ 文件模板                     | 95%    | ✅ 已对齐 |
+| **Skill 系统**        | ✅ 多源发现          | ✅ SkillRegistry                | 95%    | ✅ 已对齐 |
+| **工具系统**          | ✅ 18 内置 + 动态    | ✅ 22 内置 + 动态               | 100%   | ✅ 已对齐 |
+| **记忆系统**          | ✅ SQLite + 游标分页 | ✅ SQLite + 游标分页            | 100%   | ✅ 已对齐 |
+| **权限系统**          | ✅ 完整              | ✅ Ruleset + external-directory | 100%   | ✅ 已对齐 |
+| **LLM 供应商**        | ✅ 20+ SDK 供应商    | ✅ 23+ 供应商                   | 98%    | ✅ 已对齐 |
+| **LSP 服务器**        | ✅ 完整              | ✅ 20+ 语言                     | 95%    | ✅ 已对齐 |
+| **MCP 系统**          | ✅ stdio/SSE/HTTP    | ✅ 三传输 + OAuth               | 98%    | ✅ 已对齐 |
+| **ACP 系统**          | ✅ 完整              | ✅ 完整 + usage                 | 95%    | ✅ 已对齐 |
 
 ---
 
@@ -250,8 +250,8 @@ QuestionTool(条件)
 
 ## 修复优先级
 
-| 优先级 | 问题               | 行动项                        | 状态     | SPEARM 评分 |
-| ------ | ------------------ | ----------------------------- | -------- | ----------- |
+| 优先级 | 问题               | 行动项                        | 状态      | SPEARM 评分 |
+| ------ | ------------------ | ----------------------------- | --------- | ----------- |
 | P1     | 动态工具发现机制   | 实现从 .turbot/tools 加载工具 | ✅ 已完成 | 91/100      |
 | P2     | external-directory | 补充外部目录访问工具          | ✅ 已完成 | 90/100      |
 | P2     | 游标分页优化       | SessionStore 支持游标分页     | ✅ 已完成 | 91/100      |
@@ -263,16 +263,19 @@ QuestionTool(条件)
 ### P1: 动态工具发现机制
 
 **新增文件：**
+
 - `libs/core/include/turbot/core/tool/external_command_tool.hpp` - ExternalCommandTool 类定义
 - `libs/core/src/tool/external_command_tool.cpp` - 动态工具发现和命令执行实现
 - `.turbot/tools/example.json` - 示例自定义工具配置
 
 **修改文件：**
+
 - `libs/core/include/turbot/core/tool/tool_registry.hpp` - 添加 discover_custom_tools 接口
 - `libs/core/src/tool/tool_registry.cpp` - 实现动态工具发现
 - `libs/core/CMakeLists.txt` - 添加新源文件
 
 **审查轮次：** 2 轮
+
 - 第一轮发现 HIGH 级命令注入风险（使用 popen）
 - 已修复：使用 fork/execvp 替代 popen，添加路径验证
 - 最终评分：91/100 ✅ 优秀
@@ -280,22 +283,27 @@ QuestionTool(条件)
 ### P2: external-directory 工具
 
 **新增文件：**
+
 - `libs/core/include/turbot/core/tool/external_directory.hpp` - external_directory 接口定义
 - `libs/core/src/tool/external_directory.cpp` - 外部目录访问权限检查实现
 
 **修改文件：**
+
 - `libs/core/CMakeLists.txt` - 添加新源文件
 
 **审查轮次：** 1 轮
+
 - 最终评分：90/100 ✅ 优秀
 
 ### P2: SessionStore 游标分页优化
 
 **修改文件：**
+
 - `libs/core/include/turbot/core/session/session_store.hpp` - 添加 find_all_paginated 和 list_messages_paginated 接口
 - `libs/core/src/session/session_store.cpp` - 实现游标分页逻辑
 
 **审查轮次：** 2 轮
+
 - 第一轮发现 HIGH 级问题：list_messages_paginated 未返回 next_cursor
 - 已修复：正确返回 next_cursor
 - 最终评分：91/100 ✅ 优秀
@@ -308,14 +316,14 @@ Turbot-AI 已实现与 OpenCode **100%** 的功能对齐，核心架构（Sessio
 
 ### 校正后的关键发现
 
-| 项目             | 初版判断            | 校正后判断                |
-| ---------------- | ------------------- | ------------------------- |
-| 工具数量         | 21 vs 45+ (❌ 错误) | 22 vs 18 (✅ Turbot 更多) |
-| MCP OAuth        | 未实现 (❌ 错误)    | 已完整实现 (✅)           |
-| ACP usage_update | 缺失 (❌ 错误)      | 已实现 (✅)               |
-| 记忆系统         | 基础实现 (❌ 错误)  | SQLite 持久化 + 游标分页 (✅) |
-| 动态工具发现     | 缺失 (✅ 已修复)    | 已实现 (✅)               |
-| external-directory | 缺失 (✅ 已修复)  | 已实现 (✅)               |
+| 项目               | 初版判断            | 校正后判断                    |
+| ------------------ | ------------------- | ----------------------------- |
+| 工具数量           | 21 vs 45+ (❌ 错误) | 22 vs 18 (✅ Turbot 更多)     |
+| MCP OAuth          | 未实现 (❌ 错误)    | 已完整实现 (✅)               |
+| ACP usage_update   | 缺失 (❌ 错误)      | 已实现 (✅)                   |
+| 记忆系统           | 基础实现 (❌ 错误)  | SQLite 持久化 + 游标分页 (✅) |
+| 动态工具发现       | 缺失 (✅ 已修复)    | 已实现 (✅)                   |
+| external-directory | 缺失 (✅ 已修复)    | 已实现 (✅)                   |
 
 ### 已完成修复
 

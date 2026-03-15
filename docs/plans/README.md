@@ -94,15 +94,47 @@
 | 4.1.3 辅助工具补全     | [4.1.3-auxiliary-tools.md](./4.1/4.1.3-auxiliary-tools.md) | P1-2, P1-3, P1-4, P1-5 | ✅ 已完成 |
 | 4.1.4 LSP 高优先级扩展 | [4.1.4-lsp-extension.md](./4.1/4.1.4-lsp-extension.md)     | P2-1, P2-2             | ✅ 已完成 |
 
+### v4.2 功能对齐
+
+**总览**: [v4.2-feature-alignment-plan.md](./4.2/v4.2-feature-alignment-plan.md)
+
+| 子计划 | 文件                                                                   | 描述              | 状态      |
+| ------ | ---------------------------------------------------------------------- | ----------------- | --------- |
+| 4.2    | [v4.2-feature-alignment-plan.md](./4.2/v4.2-feature-alignment-plan.md) | OpenCode 功能对齐 | ✅ 已完成 |
+
+### v4.3 测试系统同步
+
+**总览**: [README.md](./4.3/README.md) | **目标**: OpenCode 测试机制 100% 同步
+
+| 子计划 | 文件                                                                       | 描述               | 状态   |
+| ------ | -------------------------------------------------------------------------- | ------------------ | ------ |
+| 4.3.1  | [4.3.1-fixture-framework.md](./4.3/4.3.1-fixture-framework.md)             | 测试框架搭建       | 待执行 |
+| 4.3.2  | [4.3.2-permission-session-test.md](./4.3/4.3.2-permission-session-test.md) | 权限系统测试       | 待执行 |
+| 4.3.3  | [4.3.3-session-core-test.md](./4.3/4.3.3-session-core-test.md)             | 会话核心测试       | 待执行 |
+| 4.3.4  | [4.3.4-config-test.md](./4.3/4.3.4-config-test.md)                         | 配置系统测试       | 待执行 |
+| 4.3.5  | [4.3.5-tool-core-test.md](./4.3/4.3.5-tool-core-test.md)                   | 工具核心测试       | 待执行 |
+| 4.3.6  | [4.3.6-tool-security-test.md](./4.3/4.3.6-tool-security-test.md)           | 工具安全测试       | 待执行 |
+| 4.3.7  | [4.3.7-file-system-test.md](./4.3/4.3.7-file-system-test.md)               | 文件系统测试       | 待执行 |
+| 4.3.8  | [4.3.8-provider-test.md](./4.3/4.3.8-provider-test.md)                     | LLM Provider 测试  | 待执行 |
+| 4.3.9  | [4.3.9-provider-auth-test.md](./4.3/4.3.9-provider-auth-test.md)           | Provider 认证测试  | 待执行 |
+| 4.3.10 | [4.3.10-mcp-test.md](./4.3/4.3.10-mcp-test.md)                             | MCP 协议测试       | 待执行 |
+| 4.3.11 | [4.3.11-lsp-test.md](./4.3/4.3.11-lsp-test.md)                             | LSP 协议测试       | 待执行 |
+| 4.3.12 | [4.3.12-acp-test.md](./4.3/4.3.12-acp-test.md)                             | ACP 协议测试       | 待执行 |
+| 4.3.13 | [4.3.13-agent-test.md](./4.3/4.3.13-agent-test.md)                         | Agent 系统测试     | 待执行 |
+| 4.3.14 | [4.3.14-skill-test.md](./4.3/4.3.14-skill-test.md)                         | 技能系统测试       | 待执行 |
+| 4.3.15 | [4.3.15-storage-util-test.md](./4.3/4.3.15-storage-util-test.md)           | 存储与工具函数测试 | 待执行 |
+
 ## 当前进度
 
-- **总体进度**: 81% (55/68 任务完成)
+- **总体进度**: 79% (55/70 任务完成)
 - **v1.0**: ✅ 100% (9/9)
 - **v2.0**: ✅ 100% (17/17)
 - **v2.5**: ✅ 100% (5/5)
 - **v3.0**: ✅ 100% (10/10)
 - **v4.0**: ✅ 100% (4/4)
 - **v4.1**: ✅ 100% (4/4)
+- **v4.2**: ✅ 100% (1/1)
+- **v4.3**: 待执行 (0/15)
 - **测试覆盖**: 953 test cases, 5000+ assertions
 - **代码规模**: 110+ 个库文件 + 5 个应用文件
 

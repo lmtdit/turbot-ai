@@ -10,6 +10,7 @@
 | [ADR-002](./002-config-hierarchy-architecture.md)    | 配置分级机制架构             | ✅ 已批准 | 2026-03-08 | v1.0     |
 | [ADR-003](./003-directory-structure-architecture.md) | 目录架构规范                 | ✅ 已批准 | 2026-03-08 | v1.0     |
 | [ADR-004](./004-prompt-template-independence.md)     | Prompt 模板文件独立          | ✅ 已批准 | 2026-03-09 | v2.0     |
+| [ADR-005](./005-test-first-principle.md)             | 测试优先原则                 | ✅ 已批准 | 2026-03-15 | v4.3+    |
 
 ## 决策流程
 
