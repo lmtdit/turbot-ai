@@ -20,25 +20,14 @@ SummaryAgent::SummaryAgent() {
 }
 
 std::string SummaryAgent::get_prompt() {
-    // Try loading from template file first
+    // Load from template file
     std::string template_content = llm::SystemPrompt::load_template("summary");
     if (!template_content.empty()) {
         return template_content;
     }
     
-    // Fallback embedded prompt
-    return R"(Summarize what was done in this conversation. Write like a pull request description.
-
-Rules:
-- 2-3 sentences max
-- Describe the changes made, not the process
-- Do not mention running tests, builds, or other validation steps
-- Do not explain what the user asked for
-- Write in first person (I added..., I fixed...)
-- Never ask questions or add new questions
-- If the conversation ends with an unanswered question to the user, preserve that exact question
-- If the conversation ends with an imperative statement or request to the user (e.g. "Now please run the command and paste the console output"), always include that exact request in the summary
-)";
+    // Minimal fallback prompt
+    return R"(Summarize the changes in 2-3 sentences. Write in first person. Mention key files affected.)";
 }
 
 ExecuteResult SummaryAgent::execute(const ExecuteParams& params) {

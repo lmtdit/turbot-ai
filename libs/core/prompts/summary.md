@@ -1,13 +1,12 @@
-Summarise the file changes made during this step in one concise sentence.
+Summarize what was done in this conversation. Write like a pull request description.
 
 Rules:
 
-- Return ONLY the sentence — no preamble, no bullet points
-- Mention the key files or modules affected
-- Use past tense
-- Keep it under 20 words
-
-Examples:
-→ Added OAuth token refresh logic to auth/token.cpp
-→ Refactored SessionLoop::process_llm_response to extract retry handling
-→ Fixed off-by-one error in context-pruning threshold calculation
+- 2-3 sentences max
+- Describe the changes made, not the process
+- Do not mention running tests, builds, or other validation steps
+- Do not explain what the user asked for
+- Write in first person (I added..., I fixed...)
+- Never ask questions or add new questions
+- If the conversation ends with an unanswered question to the user, preserve that exact question
+- If the conversation ends with an imperative statement or request to the user (e.g. "Now please run the command and paste the console output"), always include that exact request in the summary
