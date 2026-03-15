@@ -19,6 +19,20 @@ set(V2_TEST_SOURCES
     tool/tool_test.cpp
     # agent
     agent/agent_test.cpp
+    # file
+    file/filesystem_test.cpp
+    # provider
+    provider/provider_test.cpp
+    # mcp
+    mcp/mcp_test.cpp
+    # skill
+    skill/skill_test.cpp
+    # storage
+    storage/storage_test.cpp
+    # lsp
+    lsp/lsp_test.cpp
+    # acp
+    acp/acp_test.cpp
 )
 
 # V2 测试头文件
