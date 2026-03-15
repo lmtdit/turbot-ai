@@ -158,6 +158,55 @@ std::vector<nlohmann::json> SessionStore::find_all(const std::string& project_id
     }
 }
 
+// ─── find_all_paginated ──────────────────────────────────────────────────────────
+
+std::pair<std::vector<nlohmann::json>, std::optional<std::string>>
+SessionStore::find_all_paginated(
+    const std::string& project_id,
+    int limit,
+    const std::optional<std::string>& cursor
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return {{}, std::nullopt};
+
+    try {
+        std::vector<nlohmann::json> rows;
+        
+        if (cursor) {
+            // Cursor-based: get rows with time_updated < cursor
+            auto result = db_->execute(
+                "SELECT * FROM sessions WHERE project_id = ? AND time_updated < ? "
+                "ORDER BY time_updated DESC LIMIT ?",
+                {project_id, std::stoll(*cursor), limit}
+            );
+            rows = std::move(result.rows);
+        } else {
+            // First page: get most recent rows
+            auto result = db_->execute(
+                "SELECT * FROM sessions WHERE project_id = ? "
+                "ORDER BY time_updated DESC LIMIT ?",
+                {project_id, limit}
+            );
+            rows = std::move(result.rows);
+        }
+        
+        // Determine next cursor
+        std::optional<std::string> next_cursor;
+        if (rows.size() == static_cast<size_t>(limit)) {
+            // There might be more rows - use the last row's time_updated as cursor
+            const auto& last_row = rows.back();
+            if (last_row.contains("time_updated") && last_row["time_updated"].is_number()) {
+                next_cursor = std::to_string(last_row["time_updated"].get<int64_t>());
+            }
+        }
+        
+        return {std::move(rows), next_cursor};
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::find_all_paginated failed for project {}: {}", project_id, e.what());
+        return {{}, std::nullopt};
+    }
+}
+
 // ─── remove ───────────────────────────────────────────────────────────────────
 
 bool SessionStore::remove(const std::string& id) {
@@ -241,6 +290,76 @@ std::vector<nlohmann::json> SessionStore::list_messages(
     } catch (const std::exception& e) {
         TURBOT_LOG_ERROR("SessionStore::list_messages failed for session {}: {}", session_id, e.what());
         return {};
+    }
+}
+
+// ─── list_messages_paginated ────────────────────────────────────────────────────
+
+std::pair<std::vector<nlohmann::json>, std::optional<int64_t>>
+SessionStore::list_messages_paginated(
+    const std::string& session_id,
+    int limit,
+    std::optional<int64_t> cursor
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return {{}, std::nullopt};
+
+    try {
+        std::vector<nlohmann::json> messages;
+        int64_t last_seq = -1;
+        
+        if (cursor) {
+            // Cursor-based: get rows with seq > cursor
+            auto result = db_->execute(
+                "SELECT seq, data FROM session_messages WHERE session_id = ? AND seq > ? "
+                "ORDER BY seq ASC LIMIT ?",
+                {session_id, *cursor, limit}
+            );
+            
+            messages.reserve(result.rows.size());
+            for (const auto& row : result.rows) {
+                if (row.contains("data") && row["data"].is_string() &&
+                    row.contains("seq") && row["seq"].is_number()) {
+                    try {
+                        messages.push_back(nlohmann::json::parse(row["data"].get<std::string>()));
+                        last_seq = row["seq"].get<int64_t>();
+                    } catch (...) {
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}", session_id);
+                    }
+                }
+            }
+        } else {
+            // First page: get earliest rows
+            auto result = db_->execute(
+                "SELECT seq, data FROM session_messages WHERE session_id = ? "
+                "ORDER BY seq ASC LIMIT ?",
+                {session_id, limit}
+            );
+            
+            messages.reserve(result.rows.size());
+            for (const auto& row : result.rows) {
+                if (row.contains("data") && row["data"].is_string() &&
+                    row.contains("seq") && row["seq"].is_number()) {
+                    try {
+                        messages.push_back(nlohmann::json::parse(row["data"].get<std::string>()));
+                        last_seq = row["seq"].get<int64_t>();
+                    } catch (...) {
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}", session_id);
+                    }
+                }
+            }
+        }
+        
+        // Return next cursor if there might be more rows
+        std::optional<int64_t> next_cursor;
+        if (messages.size() == static_cast<size_t>(limit) && last_seq >= 0) {
+            next_cursor = last_seq;
+        }
+        
+        return {std::move(messages), next_cursor};
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::list_messages_paginated failed for session {}: {}", session_id, e.what());
+        return {{}, std::nullopt};
     }
 }
 

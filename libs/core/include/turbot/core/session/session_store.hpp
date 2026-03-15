@@ -43,6 +43,19 @@ public:
     /// Retrieve all SessionInfo rows for a project, ordered by time_created DESC.
     [[nodiscard]] std::vector<nlohmann::json> find_all(const std::string& project_id);
 
+    /// Retrieve SessionInfo rows for a project with cursor-based pagination.
+    /// @param project_id The project ID to filter by
+    /// @param limit Maximum number of rows to return
+    /// @param cursor Optional cursor (Unix timestamp in milliseconds) for pagination.
+    ///               Returns rows with time_updated < cursor.
+    /// @return Pair of (rows, next_cursor). next_cursor is empty if no more rows.
+    [[nodiscard]] std::pair<std::vector<nlohmann::json>, std::optional<std::string>>
+    find_all_paginated(
+        const std::string& project_id,
+        int limit = 100,
+        const std::optional<std::string>& cursor = std::nullopt
+    );
+
     /// Delete a Session row by ID.
     /// @return true if a row was actually deleted.
     bool remove(const std::string& id);
@@ -50,11 +63,24 @@ public:
     /// Persist a message JSON for a session.
     bool save_message(const std::string& session_id, const nlohmann::json& message);
 
-    /// Retrieve ordered message rows for a session.
+    /// Retrieve ordered message rows for a session (offset-based, legacy).
     [[nodiscard]] std::vector<nlohmann::json> list_messages(
         const std::string& session_id,
         int limit = 50,
         int offset = 0
+    );
+
+    /// Retrieve ordered message rows for a session with cursor-based pagination.
+    /// @param session_id The session ID to filter by
+    /// @param limit Maximum number of rows to return
+    /// @param cursor Optional cursor (message seq) for pagination.
+    ///               Returns rows with seq > cursor.
+    /// @return Pair of (messages, next_cursor). next_cursor is empty if no more rows.
+    [[nodiscard]] std::pair<std::vector<nlohmann::json>, std::optional<int64_t>>
+    list_messages_paginated(
+        const std::string& session_id,
+        int limit = 50,
+        std::optional<int64_t> cursor = std::nullopt
     );
 
 private:
