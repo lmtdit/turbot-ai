@@ -158,7 +158,12 @@ bool SessionInfo::operator==(const SessionInfo& other) const noexcept {
            project_id == other.project_id &&
            parent_id == other.parent_id &&
            slug == other.slug &&
+           directory == other.directory &&
+           title == other.title &&
+           version == other.version &&
            state == other.state &&
+           time_created == other.time_created &&
+           time_updated == other.time_updated &&
            revert == other.revert;
 }
 

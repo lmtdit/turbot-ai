@@ -94,6 +94,9 @@ std::filesystem::path TmpDir::create_file(const std::string& name, const std::st
     // 确保父目录存在
     std::filesystem::create_directories(filepath.parent_path());
     std::ofstream file(filepath);
+    if (!file) {
+        throw std::runtime_error("Failed to create file: " + filepath.string());
+    }
     file << content;
     return filepath;
 }
@@ -133,30 +136,7 @@ std::filesystem::path TestInstance::directory() const noexcept {
 }
 
 bool TestInstance::contains_path(const std::filesystem::path& path) const {
-    if (directory_.empty()) {
-        return false;
-    }
-    
-    try {
-        auto canonical_path = std::filesystem::weakly_canonical(path);
-        auto canonical_dir = std::filesystem::weakly_canonical(directory_);
-        
-        // 检查 canonical_path 是否以 canonical_dir 开头
-        auto it = canonical_path.begin();
-        auto dir_it = canonical_dir.begin();
-        
-        while (dir_it != canonical_dir.end() && it != canonical_path.end()) {
-            if (*dir_it != *it) {
-                return false;
-            }
-            ++dir_it;
-            ++it;
-        }
-        
-        return dir_it == canonical_dir.end();
-    } catch (...) {
-        return false;
-    }
+    return fs_utils::is_subpath(directory_, path);
 }
 
 void TestInstance::clear() {

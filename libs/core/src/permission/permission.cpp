@@ -159,8 +159,9 @@ PermissionAction PermissionSystem::evaluate(
     const std::string& pattern,
     const Ruleset& ruleset
 ) noexcept {
-    // Default is Deny if no rules match
-    PermissionAction result = PermissionAction::Deny;
+    // Default is Ask if no rules match (OpenCode behavior)
+    // This allows the system to request user permission for unknown operations
+    PermissionAction result = PermissionAction::Ask;
 
     for (const auto& rule : ruleset) {
         // Check both permission type and resource pattern match

@@ -191,3 +191,6 @@ turbot_configure_sanitizers(${E2E_TEST_NAME})
 turbot_configure_coverage(${E2E_TEST_NAME})
 
 catch_discover_tests(${E2E_TEST_NAME})
+
+# V2 测试系统（OpenCode 测试能力同步）
+add_subdirectory(v2)
