@@ -1,10 +1,14 @@
 #include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/core/tool/builtin/apply_patch_tool.hpp>
 #include <turbot/core/tool/builtin/bash_tool.hpp>
+#include <turbot/core/tool/builtin/batch_tool.hpp>
 #include <turbot/core/tool/builtin/codesearch_tool.hpp>
 #include <turbot/core/tool/builtin/edit_tool.hpp>
 #include <turbot/core/tool/builtin/glob_tool.hpp>
 #include <turbot/core/tool/builtin/grep_tool.hpp>
+#include <turbot/core/tool/builtin/invalid_tool.hpp>
 #include <turbot/core/tool/builtin/list_tool.hpp>
+#include <turbot/core/tool/builtin/lsp_tool.hpp>
 #include <turbot/core/tool/builtin/multiedit_tool.hpp>
 #include <turbot/core/tool/builtin/question_tool.hpp>
 #include <turbot/core/tool/builtin/read_file_tool.hpp>
@@ -116,6 +120,14 @@ void ToolRegistry::register_builtin_tools() {
     register_tool(std::make_unique<builtin::WriteFileTool>());
     register_tool(std::make_unique<builtin::EditTool>());
     register_tool(std::make_unique<builtin::MultiEditTool>());
+    register_tool(std::make_unique<builtin::ApplyPatchTool>());
+    register_tool(std::make_unique<builtin::BatchTool>());
+    register_tool(std::make_unique<builtin::InvalidTool>());
+    
+    // Experimental tools (require environment variable to enable)
+    if (builtin::LSPTool::is_enabled()) {
+        register_tool(std::make_unique<builtin::LSPTool>());
+    }
     
     // Shell execution
     register_tool(std::make_unique<builtin::BashTool>());

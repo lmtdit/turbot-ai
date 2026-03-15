@@ -17,6 +17,18 @@ namespace fs = std::filesystem;
 
 namespace turbot::core::lsp {
 
+// ─── LSP Auto-download Configuration ─────────────────────────────────────────
+
+bool is_lsp_download_enabled() {
+    // Default: enabled, disabled via TURBOT_DISABLE_LSP_DOWNLOAD=true
+    const char* env = std::getenv("TURBOT_DISABLE_LSP_DOWNLOAD");
+    if (env == nullptr) return true;  // enabled by default
+    std::string value(env);
+    // Check for "true", "1", "yes" (case-insensitive)
+    for (char& c : value) c = std::tolower(c);
+    return !(value == "true" || value == "1" || value == "yes");
+}
+
 // ─── command_exists ───────────────────────────────────────────────────────────
 
 bool command_exists(const std::string& cmd) {
@@ -360,6 +372,206 @@ LSPServerInfo make_astro_server(const std::string& workspace_root) {
         {"package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock", "package.json"},
         {"astro-ls", "--stdio"},
         "astro-ls not found, skipping Astro LSP",
+        workspace_root);
+}
+
+// ─── Additional LSP servers (v4.2 feature alignment) ─────────────────────────
+
+/// Bash — bash-language-server
+LSPServerInfo make_bash_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "bash",
+        {".sh", ".bash", ".zsh"},
+        {},
+        {"bash-language-server", "start"},
+        "bash-language-server not found, skipping Bash LSP",
+        workspace_root);
+}
+
+/// Java — jdtls (Eclipse JDT Language Server)
+LSPServerInfo make_java_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "java",
+        {".java"},
+        {"pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"},
+        {"jdtls"},
+        "jdtls not found, skipping Java LSP",
+        workspace_root);
+}
+
+/// Kotlin — kotlin-language-server
+LSPServerInfo make_kotlin_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "kotlin",
+        {".kt", ".kts", ".ktm"},
+        {"build.gradle.kts", "settings.gradle.kts", "pom.xml"},
+        {"kotlin-language-server"},
+        "kotlin-language-server not found, skipping Kotlin LSP",
+        workspace_root);
+}
+
+/// C# — OmniSharp
+LSPServerInfo make_csharp_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "csharp",
+        {".cs", ".csx", ".cake"},
+        {"*.sln", "*.csproj", "project.json", "omnisharp.json"},
+        {"OmniSharp", "-lsp"},
+        "OmniSharp not found, skipping C# LSP",
+        workspace_root);
+}
+
+/// Clojure — clojure-lsp
+LSPServerInfo make_clojure_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "clojure",
+        {".clj", ".cljs", ".cljc", ".edn"},
+        {"deps.edn", "project.clj", "shadow-cljs.edn", "bb.edn"},
+        {"clojure-lsp"},
+        "clojure-lsp not found, skipping Clojure LSP",
+        workspace_root);
+}
+
+/// Dart — dart analysis server
+LSPServerInfo make_dart_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "dart",
+        {".dart"},
+        {"pubspec.yaml", ".dart_tool"},
+        {"dart", "language-server", "--protocol=lsp"},
+        "dart not found, skipping Dart LSP",
+        workspace_root);
+}
+
+/// Elixir — elixir-ls
+LSPServerInfo make_elixir_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "elixir",
+        {".ex", ".exs", ".eex", ".leex", ".heex"},
+        {"mix.exs"},
+        {"elixir-ls"},
+        "elixir-ls not found, skipping Elixir LSP",
+        workspace_root);
+}
+
+/// Erlang — erlang-ls
+LSPServerInfo make_erlang_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "erlang",
+        {".erl", ".hrl", ".erl", ".app", ".app.src", ".config", ".script", ".escript"},
+        {"rebar.config", "erlang.mk", "Emakefile"},
+        {"erlang_ls"},
+        "erlang_ls not found, skipping Erlang LSP",
+        workspace_root);
+}
+
+/// Haskell — hls (Haskell Language Server)
+LSPServerInfo make_haskell_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "haskell",
+        {".hs", ".lhs", ".hs-boot", ".lhs-boot"},
+        {"hie.yaml", "stack.yaml", "cabal.project", "package.yaml"},
+        {"haskell-language-server-wrapper", "--lsp"},
+        "haskell-language-server not found, skipping Haskell LSP",
+        workspace_root);
+}
+
+/// Lua — lua-language-server
+LSPServerInfo make_lua_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "lua",
+        {".lua", ".luau"},
+        {".luarc.json", ".luarc.jsonc", ".luacheckrc", "selene.toml"},
+        {"lua-language-server"},
+        "lua-language-server not found, skipping Lua LSP",
+        workspace_root);
+}
+
+/// Nix — nixd
+LSPServerInfo make_nix_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "nix",
+        {".nix"},
+        {"flake.nix", "default.nix", "shell.nix"},
+        {"nixd"},
+        "nixd not found, skipping Nix LSP",
+        workspace_root);
+}
+
+/// OCaml — ocamllsp
+LSPServerInfo make_ocaml_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "ocaml",
+        {".ml", ".mli", ".mll", ".mly"},
+        {"dune-project", "esy.json", "opam"},
+        {"ocamllsp"},
+        "ocamllsp not found, skipping OCaml LSP",
+        workspace_root);
+}
+
+/// PHP — intelephense
+LSPServerInfo make_php_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "php",
+        {".php", ".phtml", ".php3", ".php4", ".php5", ".php7", ".phps"},
+        {"composer.json", "vendor"},
+        {"intelephense", "--stdio"},
+        "intelephense not found, skipping PHP LSP",
+        workspace_root);
+}
+
+/// Ruby — solargraph
+LSPServerInfo make_ruby_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "ruby",
+        {".rb", ".rake", ".gemspec", ".ru"},
+        {"Gemfile", "Rakefile", ".solargraph.yml"},
+        {"solargraph", "stdio"},
+        "solargraph not found, skipping Ruby LSP",
+        workspace_root);
+}
+
+/// Scala — metals
+LSPServerInfo make_scala_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "scala",
+        {".scala", ".sc", ".sbt"},
+        {"build.sbt", "project/build.properties", "project/plugins.sbt"},
+        {"metals"},
+        "metals not found, skipping Scala LSP",
+        workspace_root);
+}
+
+/// Swift — sourcekit-lsp
+LSPServerInfo make_swift_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "swift",
+        {".swift", ".swiftinterface"},
+        {"Package.swift", ".swift-version", "Podfile", "Cartfile"},
+        {"sourcekit-lsp"},
+        "sourcekit-lsp not found, skipping Swift LSP",
+        workspace_root);
+}
+
+/// Terraform — terraform-ls
+LSPServerInfo make_terraform_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "terraform",
+        {".tf", ".tfvars", ".hcl"},
+        {".terraform", ".terraform.lock.hcl"},
+        {"terraform-ls", "serve"},
+        "terraform-ls not found, skipping Terraform LSP",
+        workspace_root);
+}
+
+/// Zig — zls
+LSPServerInfo make_zig_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "zig",
+        {".zig", ".zon"},
+        {"build.zig", "zls.json"},
+        {"zls"},
+        "zls not found, skipping Zig LSP",
         workspace_root);
 }
 

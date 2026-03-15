@@ -61,6 +61,12 @@ std::string load_prompt_file(const std::string& name) {
 
 } // namespace
 
+// ===== Public template loading API =====
+
+std::string SystemPrompt::load_template(const std::string& name) {
+    return load_prompt_file(name);
+}
+
 // ===== Provider type detection =====
 
 ProviderType get_provider_type(std::string_view provider_id) noexcept {

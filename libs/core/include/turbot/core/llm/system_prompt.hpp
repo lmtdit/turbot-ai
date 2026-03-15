@@ -123,6 +123,13 @@ public:
 
     /// Get Trinity prompt template
     [[nodiscard]] static std::string prompt_trinity();
+
+    // ===== Utility functions =====
+
+    /// Load prompt template from file
+    /// @param name Template name (without .md extension)
+    /// @return Template content or empty string if not found
+    [[nodiscard]] static std::string load_template(const std::string& name);
 };
 
 } // namespace turbot::core::llm

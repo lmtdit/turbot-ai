@@ -7,6 +7,9 @@
 
 namespace turbot::core::lsp {
 
+/// Check if LSP auto-download is enabled (default: true, disabled via TURBOT_DISABLE_LSP_DOWNLOAD)
+[[nodiscard]] bool is_lsp_download_enabled();
+
 /// Check if a command exists in PATH (similar to `which` on POSIX systems).
 [[nodiscard]] bool command_exists(const std::string& cmd);
 
@@ -53,6 +56,62 @@ namespace turbot::core::lsp {
 
 /// Astro — astro-ls
 [[nodiscard]] LSPServerInfo make_astro_server(const std::string& workspace_root);
+
+// ─── Additional LSP servers (v4.2 feature alignment) ─────────────────────────
+
+/// Bash — bash-language-server
+[[nodiscard]] LSPServerInfo make_bash_server(const std::string& workspace_root);
+
+/// Java — jdtls (Eclipse JDT Language Server)
+[[nodiscard]] LSPServerInfo make_java_server(const std::string& workspace_root);
+
+/// Kotlin — kotlin-language-server
+[[nodiscard]] LSPServerInfo make_kotlin_server(const std::string& workspace_root);
+
+/// C# — OmniSharp
+[[nodiscard]] LSPServerInfo make_csharp_server(const std::string& workspace_root);
+
+/// Clojure — clojure-lsp
+[[nodiscard]] LSPServerInfo make_clojure_server(const std::string& workspace_root);
+
+/// Dart — dart analysis server
+[[nodiscard]] LSPServerInfo make_dart_server(const std::string& workspace_root);
+
+/// Elixir — elixir-ls
+[[nodiscard]] LSPServerInfo make_elixir_server(const std::string& workspace_root);
+
+/// Erlang — erlang-ls
+[[nodiscard]] LSPServerInfo make_erlang_server(const std::string& workspace_root);
+
+/// Haskell — hls (Haskell Language Server)
+[[nodiscard]] LSPServerInfo make_haskell_server(const std::string& workspace_root);
+
+/// Lua — lua-language-server
+[[nodiscard]] LSPServerInfo make_lua_server(const std::string& workspace_root);
+
+/// Nix — nixd
+[[nodiscard]] LSPServerInfo make_nix_server(const std::string& workspace_root);
+
+/// OCaml — ocamllsp
+[[nodiscard]] LSPServerInfo make_ocaml_server(const std::string& workspace_root);
+
+/// PHP — intelephense
+[[nodiscard]] LSPServerInfo make_php_server(const std::string& workspace_root);
+
+/// Ruby — solargraph
+[[nodiscard]] LSPServerInfo make_ruby_server(const std::string& workspace_root);
+
+/// Scala — metals
+[[nodiscard]] LSPServerInfo make_scala_server(const std::string& workspace_root);
+
+/// Swift — sourcekit-lsp
+[[nodiscard]] LSPServerInfo make_swift_server(const std::string& workspace_root);
+
+/// Terraform — terraform-ls
+[[nodiscard]] LSPServerInfo make_terraform_server(const std::string& workspace_root);
+
+/// Zig — zls
+[[nodiscard]] LSPServerInfo make_zig_server(const std::string& workspace_root);
 
 /// Create user-defined server from JSON config entry.
 [[nodiscard]] LSPServerInfo make_custom_server(

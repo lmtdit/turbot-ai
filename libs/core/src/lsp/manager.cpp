@@ -42,6 +42,26 @@ void LSPManager::initialize(const std::string& workspace_root) {
     register_server(make_rust_analyzer_server(workspace_root));
     register_server(make_svelte_server(workspace_root));
     register_server(make_astro_server(workspace_root));
+    
+    // Register additional LSP servers (v4.2 feature alignment)
+    register_server(make_bash_server(workspace_root));
+    register_server(make_java_server(workspace_root));
+    register_server(make_kotlin_server(workspace_root));
+    register_server(make_csharp_server(workspace_root));
+    register_server(make_clojure_server(workspace_root));
+    register_server(make_dart_server(workspace_root));
+    register_server(make_elixir_server(workspace_root));
+    register_server(make_erlang_server(workspace_root));
+    register_server(make_haskell_server(workspace_root));
+    register_server(make_lua_server(workspace_root));
+    register_server(make_nix_server(workspace_root));
+    register_server(make_ocaml_server(workspace_root));
+    register_server(make_php_server(workspace_root));
+    register_server(make_ruby_server(workspace_root));
+    register_server(make_scala_server(workspace_root));
+    register_server(make_swift_server(workspace_root));
+    register_server(make_terraform_server(workspace_root));
+    register_server(make_zig_server(workspace_root));
 }
 
 // ─── register_server / disable_server ─────────────────────────────────────────

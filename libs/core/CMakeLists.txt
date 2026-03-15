@@ -43,6 +43,10 @@ set(CORE_SOURCES
     src/tool/builtin/webfetch_tool.cpp
     src/tool/builtin/websearch_tool.cpp
     src/tool/builtin/codesearch_tool.cpp
+    src/tool/builtin/apply_patch_tool.cpp
+    src/tool/builtin/batch_tool.cpp
+    src/tool/builtin/invalid_tool.cpp
+    src/tool/builtin/lsp_tool.cpp
     # Plugin module
     src/plugin/plugin.cpp
     # Agent module
@@ -51,6 +55,8 @@ set(CORE_SOURCES
     src/agent/builtin/build_agent.cpp
     src/agent/builtin/plan_agent.cpp
     src/agent/builtin/explore_agent.cpp
+    src/agent/builtin/title_agent.cpp
+    src/agent/builtin/summary_agent.cpp
     # Session module
     src/session/session.cpp
     src/session/session_store.cpp

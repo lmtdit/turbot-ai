@@ -3,6 +3,8 @@
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
 #include <turbot/core/agent/builtin/configurable_agent.hpp>
+#include <turbot/core/agent/builtin/title_agent.hpp>
+#include <turbot/core/agent/builtin/summary_agent.hpp>
 #include <turbot/core/permission/permission.hpp>
 #include <turbot/core/provider/provider_manager.hpp>
 #include <turbot/core/provider/provider.hpp>
@@ -82,46 +84,19 @@ size_t initialize_builtin_agents() {
     }
 
     // -----------------------------------------------------------------------
-    // 6. Title — hidden primary; no tools; low temperature
-    //    Generates a short session title after the session finishes.
+    // 6. Title — hidden primary; generates session titles
     // -----------------------------------------------------------------------
     {
-        using namespace turbot::core::permission;
-        AgentInfo info;
-        info.name        = "title";
-        info.description = "Internal agent that generates a concise session title";
-        info.mode        = AgentMode::Primary;
-        info.native      = true;
-        info.hidden      = true;
-        info.temperature = 0.5;
-        info.steps       = 1;
-        info.prompt      =
-            "Generate an extremely concise (≤ 8 words) title for the session "
-            "based on the user's first message.  Return ONLY the title — no "
-            "punctuation, no quotes, no explanation.";
-        // Deny all tool calls
-        info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Deny});
-        if (registry.register_agent(std::make_shared<ConfigurableAgent>(std::move(info)))) count++;
+        auto agent = std::make_shared<TitleAgent>();
+        if (registry.register_agent(agent)) count++;
     }
 
     // -----------------------------------------------------------------------
-    // 7. Summary — hidden primary; no tools
-    //    Computes a brief summary of what changed in a step.
+    // 7. Summary — hidden primary; generates step summaries
     // -----------------------------------------------------------------------
     {
-        using namespace turbot::core::permission;
-        AgentInfo info;
-        info.name        = "summary";
-        info.description = "Internal agent that generates a step-level change summary";
-        info.mode        = AgentMode::Primary;
-        info.native      = true;
-        info.hidden      = true;
-        info.steps       = 1;
-        info.prompt      =
-            "Summarise the file changes made in this step in one short sentence.  "
-            "Return ONLY the sentence.";
-        info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Deny});
-        if (registry.register_agent(std::make_shared<ConfigurableAgent>(std::move(info)))) count++;
+        auto agent = std::make_shared<SummaryAgent>();
+        if (registry.register_agent(agent)) count++;
     }
 
     return count;
