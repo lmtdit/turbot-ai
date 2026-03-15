@@ -415,6 +415,70 @@ std::pair<int, int> ApplyPatchTool::count_diff_changes(
     return {additions, deletions};
 }
 
+std::pair<std::string, std::string> ApplyPatchTool::validate_and_resolve_path(
+    const std::string& relative_path,
+    const std::string& working_directory
+) {
+    // Check for empty path
+    if (relative_path.empty()) {
+        return {"", "Empty file path"};
+    }
+    
+    // Check for path traversal patterns
+    if (relative_path.find("..") != std::string::npos) {
+        return {"", fmt::format("Path traversal detected: '{}' contains '..'", relative_path)};
+    }
+    
+    // Check for absolute path (should be relative)
+    std::filesystem::path test_path(relative_path);
+    if (test_path.is_absolute()) {
+        return {"", fmt::format("Absolute path not allowed: '{}'", relative_path)};
+    }
+    
+    // Construct the full path
+    std::filesystem::path full_path = std::filesystem::path(working_directory) / relative_path;
+    
+    // Get canonical working directory (resolve symlinks, etc.)
+    std::error_code ec;
+    std::filesystem::path canonical_work_dir;
+    if (std::filesystem::exists(working_directory, ec)) {
+        canonical_work_dir = std::filesystem::canonical(working_directory, ec);
+    } else {
+        canonical_work_dir = std::filesystem::absolute(working_directory);
+    }
+    
+    if (ec) {
+        return {"", fmt::format("Failed to resolve working directory: {}", ec.message())};
+    }
+    
+    // Get the absolute path (don't use canonical for non-existent files)
+    std::filesystem::path absolute_path = std::filesystem::absolute(full_path);
+    
+    // Verify the path is within working directory
+    std::string abs_str = absolute_path.string();
+    std::string work_str = canonical_work_dir.string();
+    
+    // Normalize both paths for comparison (ensure trailing separator handling)
+    if (abs_str.length() < work_str.length()) {
+        return {"", fmt::format("Path traversal detected: '{}' is outside working directory", relative_path)};
+    }
+    
+    // Check if the absolute path starts with the working directory
+    if (abs_str.substr(0, work_str.length()) != work_str) {
+        return {"", fmt::format("Path traversal detected: '{}' is outside working directory", relative_path)};
+    }
+    
+    // Additional check: ensure after working directory prefix, we have a separator or end
+    if (abs_str.length() > work_str.length() && abs_str[work_str.length()] != '/') {
+        // On Windows, also check for backslash
+        if (abs_str[work_str.length()] != '\\') {
+            return {"", fmt::format("Path traversal detected: '{}' is outside working directory", relative_path)};
+        }
+    }
+    
+    return {abs_str, ""};
+}
+
 ParseResult ApplyPatchTool::parse_patch(const std::string& patch_text) {
     ParseResult result;
     
@@ -555,8 +619,12 @@ ToolResult ApplyPatchTool::execute(const nlohmann::json& input, ToolContext& ctx
             
             if constexpr (std::is_same_v<T, AddHunk>) {
                 const auto& add = arg;
-                std::filesystem::path file_path = std::filesystem::path(ctx.working_directory) / add.path;
-                std::string file_path_str = file_path.string();
+                
+                // Validate path to prevent traversal attacks
+                auto [file_path_str, path_error] = validate_and_resolve_path(add.path, ctx.working_directory);
+                if (!path_error.empty()) {
+                    throw std::runtime_error(path_error);
+                }
                 
                 std::string new_content = add.contents;
                 if (!new_content.empty() && new_content.back() != '\n') {
@@ -581,11 +649,15 @@ ToolResult ApplyPatchTool::execute(const nlohmann::json& input, ToolContext& ctx
                 
             } else if constexpr (std::is_same_v<T, DeleteHunk>) {
                 const auto& del = arg;
-                std::filesystem::path file_path = std::filesystem::path(ctx.working_directory) / del.path;
-                std::string file_path_str = file_path.string();
+                
+                // Validate path to prevent traversal attacks
+                auto [file_path_str, path_error] = validate_and_resolve_path(del.path, ctx.working_directory);
+                if (!path_error.empty()) {
+                    throw std::runtime_error(path_error);
+                }
                 
                 // Read file content before deletion
-                std::ifstream ifs(file_path);
+                std::ifstream ifs(file_path_str);
                 if (!ifs) {
                     throw std::runtime_error(fmt::format("Failed to read file for deletion: {}", file_path_str));
                 }
@@ -613,12 +685,16 @@ ToolResult ApplyPatchTool::execute(const nlohmann::json& input, ToolContext& ctx
                 
             } else if constexpr (std::is_same_v<T, UpdateHunk>) {
                 const auto& upd = arg;
-                std::filesystem::path file_path = std::filesystem::path(ctx.working_directory) / upd.path;
-                std::string file_path_str = file_path.string();
+                
+                // Validate path to prevent traversal attacks
+                auto [file_path_str, path_error] = validate_and_resolve_path(upd.path, ctx.working_directory);
+                if (!path_error.empty()) {
+                    throw std::runtime_error(path_error);
+                }
                 
                 // Check if file exists
                 std::error_code ec;
-                if (!std::filesystem::exists(file_path, ec)) {
+                if (!std::filesystem::exists(file_path_str, ec)) {
                     throw std::runtime_error(fmt::format("File not found for update: {}", file_path_str));
                 }
                 
@@ -626,7 +702,7 @@ ToolResult ApplyPatchTool::execute(const nlohmann::json& input, ToolContext& ctx
                 auto [new_content, unified_diff] = derive_new_contents_from_chunks(file_path_str, upd.chunks);
                 
                 // Read old content for diff
-                std::ifstream ifs(file_path);
+                std::ifstream ifs(file_path_str);
                 std::stringstream buffer;
                 buffer << ifs.rdbuf();
                 std::string old_content = buffer.str();
@@ -637,7 +713,12 @@ ToolResult ApplyPatchTool::execute(const nlohmann::json& input, ToolContext& ctx
                 
                 std::optional<std::string> move_path;
                 if (upd.move_path) {
-                    move_path = (std::filesystem::path(ctx.working_directory) / *upd.move_path).string();
+                    // Validate move target path as well
+                    auto [move_path_str, move_path_error] = validate_and_resolve_path(*upd.move_path, ctx.working_directory);
+                    if (!move_path_error.empty()) {
+                        throw std::runtime_error(move_path_error);
+                    }
+                    move_path = move_path_str;
                 }
                 
                 FileChangeResult change;

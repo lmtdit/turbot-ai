@@ -2,7 +2,9 @@
 #include <turbot/core/provider/provider_manager.hpp>
 #include <turbot/core/llm/system_prompt.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/utils/string_utils.hpp>
 #include <fmt/format.h>
+#include <regex>
 
 namespace turbot::core::agent {
 
@@ -13,6 +15,7 @@ TitleAgent::TitleAgent() {
     info_.native = true;
     info_.hidden = true;  // Hidden from UI
     info_.temperature = 0.5;
+    info_.steps = 1;  // Single-step execution for title generation
     info_.prompt = get_prompt();
     
     // Deny all tools - title agent only generates text
@@ -40,41 +43,77 @@ ExecuteResult TitleAgent::execute(const ExecuteParams& params) {
         return ExecuteResult::error("TitleAgent: no provider configured");
     }
 
-    // Get model
+    // Get model - prefer agent's configured model, fallback to first available
     std::string model_id;
     if (info_.model) {
         model_id = info_.model->model_id;
     } else {
         auto models = (*prov_opt)->list_models();
-        model_id = models.empty() ? "" : models.front().id;
+        if (models.empty()) {
+            TURBOT_LOG_WARN("TitleAgent::execute: no model available");
+            return ExecuteResult::error("TitleAgent: no model available");
+        }
+        model_id = models.front().id;
     }
 
-    if (model_id.empty()) {
-        return ExecuteResult::error("TitleAgent: no model available");
-    }
+    // Build messages for title generation
+    std::vector<provider::ChatMessage> messages = {
+        provider::ChatMessage::system(info_.prompt.value_or("")),
+        provider::ChatMessage::user("Generate a title for this conversation:\n" + params.prompt)
+    };
 
-    // For title generation, we need to call the LLM directly
-    // This is a simplified implementation - in practice you'd use the provider's chat API
-    // to generate a completion with the system prompt
-    
-    // Generate a simple title from the first line of the prompt
-    std::string title = params.prompt;
-    
-    // Take first line and truncate
-    size_t newline_pos = title.find('\n');
-    if (newline_pos != std::string::npos) {
-        title = title.substr(0, newline_pos);
+    // Call LLM API
+    provider::ChatOptions options;
+    options.temperature = info_.temperature.value_or(0.5);
+    options.max_tokens = 100;  // Titles should be short
+    // Disable all tools - title agent only generates text
+    options.tools = {};  
+
+    try {
+        auto response = (*prov_opt)->chat(messages, model_id, options);
+        
+        if (response.is_error()) {
+            TURBOT_LOG_WARN("TitleAgent::execute: LLM error: {}", 
+                response.error.has_value() ? response.error->dump() : "unknown");
+            return ExecuteResult::error("TitleAgent: LLM call failed");
+        }
+        
+        std::string title = response.get_text();
+        
+        // Clean up the response - remove think tags and get first non-empty line
+        // This handles models that output reasoning in <think> tags
+        static const std::regex think_pattern(R"(<think>[sS]*?</think>s*)");
+        title = std::regex_replace(title, think_pattern, "");
+        
+        // Get first non-empty line
+        auto lines = turbot::utils::split_lines(title);
+        std::string cleaned_title;
+        for (const auto& line : lines) {
+            std::string trimmed = turbot::utils::trim(line);
+            if (!trimmed.empty()) {
+                cleaned_title = trimmed;
+                break;
+            }
+        }
+        
+        if (cleaned_title.empty()) {
+            cleaned_title = "New conversation";
+        }
+        
+        // Truncate to max 100 characters (matching OpenCode behavior)
+        if (cleaned_title.length() > 100) {
+            cleaned_title = cleaned_title.substr(0, 97) + "...";
+        }
+        
+        return ExecuteResult::ok(cleaned_title, {
+            {"agent", "title"},
+            {"model", model_id}
+        });
+        
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("TitleAgent::execute: exception: {}", e.what());
+        return ExecuteResult::error(fmt::format("TitleAgent: {}", e.what()));
     }
-    
-    // Truncate to 50 characters
-    if (title.length() > 50) {
-        title = title.substr(0, 47) + "...";
-    }
-    
-    return ExecuteResult::ok(title, {
-        {"agent", "title"},
-        {"model", model_id}
-    });
 }
 
 } // namespace turbot::core::agent

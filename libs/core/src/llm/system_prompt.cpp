@@ -19,7 +19,32 @@ std::filesystem::path get_prompts_dir() {
         if (const char* env_dir = std::getenv("TURBOT_PROMPTS_DIR")) {
             return std::filesystem::path(env_dir);
         }
-        // Default: relative to executable or current directory
+        
+        // Search paths in priority order
+        std::vector<std::filesystem::path> search_paths = {
+            // 1. Current directory / prompts
+            std::filesystem::current_path() / "prompts",
+            // 2. Core library prompts directory (relative to executable)
+            std::filesystem::current_path() / "libs" / "core" / "prompts",
+            // 3. Installed location (relative to executable)
+            []() -> std::filesystem::path {
+                try {
+                    auto exe_path = std::filesystem::canonical("/proc/self/exe");
+                    return exe_path.parent_path().parent_path() / "share" / "turbot" / "prompts";
+                } catch (...) {
+                    return {};
+                }
+            }()
+        };
+        
+        // Return first existing directory
+        for (const auto& path : search_paths) {
+            if (!path.empty() && std::filesystem::exists(path)) {
+                return path;
+            }
+        }
+        
+        // Default to current directory / prompts (will be created if needed)
         return std::filesystem::current_path() / "prompts";
     }();
     return prompts_dir;

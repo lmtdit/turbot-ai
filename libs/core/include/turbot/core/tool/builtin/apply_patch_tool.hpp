@@ -147,6 +147,15 @@ private:
         const std::string& old_content,
         const std::string& new_content
     );
+
+    /// Validate that a path is within the working directory (prevent path traversal)
+    /// @param relative_path The relative path from the patch
+    /// @param working_directory The working directory
+    /// @return Tuple of (absolute_path, error_message). error_message is empty on success.
+    [[nodiscard]] static std::pair<std::string, std::string> validate_and_resolve_path(
+        const std::string& relative_path,
+        const std::string& working_directory
+    );
 };
 
 } // namespace turbot::core::tool::builtin

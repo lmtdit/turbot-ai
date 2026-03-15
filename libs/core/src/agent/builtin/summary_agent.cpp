@@ -38,35 +38,56 @@ ExecuteResult SummaryAgent::execute(const ExecuteParams& params) {
         return ExecuteResult::error("SummaryAgent: no provider configured");
     }
 
-    // Get model
+    // Get model - prefer agent's configured model, fallback to first available
     std::string model_id;
     if (info_.model) {
         model_id = info_.model->model_id;
     } else {
         auto models = (*prov_opt)->list_models();
-        model_id = models.empty() ? "" : models.front().id;
+        if (models.empty()) {
+            TURBOT_LOG_WARN("SummaryAgent::execute: no model available");
+            return ExecuteResult::error("SummaryAgent: no model available");
+        }
+        model_id = models.front().id;
     }
 
-    if (model_id.empty()) {
-        return ExecuteResult::error("SummaryAgent: no model available");
-    }
+    // Build messages for summary generation
+    std::vector<provider::ChatMessage> messages = {
+        provider::ChatMessage::system(info_.prompt.value_or("")),
+        provider::ChatMessage::user("Summarize the following conversation:\n\n" + params.prompt)
+    };
 
-    // For summary generation, we need to call the LLM directly
-    // This is a simplified implementation - in practice you'd use the provider's chat API
-    // to generate a completion with the system prompt
-    
-    // Generate a simple summary
-    std::string summary = "Conversation completed.";
-    
-    // Check if there's context with actual work done
-    if (params.context.contains("changes") && !params.context["changes"].empty()) {
-        summary = "I made changes to the codebase as requested.";
+    // Call LLM API
+    provider::ChatOptions options;
+    options.temperature = 0.3;  // Lower temperature for consistent summaries
+    options.max_tokens = 500;   // Summaries should be concise
+    // Disable all tools - summary agent only generates text
+    options.tools = {};
+
+    try {
+        auto response = (*prov_opt)->chat(messages, model_id, options);
+        
+        if (response.is_error()) {
+            TURBOT_LOG_WARN("SummaryAgent::execute: LLM error: {}", 
+                response.error.has_value() ? response.error->dump() : "unknown");
+            return ExecuteResult::error("SummaryAgent: LLM call failed");
+        }
+        
+        std::string summary = response.get_text();
+        
+        if (summary.empty()) {
+            summary = "Conversation completed.";
+        }
+        
+        return ExecuteResult::ok(summary, {
+            {"agent", "summary"},
+            {"model", model_id}
+        });
+        
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SummaryAgent::execute: exception: {}", e.what());
+        return ExecuteResult::error(fmt::format("SummaryAgent: {}", e.what()));
     }
-    
-    return ExecuteResult::ok(summary, {
-        {"agent", "summary"},
-        {"model", model_id}
-    });
 }
 
 } // namespace turbot::core::agent
