@@ -101,7 +101,7 @@ TEST_CASE("Config.Manager.GetNonExistent", "[Config]") {
     REQUIRE_FALSE(value.has_value());
 }
 
-TEST_CASE("Config.Manager.HasKey", "[Config]") {
+TEST_CASE("Config.Manager.HasKeyCheck", "[Config]") {
     auto& manager = ConfigManager::instance();
     
     manager.set("test.has_test", "value");
@@ -117,7 +117,7 @@ TEST_CASE("Config.Manager.GetAll", "[Config]") {
     manager.set("test.all_2", "value2");
     
     auto all = manager.get_all();
-    REQUIRE(all.is_object() || all.is_null());
+    REQUIRE((all.is_object() || all.is_null()));
 }
 
 // ==================== ConfigManager 层级配置测试 ====================
@@ -214,7 +214,7 @@ TEST_CASE("Config.Manager.EnvExpansion", "[Config]") {
 
 // ==================== LoadResult 测试 ====================
 
-TEST_CASE("Config.LoadResult.Defaults", "[Config]") {
+TEST_CASE("Config.LoadResult.DefaultState", "[Config]") {
     LoadResult result;
     REQUIRE_FALSE(result.success);
     REQUIRE(result.level == ConfigLevel::Default);
@@ -298,7 +298,7 @@ TEST_CASE("Config.Manager.ParseMarkdownConfig.NoFrontmatter", "[Config]") {
     auto config = manager.parse_markdown_config(md_file.string());
     
     // Should handle gracefully
-    REQUIRE(config.frontmatter.is_null() || config.frontmatter.empty());
+    REQUIRE((config.frontmatter.is_null() || config.frontmatter.empty()));
 }
 
 // ==================== ConfigManager 配置验证测试 ====================
@@ -357,9 +357,9 @@ TEST_CASE("Config.Manager.GetConfigPath", "[Config]") {
     auto project_path = manager.get_config_path(ConfigLevel::Project);
     
     // Paths should be strings (may be empty if not configured)
-    REQUIRE(default_path.empty() || !default_path.empty());
-    REQUIRE(user_path.empty() || !user_path.empty());
-    REQUIRE(project_path.empty() || !project_path.empty());
+    REQUIRE((default_path.empty() || !default_path.empty()));
+    REQUIRE((user_path.empty() || !user_path.empty()));
+    REQUIRE((project_path.empty() || !project_path.empty()));
 }
 
 TEST_CASE("Config.Manager.GetExtensionPath", "[Config]") {
@@ -370,6 +370,6 @@ TEST_CASE("Config.Manager.GetExtensionPath", "[Config]") {
     auto skill_path = manager.get_extension_path(ConfigLevel::User, ExtensionType::Skill);
     
     // Paths should be strings
-    REQUIRE(agent_path.empty() || !agent_path.empty());
-    REQUIRE(skill_path.empty() || !skill_path.empty());
+    REQUIRE((agent_path.empty() || !agent_path.empty()));
+    REQUIRE((skill_path.empty() || !skill_path.empty()));
 }

@@ -20,6 +20,11 @@ set(V2_TEST_SOURCES
     session/retry_manager_test.cpp
     # config
     config/config_test.cpp
+    config/config_enhanced_test.cpp
+    config/config_yaml_test.cpp
+    config/config_env_test.cpp
+    config/config_persistence_test.cpp
+    config/config_validation_test.cpp
     # tool
     tool/tool_test.cpp
     # agent
@@ -35,6 +40,9 @@ set(V2_TEST_SOURCES
     # skill
     skill/skill_test.cpp
     skill/skill_enhanced_test.cpp
+    skill/skill_remote_test.cpp
+    skill/skill_registry_advanced_test.cpp
+    skill/skill_tool_test.cpp
     # storage
     storage/storage_test.cpp
     # lsp

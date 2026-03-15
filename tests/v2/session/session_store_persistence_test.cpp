@@ -12,6 +12,8 @@
 #include <fstream>
 #include <unistd.h>
 #include <random>
+#include <thread>
+#include <chrono>
 
 namespace turbot::test {
 
@@ -168,18 +170,20 @@ TEST_CASE("Session.Store.FindAllPaginated", "[Session][Store]") {
         auto session_result = turbot::core::session::Session::create(params);
         REQUIRE(session_result.has_value());
         REQUIRE(store.save(session_result->info()));
+        
+        // 添加小延迟确保 time_updated 不同
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
     // 分页查询 - 第一页
     auto [page1, cursor1] = store.find_all_paginated("paginated-project", 3);
     REQUIRE(page1.size() == 3);
+    REQUIRE(cursor1.has_value());  // 应该有更多数据
     
     // 分页查询 - 第二页
-    if (cursor1.has_value()) {
-        auto [page2, cursor2] = store.find_all_paginated("paginated-project", 3, cursor1);
-        REQUIRE(page2.size() == 2);
-        REQUIRE(!cursor2.has_value());  // 没有更多数据
-    }
+    auto [page2, cursor2] = store.find_all_paginated("paginated-project", 3, cursor1);
+    REQUIRE(page2.size() == 2);
+    REQUIRE_FALSE(cursor2.has_value());  // 没有更多数据
 
     fixture.teardown();
 }
