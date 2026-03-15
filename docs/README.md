@@ -142,6 +142,7 @@
 - [2026-03-14-v3.0-completeness-review.md](./reviews/2026-03-14-v3.0-completeness-review.md) - v3.0 功能完成度评估报告（综合完成度 65%，SPEARM 70/100 上限锁定）
 - [2026-03-14-v2.x-completeness-review.md](./reviews/2026-03-14-v2.x-completeness-review.md) - v2.x 功能完成度评估报告（综合完成度 78%，SPEARM 80/100）
 - [2026-03-14-turbot-overall-review.md](./reviews/2026-03-14-turbot-overall-review.md) - Turbot 整体功能完成度总结报告（二次核实综合评估）
+- [2026-03-15-turbot-opencode-alignment-review.md](./reviews/2026-03-15-turbot-opencode-alignment-review.md) - Turbot-AI 与 OpenCode 功能对齐审查（85% 对齐度，SPEARM 74/100）
 
 ### API 文档
 
