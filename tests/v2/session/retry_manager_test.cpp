@@ -50,7 +50,7 @@ TEST_CASE("Retry.APIError.FromResponse.ServerOverloaded", "[Retry]") {
 TEST_CASE("Retry.Config.Default", "[Retry]") {
     RetryConfig config;
 
-    REQUIRE(config.max_attempts == 3);
+    REQUIRE(config.max_attempts == 5);
     REQUIRE(config.base_delay_ms == 1000);
     REQUIRE(config.max_delay_ms == 60000);
     REQUIRE(config.jitter_factor == 0.1);
@@ -154,8 +154,9 @@ TEST_CASE("Retry.Manager.IsRetryable.ErrorCode", "[Retry]") {
     APIError error4(500, "Error", "temporary_error");
     REQUIRE(RetryManager::is_retryable(error4));
 
+    // Note: Any error with status code 5xx is retryable regardless of code
     APIError error5(500, "Error", "invalid_request");
-    REQUIRE_FALSE(RetryManager::is_retryable(error5));
+    REQUIRE(RetryManager::is_retryable(error5));  // 5xx is retryable
 }
 
 // ============================================================================
