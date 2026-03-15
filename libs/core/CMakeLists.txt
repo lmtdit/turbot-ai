@@ -37,8 +37,11 @@ set(CORE_SOURCES
     src/tool/builtin/grep_tool.cpp
     src/tool/builtin/list_tool.cpp
     src/tool/builtin/task_tool.cpp
+    src/tool/builtin/todo_tool.cpp
+    src/tool/builtin/plan_tool.cpp
     src/tool/builtin/question_tool.cpp
     src/tool/builtin/webfetch_tool.cpp
+    src/tool/builtin/websearch_tool.cpp
     src/tool/builtin/codesearch_tool.cpp
     # Plugin module
     src/plugin/plugin.cpp

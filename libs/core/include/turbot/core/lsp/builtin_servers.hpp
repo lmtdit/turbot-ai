@@ -45,6 +45,15 @@ namespace turbot::core::lsp {
 /// JavaScript/TypeScript format + lint — biome LSP
 [[nodiscard]] LSPServerInfo make_biome_server(const std::string& workspace_root);
 
+/// Rust — rust-analyzer
+[[nodiscard]] LSPServerInfo make_rust_analyzer_server(const std::string& workspace_root);
+
+/// Svelte — svelte-language-server
+[[nodiscard]] LSPServerInfo make_svelte_server(const std::string& workspace_root);
+
+/// Astro — astro-ls
+[[nodiscard]] LSPServerInfo make_astro_server(const std::string& workspace_root);
+
 /// Create user-defined server from JSON config entry.
 [[nodiscard]] LSPServerInfo make_custom_server(
     const std::string& id,

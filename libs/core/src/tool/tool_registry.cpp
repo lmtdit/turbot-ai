@@ -9,8 +9,12 @@
 #include <turbot/core/tool/builtin/question_tool.hpp>
 #include <turbot/core/tool/builtin/read_file_tool.hpp>
 #include <turbot/core/tool/builtin/webfetch_tool.hpp>
+#include <turbot/core/tool/builtin/websearch_tool.hpp>
 #include <turbot/core/tool/builtin/write_file_tool.hpp>
 #include <turbot/core/tool/builtin/task_tool.hpp>
+#include <turbot/core/tool/builtin/todo_tool.hpp>
+#include <turbot/core/tool/builtin/plan_tool.hpp>
+#include <turbot/core/tool/skill_tool.hpp>
 #include <stdexcept>
 
 namespace turbot::core::tool {
@@ -124,9 +128,15 @@ void ToolRegistry::register_builtin_tools() {
     
     // Web access
     register_tool(std::make_unique<builtin::WebFetchTool>());
+    register_tool(std::make_unique<builtin::WebSearchTool>());
     
     // Task management
     register_tool(std::make_unique<TaskTool>());
+    register_tool(std::make_unique<TodoReadTool>());
+    register_tool(std::make_unique<TodoWriteTool>());
+    register_tool(std::make_unique<PlanEnterTool>());
+    register_tool(std::make_unique<PlanExitTool>());
+    register_tool(std::make_unique<SkillTool>());
 
     // Interactive question tool — only registered when explicitly enabled
     // (e.g. for CLI/app/desktop clients that support interactive UI).

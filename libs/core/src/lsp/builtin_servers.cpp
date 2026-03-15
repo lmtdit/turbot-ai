@@ -2,6 +2,7 @@
 #include <turbot/core/common/logger.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -291,6 +292,74 @@ LSPServerInfo make_biome_server(const std::string& workspace_root) {
         {"biome.json", "biome.jsonc", "package.json"},
         {"biome", "lsp-proxy"},
         "biome not found, skipping Biome LSP",
+        workspace_root);
+}
+
+// ─── Rust Analyzer LSP server ─────────────────────────────────────────────────
+
+LSPServerInfo make_rust_analyzer_server(const std::string& workspace_root) {
+    LSPServerInfo info;
+    info.id         = "rust";
+    info.extensions = {".rs"};
+    info.global     = false;
+
+    const std::string root = workspace_root;
+    info.root = [root](const std::string& file) -> std::optional<std::string> {
+        const std::string dir = fs::path(file).parent_path().string();
+        // First, find nearest Cargo.toml or Cargo.lock
+        auto crate_root = nearest_root(dir, {"Cargo.toml", "Cargo.lock"}, {}, root);
+        if (!crate_root) return std::nullopt;
+
+        // Then, walk up to find workspace root (Cargo.toml with [workspace])
+        fs::path current = *crate_root;
+        while (current != current.parent_path()) {
+            fs::path cargo_toml = current / "Cargo.toml";
+            std::error_code ec;
+            if (fs::exists(cargo_toml, ec)) {
+                std::ifstream f(cargo_toml);
+                std::string content((std::istreambuf_iterator<char>(f)),
+                                    std::istreambuf_iterator<char>());
+                if (content.find("[workspace]") != std::string::npos) {
+                    return current.string();
+                }
+            }
+            current = current.parent_path();
+        }
+        return crate_root;
+    };
+
+    info.spawn = [](const std::string& root_dir) -> std::optional<ServerHandle> {
+        if (!command_exists("rust-analyzer")) {
+            TURBOT_LOG_INFO("rust-analyzer not found, skipping Rust LSP");
+            return std::nullopt;
+        }
+        return spawn_process({"rust-analyzer"}, root_dir);
+    };
+
+    return info;
+}
+
+// ─── Svelte LSP server ───────────────────────────────────────────────────────
+
+LSPServerInfo make_svelte_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "svelte",
+        {".svelte"},
+        {"package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock", "package.json"},
+        {"svelteserver", "--stdio"},
+        "svelteserver not found, skipping Svelte LSP",
+        workspace_root);
+}
+
+// ─── Astro LSP server ─────────────────────────────────────────────────────────
+
+LSPServerInfo make_astro_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "astro",
+        {".astro"},
+        {"package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock", "package.json"},
+        {"astro-ls", "--stdio"},
+        "astro-ls not found, skipping Astro LSP",
         workspace_root);
 }
 

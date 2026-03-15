@@ -59,9 +59,12 @@ set(UNIT_TEST_SOURCES
     unit/provider_test.cpp
     unit/permission_test.cpp
     unit/tool_test.cpp
+    unit/websearch_tool_test.cpp
     unit/agent_test.cpp
     unit/session_test.cpp
     unit/task_tool_test.cpp
+    unit/todo_tool_test.cpp
+    unit/plan_tool_test.cpp
     unit/session_loop_test.cpp
     # v2.0 LLM module
     unit/tool_schema_test.cpp

@@ -1026,3 +1026,102 @@ TEST_CASE("agent_generator::generate - long description truncated", "[core][agen
     REQUIRE(result.identifier.length() <= 32);
 }
 
+// ============================================================================
+// General Agent Tests (v4.1)
+// ============================================================================
+
+TEST_CASE("GeneralAgent registration", "[core][agent][builtin][general_agent]") {
+    AgentRegistry::instance().clear();
+    
+    // Register general agent manually (as done in agent_loader.cpp)
+    using namespace turbot::core::permission;
+    AgentInfo info;
+    info.name = "general";
+    info.description = "General-purpose subagent (no todo tools)";
+    info.mode = AgentMode::Subagent;
+    info.native = true;
+    info.hidden = false;
+    info.permission.push_back(PermissionRule{"todoread", "*", PermissionAction::Deny});
+    info.permission.push_back(PermissionRule{"todowrite", "*", PermissionAction::Deny});
+    info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Allow});
+    
+    auto agent = std::make_shared<ConfigurableAgent>(std::move(info));
+    REQUIRE(AgentRegistry::instance().register_agent(agent));
+    
+    // Verify registration
+    REQUIRE(AgentRegistry::instance().has("general"));
+    auto retrieved = AgentRegistry::instance().get("general");
+    REQUIRE(retrieved != nullptr);
+    REQUIRE(retrieved->name() == "general");
+    REQUIRE(retrieved->mode() == AgentMode::Subagent);
+    REQUIRE_FALSE(retrieved->is_hidden());
+    
+    // Verify permission: todoread/todowrite denied
+    const auto& perms = retrieved->info().permission;
+    bool todoread_denied = false;
+    bool todowrite_denied = false;
+    for (const auto& rule : perms) {
+        if (rule.permission == "todoread" && rule.action == PermissionAction::Deny) {
+            todoread_denied = true;
+        }
+        if (rule.permission == "todowrite" && rule.action == PermissionAction::Deny) {
+            todowrite_denied = true;
+        }
+    }
+    REQUIRE(todoread_denied);
+    REQUIRE(todowrite_denied);
+    
+    AgentRegistry::instance().clear();
+}
+
+// ============================================================================
+// Compaction Agent Tests (v4.1)
+// ============================================================================
+
+TEST_CASE("CompactionAgent registration", "[core][agent][builtin][compaction_agent]") {
+    AgentRegistry::instance().clear();
+    
+    // Register compaction agent manually (as done in agent_loader.cpp)
+    using namespace turbot::core::permission;
+    AgentInfo info;
+    info.name = "compaction";
+    info.description = "Internal agent used during context-window compaction";
+    info.mode = AgentMode::Primary;
+    info.native = true;
+    info.hidden = true;
+    info.permission.push_back(PermissionRule{"*", "*", PermissionAction::Deny});
+    
+    auto agent = std::make_shared<ConfigurableAgent>(std::move(info));
+    REQUIRE(AgentRegistry::instance().register_agent(agent));
+    
+    // Verify registration
+    REQUIRE(AgentRegistry::instance().has("compaction"));
+    auto retrieved = AgentRegistry::instance().get("compaction");
+    REQUIRE(retrieved != nullptr);
+    REQUIRE(retrieved->name() == "compaction");
+    REQUIRE(retrieved->mode() == AgentMode::Primary);
+    REQUIRE(retrieved->is_hidden());
+    
+    // Verify permission: all tools denied
+    const auto& perms = retrieved->info().permission;
+    bool all_denied = false;
+    for (const auto& rule : perms) {
+        if (rule.permission == "*" && rule.pattern == "*" && rule.action == PermissionAction::Deny) {
+            all_denied = true;
+        }
+    }
+    REQUIRE(all_denied);
+    
+    // Verify not in visible list
+    auto visible = AgentRegistry::instance().list_visible();
+    bool found_in_visible = false;
+    for (const auto& a : visible) {
+        if (a->name() == "compaction") {
+            found_in_visible = true;
+        }
+    }
+    REQUIRE_FALSE(found_in_visible);
+    
+    AgentRegistry::instance().clear();
+}
+

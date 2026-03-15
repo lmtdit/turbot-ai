@@ -34,6 +34,14 @@ void LSPManager::initialize(const std::string& workspace_root) {
     register_server(make_clangd_server(workspace_root));
     register_server(make_pyright_server(workspace_root));
     register_server(make_gopls_server(workspace_root));
+    register_server(make_deno_server(workspace_root));
+    register_server(make_typescript_server(workspace_root));
+    register_server(make_vue_server(workspace_root));
+    register_server(make_eslint_server(workspace_root));
+    register_server(make_biome_server(workspace_root));
+    register_server(make_rust_analyzer_server(workspace_root));
+    register_server(make_svelte_server(workspace_root));
+    register_server(make_astro_server(workspace_root));
 }
 
 // ─── register_server / disable_server ─────────────────────────────────────────
