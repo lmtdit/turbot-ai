@@ -28,6 +28,8 @@ set(CORE_SOURCES
     src/tool/tool.cpp
     src/tool/tool_registry.cpp
     src/tool/skill_tool.cpp
+    src/tool/external_command_tool.cpp
+    src/tool/external_directory.cpp
     src/tool/builtin/read_file_tool.cpp
     src/tool/builtin/write_file_tool.cpp
     src/tool/builtin/bash_tool.cpp

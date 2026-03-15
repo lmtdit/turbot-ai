@@ -19,7 +19,10 @@
 #include <turbot/core/tool/builtin/todo_tool.hpp>
 #include <turbot/core/tool/builtin/plan_tool.hpp>
 #include <turbot/core/tool/skill_tool.hpp>
+#include <turbot/core/tool/external_command_tool.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <stdexcept>
+#include <filesystem>
 
 namespace turbot::core::tool {
 
@@ -160,6 +163,75 @@ void ToolRegistry::register_builtin_tools() {
 
 void ToolRegistry::enable_question_tool(bool enable) {
     question_tool_enabled_ = enable;
+}
+
+size_t ToolRegistry::discover_custom_tools(const std::string& project_dir) {
+    std::string tools_dir = project_dir + "/.turbot/tools";
+    
+    if (!std::filesystem::exists(tools_dir)) {
+        TURBOT_LOG_INFO("No custom tools directory found at: {}", tools_dir);
+        return 0;
+    }
+    
+    size_t count = 0;
+    
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(tools_dir)) {
+            if (!entry.is_regular_file()) continue;
+            
+            std::string path = entry.path().string();
+            std::string ext = entry.path().extension().string();
+            
+            // Only process .json files
+            if (ext != ".json") continue;
+            
+            auto config = CustomToolConfig::from_file(path);
+            if (!config) {
+                TURBOT_LOG_WARN("Failed to load custom tool config: {}", path);
+                continue;
+            }
+            
+            if (!config->enabled) {
+                TURBOT_LOG_INFO("Custom tool '{}' is disabled, skipping", config->name);
+                continue;
+            }
+            
+            // Check for name conflict with builtin tools
+            if (has(config->name)) {
+                TURBOT_LOG_WARN("Custom tool '{}' conflicts with existing tool, replacing", config->name);
+            }
+            
+            // Create and register the external command tool
+            auto tool = std::make_unique<ExternalCommandTool>(*config);
+            register_tool(std::move(tool));
+            
+            // Track custom tool name
+            {
+                std::unique_lock lock(mutex_);
+                custom_tool_names_.push_back(config->name);
+            }
+            
+            TURBOT_LOG_INFO("Registered custom tool '{}' from {}", config->name, path);
+            count++;
+        }
+    } catch (const std::filesystem::filesystem_error& e) {
+        TURBOT_LOG_ERROR("Error scanning custom tools directory: {}", e.what());
+    }
+    
+    return count;
+}
+
+size_t ToolRegistry::discover_custom_tools(const std::vector<std::string>& directories) {
+    size_t total = 0;
+    for (const auto& dir : directories) {
+        total += discover_custom_tools(dir);
+    }
+    return total;
+}
+
+std::vector<std::string> ToolRegistry::custom_tool_names() const {
+    std::shared_lock lock(mutex_);
+    return custom_tool_names_;
 }
 
 } // namespace turbot::core::tool

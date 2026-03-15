@@ -64,6 +64,20 @@ public:
     /// Default: disabled (question tool requires interactive UI support).
     void enable_question_tool(bool enable = true);
 
+    /// Discover and register custom tools from a project directory.
+    /// Scans for .turbot/tools/*.json files and registers them as ExternalCommandTools.
+    /// @param project_dir The project root directory to scan
+    /// @return Number of tools discovered and registered
+    size_t discover_custom_tools(const std::string& project_dir);
+
+    /// Discover and register custom tools from multiple directories.
+    /// @param directories List of directories to scan
+    /// @return Number of tools discovered and registered
+    size_t discover_custom_tools(const std::vector<std::string>& directories);
+
+    /// Get list of custom tool names (loaded via discover_custom_tools)
+    [[nodiscard]] std::vector<std::string> custom_tool_names() const;
+
 private:
     ToolRegistry() = default;
     ~ToolRegistry() = default;
@@ -74,6 +88,7 @@ private:
     mutable std::shared_mutex mutex_;
     std::unordered_map<std::string, ToolPtr> tools_;
     bool question_tool_enabled_ = false;  ///< Opt-in flag for QuestionTool
+    std::vector<std::string> custom_tool_names_;  ///< Names of tools loaded via discover_custom_tools
 };
 
 } // namespace turbot::core::tool

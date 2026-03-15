@@ -1,0 +1,18 @@
+{
+  "name": "example_tool",
+  "description": "An example custom tool that echoes its input. Use this as a template for creating new custom tools.",
+  "command": "echo",
+  "args": ["${message}"],
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "message": {
+        "type": "string",
+        "description": "The message to echo"
+      }
+    },
+    "required": ["message"]
+  },
+  "timeout_seconds": 30,
+  "enabled": true
+}
