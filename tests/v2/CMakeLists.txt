@@ -27,10 +27,15 @@ set(V2_TEST_SOURCES
     config/config_validation_test.cpp
     # tool
     tool/tool_test.cpp
+    tool/tool_registry_test.cpp
+    tool/tool_advanced_test.cpp
     # agent
     agent/agent_test.cpp
     agent/agent_enhanced_test.cpp
     agent/agent_flow_test.cpp
+    agent/agent_loader_test.cpp
+    agent/agent_builtin_test.cpp
+    agent/agent_generator_test.cpp
     # file
     file/filesystem_test.cpp
     # provider
