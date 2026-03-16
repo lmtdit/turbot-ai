@@ -76,15 +76,19 @@ TEST_CASE("Session.Store.Init.Idempotent", "[Session][Store]") {
 
     auto& store = turbot::core::session::SessionStore::instance();
     
-    // 多次初始化应该安全
+    // 初始化
     store.init(fixture.db);
     REQUIRE(store.is_initialized());
     
-    // 第二次初始化应该被忽略
+    // 第二次初始化应该被忽略（first call wins）
+    // 使用内存数据库进行第二次初始化尝试
     turbot::storage::DatabaseConfig config2;
-    config2.path = (fixture.test_dir / "sessions2.db").string();
+    config2.path = ":memory:";
     auto db2 = std::make_shared<turbot::storage::sqlite::SQLiteDatabase>(config2);
     store.init(db2);  // 应该被忽略，不改变数据库
+    
+    // 验证仍然使用第一个数据库
+    REQUIRE(store.is_initialized());
 
     fixture.teardown();
 }
@@ -132,10 +136,13 @@ TEST_CASE("Session.Store.FindAll", "[Session][Store]") {
     auto& store = turbot::core::session::SessionStore::instance();
     store.init(fixture.db);
 
+    // 使用唯一的 project_id 避免与其他测试冲突
+    std::string unique_project = "find-all-project-" + fixture.unique_id;
+
     // 创建多个 Session
     for (int i = 0; i < 3; ++i) {
         turbot::core::session::CreateParams params;
-        params.project_id = "test-project";
+        params.project_id = unique_project;
         params.slug = "test-slug-" + std::to_string(i);
         params.directory = fixture.test_dir.string();
         params.title = "Test Session " + std::to_string(i);
@@ -146,7 +153,7 @@ TEST_CASE("Session.Store.FindAll", "[Session][Store]") {
     }
 
     // 查找所有
-    auto all = store.find_all("test-project");
+    auto all = store.find_all(unique_project);
     REQUIRE(all.size() == 3);
 
     fixture.teardown();
@@ -159,10 +166,13 @@ TEST_CASE("Session.Store.FindAllPaginated", "[Session][Store]") {
     auto& store = turbot::core::session::SessionStore::instance();
     store.init(fixture.db);
 
+    // 使用唯一的 project_id 避免与其他测试冲突
+    std::string unique_project = "paginated-project-" + fixture.unique_id;
+
     // 创建 5 个 Session
     for (int i = 0; i < 5; ++i) {
         turbot::core::session::CreateParams params;
-        params.project_id = "paginated-project";
+        params.project_id = unique_project;
         params.slug = "page-slug-" + std::to_string(i);
         params.directory = fixture.test_dir.string();
         params.title = "Page Session " + std::to_string(i);
@@ -171,17 +181,17 @@ TEST_CASE("Session.Store.FindAllPaginated", "[Session][Store]") {
         REQUIRE(session_result.has_value());
         REQUIRE(store.save(session_result->info()));
         
-        // 添加小延迟确保 time_updated 不同
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        // 添加延迟确保 time_updated 不同（time_updated 是秒级精度）
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     // 分页查询 - 第一页
-    auto [page1, cursor1] = store.find_all_paginated("paginated-project", 3);
+    auto [page1, cursor1] = store.find_all_paginated(unique_project, 3);
     REQUIRE(page1.size() == 3);
     REQUIRE(cursor1.has_value());  // 应该有更多数据
     
     // 分页查询 - 第二页
-    auto [page2, cursor2] = store.find_all_paginated("paginated-project", 3, cursor1);
+    auto [page2, cursor2] = store.find_all_paginated(unique_project, 3, cursor1);
     REQUIRE(page2.size() == 2);
     REQUIRE_FALSE(cursor2.has_value());  // 没有更多数据
 

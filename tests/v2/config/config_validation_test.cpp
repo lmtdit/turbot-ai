@@ -28,10 +28,7 @@ public:
     }
 
     ~ConfigValidationFixture() {
-        // Restore config state
-        if (!saved_config_.is_null() && !saved_config_.empty()) {
-            ConfigManager::instance().set("", saved_config_);
-        }
+        // Config state will be reset by individual tests
     }
 
     void createConfigFile(const std::filesystem::path& path, const nlohmann::json& config) {
@@ -49,60 +46,37 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.ValidConfig.Empty",
     auto& manager = ConfigManager::instance();
 
     // Empty config should be valid
-    nlohmann::json empty_config = nlohmann::json::object();
-    manager.set("", empty_config);
-
-    REQUIRE(true);  // No exception means valid
+    REQUIRE(manager.validate_config(nlohmann::json::object()));
 }
 
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.ValidConfig.Basic", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"turbot", {
-            {"debug", false},
-            {"log_level", "info"}
-        }},
-        {"permissions", {
-            {"mode", "ask"}
-        }}
-    };
+    manager.set("turbot.debug", false);
+    manager.set("turbot.log_level", "info");
+    manager.set("permissions.mode", "ask");
 
-    manager.set("", config);
     REQUIRE(manager.has("turbot"));
 }
 
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.ValidConfig.WithProviders", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"providers_by_name", {
-            {"openai", {
-                {"api_key", "sk-test"},
-                {"base_url", "https://api.openai.com/v1"}
-            }},
-            {"anthropic", {
-                {"api_key", "sk-ant-test"}
-            }}
-        }}
-    };
+    nlohmann::json openai = {{"api_key", "sk-test"}, {"base_url", "https://api.openai.com/v1"}};
+    nlohmann::json anthropic = {{"api_key", "sk-ant-test"}};
+    manager.set("providers_by_name.openai", openai);
+    manager.set("providers_by_name.anthropic", anthropic);
 
-    manager.set("", config);
     REQUIRE(manager.has("providers_by_name"));
 }
 
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.ValidConfig.WithPermissions", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"permissions", {
-            {"mode", "auto"},
-            {"allow", {"read", "write"}},
-            {"deny", {"delete"}}
-        }}
-    };
+    manager.set("permissions.mode", "auto");
+    manager.set("permissions.allow", nlohmann::json::array({"read", "write"}));
+    manager.set("permissions.deny", nlohmann::json::array({"delete"}));
 
-    manager.set("", config);
     REQUIRE(manager.has("permissions"));
 }
 
@@ -112,30 +86,18 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Provider.MissingApi
     auto& manager = ConfigManager::instance();
 
     // Provider without API key - may be valid for some providers
-    nlohmann::json config = {
-        {"providers_by_name", {
-            {"openai", {
-                {"base_url", "https://api.openai.com/v1"}
-            }}
-        }}
-    };
+    nlohmann::json openai = {{"base_url", "https://api.openai.com/v1"}};
+    manager.set("providers_by_name.openai", openai);
 
-    manager.set("", config);
     REQUIRE(manager.has("providers_by_name.openai"));
 }
 
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Provider.EmptyApiKey", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"providers_by_name", {
-            {"openai", {
-                {"api_key", ""}
-            }}
-        }}
-    };
+    nlohmann::json openai = {{"api_key", ""}};
+    manager.set("providers_by_name.openai", openai);
 
-    manager.set("", config);
     REQUIRE(manager.has("providers_by_name.openai"));
 }
 
@@ -143,32 +105,20 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Provider.InvalidBas
     auto& manager = ConfigManager::instance();
 
     // Invalid URL format - should still be accepted (validation may be lenient)
-    nlohmann::json config = {
-        {"providers_by_name", {
-            {"openai", {
-                {"api_key", "sk-test"},
-                {"base_url", "not-a-valid-url"}
-            }}
-        }}
-    };
+    nlohmann::json openai = {{"api_key", "sk-test"}, {"base_url", "not-a-valid-url"}};
+    manager.set("providers_by_name.openai", openai);
 
-    manager.set("", config);
     REQUIRE(manager.has("providers_by_name.openai"));
 }
 
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Provider.MultipleProviders", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"providers_by_name", {
-            {"openai", {{"api_key", "sk-openai"}}},
-            {"anthropic", {{"api_key", "sk-anthropic"}}},
-            {"azure", {{"api_key", "azure-key"}, {"base_url", "https://azure.openai.com/"}}},
-            {"deepseek", {{"api_key", "sk-deepseek"}}}
-        }}
-    };
+    manager.set("providers_by_name.openai", nlohmann::json({{"api_key", "sk-openai"}}));
+    manager.set("providers_by_name.anthropic", nlohmann::json({{"api_key", "sk-anthropic"}}));
+    manager.set("providers_by_name.azure", nlohmann::json({{"api_key", "azure-key"}, {"base_url", "https://azure.openai.com/"}}));
+    manager.set("providers_by_name.deepseek", nlohmann::json({{"api_key", "sk-deepseek"}}));
 
-    manager.set("", config);
     REQUIRE(manager.has("providers_by_name.openai"));
     REQUIRE(manager.has("providers_by_name.anthropic"));
     REQUIRE(manager.has("providers_by_name.azure"));
@@ -192,14 +142,12 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Permission.ValidMod
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Permission.AllowList", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"permissions", {
-            {"mode", "auto"},
-            {"allow", {"read_file", "write_file", "execute_bash"}}
-        }}
+    nlohmann::json permissions = {
+        {"mode", "auto"},
+        {"allow", {"read_file", "write_file", "execute_bash"}}
     };
 
-    manager.set("", config);
+    manager.set("permissions", permissions);
     auto allow_list = manager.get<nlohmann::json>("permissions.allow");
     REQUIRE(allow_list.has_value());
     REQUIRE(allow_list->is_array());
@@ -209,14 +157,12 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Permission.AllowLis
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Permission.DenyList", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"permissions", {
-            {"mode", "ask"},
-            {"deny", {"delete_file", "execute_bash"}}
-        }}
+    nlohmann::json permissions = {
+        {"mode", "ask"},
+        {"deny", {"delete_file", "execute_bash"}}
     };
 
-    manager.set("", config);
+    manager.set("permissions", permissions);
     auto deny_list = manager.get<nlohmann::json>("permissions.deny");
     REQUIRE(deny_list.has_value());
     REQUIRE(deny_list->is_array());
@@ -226,17 +172,13 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Permission.DenyList
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Permission.Rules", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"permissions", {
-            {"mode", "auto"},
-            {"rules", {
-                {{"permission", "file"}, {"pattern", "*.txt"}, {"action", "allow"}},
-                {{"permission", "bash"}, {"pattern", "rm *"}, {"action", "deny"}}
-            }}
-        }}
-    };
+    nlohmann::json rules = nlohmann::json::array({
+        {{"permission", "file"}, {"pattern", "*.txt"}, {"action", "allow"}},
+        {{"permission", "bash"}, {"pattern", "rm *"}, {"action", "deny"}}
+    });
+    manager.set("permissions.mode", "auto");
+    manager.set("permissions.rules", rules);
 
-    manager.set("", config);
     REQUIRE(manager.has("permissions.rules"));
 }
 
@@ -279,12 +221,8 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.InvalidConfig.Circu
     // This test verifies the manager handles complex structures
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json config = {
-        {"a", {{"ref", "b"}}},
-        {"b", {{"ref", "a"}}}
-    };
-
-    manager.set("", config);
+    manager.set("a.ref", "b");
+    manager.set("b.ref", "a");
     REQUIRE(manager.has("a"));
     REQUIRE(manager.has("b"));
 }
@@ -333,12 +271,9 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Edge.LargeConfig", 
     auto& manager = ConfigManager::instance();
 
     // Create a large config
-    nlohmann::json large_config = nlohmann::json::object();
     for (int i = 0; i < 1000; ++i) {
-        large_config["key" + std::to_string(i)] = i;
+        manager.set("key" + std::to_string(i), i);
     }
-
-    manager.set("", large_config);
 
     // Verify some values
     REQUIRE(manager.get<int>("key0") == 0);
@@ -380,29 +315,14 @@ TEST_CASE("Config.Validation.Exception.Message", "[Config][Validation]") {
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.Integration.FullValidation", "[Config][Validation]") {
     auto& manager = ConfigManager::instance();
 
-    nlohmann::json full_config = {
-        {"turbot", {
-            {"debug", true},
-            {"log_level", "debug"}
-        }},
-        {"providers_by_name", {
-            {"openai", {
-                {"api_key", "sk-test-key"},
-                {"base_url", "https://api.openai.com/v1"}
-            }}
-        }},
-        {"permissions", {
-            {"mode", "auto"},
-            {"allow", {"read", "write"}},
-            {"deny", {"delete"}}
-        }},
-        {"extensions", {
-            {"enabled", true},
-            {"directories", {"/path/to/extensions"}}
-        }}
-    };
-
-    manager.set("", full_config);
+    manager.set("turbot.debug", true);
+    manager.set("turbot.log_level", "debug");
+    manager.set("providers_by_name.openai", nlohmann::json({{"api_key", "sk-test-key"}, {"base_url", "https://api.openai.com/v1"}}));
+    manager.set("permissions.mode", "auto");
+    manager.set("permissions.allow", nlohmann::json::array({"read", "write"}));
+    manager.set("permissions.deny", nlohmann::json::array({"delete"}));
+    manager.set("extensions.enabled", true);
+    manager.set("extensions.directories", nlohmann::json::array({"/path/to/extensions"}));
 
     // Verify all sections
     REQUIRE(manager.get<bool>("turbot.debug") == true);

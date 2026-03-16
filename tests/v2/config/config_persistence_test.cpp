@@ -207,8 +207,11 @@ TEST_CASE_METHOD(ConfigPersistenceFixture, "Config.Persistence.Load.ValidJson", 
         {"nested", {{"key3", true}}}
     };
 
-    std::ofstream file(config_path);
-    file << config.dump(2);
+    {
+        std::ofstream file(config_path);
+        file << config.dump(2);
+        file.close();
+    }
 
     REQUIRE(std::filesystem::exists(config_path));
 
@@ -216,6 +219,9 @@ TEST_CASE_METHOD(ConfigPersistenceFixture, "Config.Persistence.Load.ValidJson", 
     std::ifstream in(config_path);
     std::string content((std::istreambuf_iterator<char>(in)),
                         std::istreambuf_iterator<char>());
+    in.close();
+    
+    REQUIRE_FALSE(content.empty());
     auto loaded = nlohmann::json::parse(content);
     REQUIRE(loaded["key1"] == "value1");
 }

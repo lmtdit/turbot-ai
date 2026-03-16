@@ -351,6 +351,11 @@ TEST_CASE("Agent.Registry.Instance.Enhanced", "[Agent]") {
 }
 
 TEST_CASE("Agent.Registry.List", "[Agent]") {
+    // 确保有有效的当前目录
+    try {
+        std::filesystem::current_path(std::filesystem::temp_directory_path());
+    } catch (...) {}
+    
     auto& registry = AgentRegistry::instance();
     
     // Clear and initialize built-in agents
@@ -365,6 +370,11 @@ TEST_CASE("Agent.Registry.List", "[Agent]") {
 }
 
 TEST_CASE("Agent.Registry.Clear", "[Agent]") {
+    // 确保有有效的当前目录
+    try {
+        std::filesystem::current_path(std::filesystem::temp_directory_path());
+    } catch (...) {}
+    
     auto& registry = AgentRegistry::instance();
     
     // Initialize agents
@@ -376,6 +386,11 @@ TEST_CASE("Agent.Registry.Clear", "[Agent]") {
 }
 
 TEST_CASE("Agent.Registry.ListByMode", "[Agent]") {
+    // 确保有有效的当前目录
+    try {
+        std::filesystem::current_path(std::filesystem::temp_directory_path());
+    } catch (...) {}
+    
     auto& registry = AgentRegistry::instance();
     registry.clear();
     agent_loader::initialize_builtin_agents();
@@ -390,6 +405,11 @@ TEST_CASE("Agent.Registry.ListByMode", "[Agent]") {
 }
 
 TEST_CASE("Agent.Registry.ListVisible", "[Agent]") {
+    // 确保有有效的当前目录
+    try {
+        std::filesystem::current_path(std::filesystem::temp_directory_path());
+    } catch (...) {}
+    
     auto& registry = AgentRegistry::instance();
     registry.clear();
     agent_loader::initialize_builtin_agents();
@@ -404,6 +424,11 @@ TEST_CASE("Agent.Registry.ListVisible", "[Agent]") {
 }
 
 TEST_CASE("Agent.Registry.DefaultAgent", "[Agent]") {
+    // 确保有有效的当前目录
+    try {
+        std::filesystem::current_path(std::filesystem::temp_directory_path());
+    } catch (...) {}
+    
     auto& registry = AgentRegistry::instance();
     registry.clear();
     agent_loader::initialize_builtin_agents();

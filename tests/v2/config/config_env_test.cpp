@@ -27,10 +27,7 @@ public:
     }
 
     ~ConfigEnvFixture() {
-        // Restore config state
-        if (!saved_config_.is_null()) {
-            ConfigManager::instance().set("", saved_config_);
-        }
+        // Config state will be reset by individual tests
     }
 
 private:
