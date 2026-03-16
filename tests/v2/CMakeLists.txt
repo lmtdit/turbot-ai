@@ -25,10 +25,12 @@ set(V2_TEST_SOURCES
     config/config_env_test.cpp
     config/config_persistence_test.cpp
     config/config_validation_test.cpp
+    config/config_serialization_test.cpp
     # tool
     tool/tool_test.cpp
     tool/tool_registry_test.cpp
     tool/tool_advanced_test.cpp
+    tool/builtin_tools_test.cpp
     # agent
     agent/agent_test.cpp
     agent/agent_enhanced_test.cpp
