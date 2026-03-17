@@ -1,8 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <turbot/core/message/part.hpp>
 #include <turbot/core/message/message.hpp>
 
 using namespace turbot::core;
+using Catch::Approx;
 
 // ==================== PartType String Conversion Tests ====================
 
@@ -432,4 +434,256 @@ TEST_CASE("Message.CurrentTimestamp", "[Core][Message]") {
     
     REQUIRE(ts1 > 0);
     REQUIRE(ts2 >= ts1);
+}
+
+// ==================== Message Class Tests ====================
+
+TEST_CASE("Message.Constructor.Basic", "[Core][Message]") {
+    Message msg("session-123", Role::User, "test-agent", "gpt-4", "openai");
+    
+    REQUIRE_FALSE(msg.id().empty());
+    REQUIRE(msg.session_id() == "session-123");
+    REQUIRE(msg.role() == Role::User);
+    REQUIRE(msg.info().agent == "test-agent");
+    REQUIRE(msg.info().model_id == "gpt-4");
+    REQUIRE(msg.info().provider_id == "openai");
+}
+
+TEST_CASE("Message.Constructor.Assistant", "[Core][Message]") {
+    Message msg("session-456", Role::Assistant, "coder", "claude-3", "anthropic");
+    
+    REQUIRE(msg.role() == Role::Assistant);
+    REQUIRE(msg.info().agent == "coder");
+}
+
+TEST_CASE("Message.AddPart", "[Core][Message]") {
+    Message msg("session-789", Role::User, "default", "model", "provider");
+    
+    Part part = Part::create_text("Hello");
+    msg.add_part(part);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].get_text() == "Hello");
+}
+
+TEST_CASE("Message.AddText", "[Core][Message]") {
+    Message msg("session-abc", Role::User, "default", "model", "provider");
+    
+    msg.add_text("First text");
+    msg.add_text(" Second text");
+    
+    REQUIRE(msg.parts().size() == 2);
+    REQUIRE(msg.get_text() == "First text Second text");
+}
+
+TEST_CASE("Message.AddTool", "[Core][Message]") {
+    Message msg("session-def", Role::Assistant, "coder", "model", "provider");
+    
+    nlohmann::json args = {{"path", "/tmp/test"}};
+    nlohmann::json result = {{"output", "success"}};
+    
+    msg.add_tool("tool-123", "read_file", args, result);
+    
+    REQUIRE(msg.has_tool_calls());
+    auto calls = msg.get_tool_calls();
+    REQUIRE(calls.size() == 1);
+    REQUIRE(calls[0]["tool_name"] == "read_file");
+}
+
+TEST_CASE("Message.AddTool.WithoutResult", "[Core][Message]") {
+    Message msg("session-ghi", Role::Assistant, "coder", "model", "provider");
+    
+    nlohmann::json args = {{"cmd", "ls"}};
+    msg.add_tool("tool-456", "bash", args);
+    
+    REQUIRE(msg.has_tool_calls());
+    auto calls = msg.get_tool_calls();
+    REQUIRE(calls.size() == 1);
+    REQUIRE_FALSE(calls[0].contains("result"));
+}
+
+TEST_CASE("Message.AddReasoning", "[Core][Message]") {
+    Message msg("session-jkl", Role::Assistant, "coder", "model", "provider");
+    
+    msg.add_reasoning("Let me think...");
+    
+    auto reasoning_parts = msg.get_parts(PartType::Reasoning);
+    REQUIRE(reasoning_parts.size() == 1);
+    REQUIRE(reasoning_parts[0].get_reasoning() == "Let me think...");
+}
+
+TEST_CASE("Message.GetParts.ByType", "[Core][Message]") {
+    Message msg("session-mno", Role::Assistant, "coder", "model", "provider");
+    
+    msg.add_text("Text 1");
+    msg.add_reasoning("Thinking");
+    msg.add_text("Text 2");
+    
+    auto text_parts = msg.get_parts(PartType::Text);
+    REQUIRE(text_parts.size() == 2);
+    
+    auto reasoning_parts = msg.get_parts(PartType::Reasoning);
+    REQUIRE(reasoning_parts.size() == 1);
+}
+
+TEST_CASE("Message.GetFullText", "[Core][Message]") {
+    Message msg("session-pqr", Role::Assistant, "coder", "model", "provider");
+    
+    msg.add_text("Hello ");
+    msg.add_reasoning("thinking");
+    msg.add_text("World");
+    
+    REQUIRE(msg.get_full_text() == "Hello thinkingWorld");
+}
+
+TEST_CASE("Message.SetError", "[Core][Message]") {
+    Message msg("session-stu", Role::Assistant, "coder", "model", "provider");
+    
+    nlohmann::json error = {{"message", "Something went wrong"}, {"code", 500}};
+    msg.set_error(error);
+    
+    REQUIRE(msg.info().error.has_value());
+    REQUIRE((*msg.info().error)["code"] == 500);
+}
+
+TEST_CASE("Message.SetFinish", "[Core][Message]") {
+    Message msg("session-vwx", Role::Assistant, "coder", "model", "provider");
+    
+    msg.set_finish("stop");
+    
+    REQUIRE(msg.info().finish == "stop");
+}
+
+TEST_CASE("Message.UpdateTokens", "[Core][Message]") {
+    Message msg("session-yz", Role::Assistant, "coder", "model", "provider");
+    
+    TokenUsage tokens;
+    tokens.input = 100;
+    tokens.output = 50;
+    
+    nlohmann::json pricing = {
+        {"input", 0.00001},
+        {"output", 0.00003}
+    };
+    
+    msg.update_tokens(tokens, pricing);
+    
+    REQUIRE(msg.info().tokens.input == 100);
+    REQUIRE(msg.info().tokens.output == 50);
+    REQUIRE(msg.info().cost > 0);
+}
+
+TEST_CASE("Message.HasToolCalls.False", "[Core][Message]") {
+    Message msg("session-123", Role::User, "default", "model", "provider");
+    
+    msg.add_text("Just text");
+    
+    REQUIRE_FALSE(msg.has_tool_calls());
+}
+
+// ==================== TokenUsage Tests ====================
+
+TEST_CASE("TokenUsage.ToJson", "[Core][Message]") {
+    TokenUsage tokens;
+    tokens.input = 100;
+    tokens.output = 50;
+    tokens.reasoning = 25;
+    
+    nlohmann::json j = tokens.to_json();
+    
+    REQUIRE(j["input"] == 100);
+    REQUIRE(j["output"] == 50);
+    REQUIRE(j["reasoning"] == 25);
+}
+
+TEST_CASE("TokenUsage.FromJson", "[Core][Message]") {
+    nlohmann::json j = {
+        {"input", 200},
+        {"output", 100},
+        {"reasoning", 50},
+        {"cache", {{"read", 10}, {"write", 5}}}
+    };
+    
+    auto tokens = TokenUsage::from_json(j);
+    
+    REQUIRE(tokens.input == 200);
+    REQUIRE(tokens.output == 100);
+    REQUIRE(tokens.reasoning == 50);
+    REQUIRE(tokens.cache.read == 10);
+    REQUIRE(tokens.cache.write == 5);
+}
+
+TEST_CASE("TokenUsage.Total", "[Core][Message]") {
+    TokenUsage tokens;
+    tokens.input = 100;
+    tokens.output = 50;
+    tokens.reasoning = 25;
+    tokens.cache.read = 10;
+    tokens.cache.write = 5;
+    
+    REQUIRE(tokens.total() == 190);
+}
+
+TEST_CASE("TokenUsage.Cost", "[Core][Message]") {
+    TokenUsage tokens;
+    tokens.input = 1000;
+    tokens.output = 500;
+    
+    nlohmann::json pricing = {
+        {"input", 0.01},
+        {"output", 0.03}
+    };
+    
+    double cost = tokens.cost(pricing);
+    
+    // 1000 * 0.01 + 500 * 0.03 = 10 + 15 = 25
+    REQUIRE(cost == Approx(25.0));
+}
+
+TEST_CASE("TokenUsage.PlusEquals", "[Core][Message]") {
+    TokenUsage t1;
+    t1.input = 100;
+    t1.output = 50;
+    
+    TokenUsage t2;
+    t2.input = 200;
+    t2.output = 100;
+    
+    t1 += t2;
+    
+    REQUIRE(t1.input == 300);
+    REQUIRE(t1.output == 150);
+}
+
+TEST_CASE("TokenUsage.MinusEquals", "[Core][Message]") {
+    TokenUsage t1;
+    t1.input = 300;
+    t1.output = 150;
+    
+    TokenUsage t2;
+    t2.input = 100;
+    t2.output = 50;
+    
+    t1 -= t2;
+    
+    REQUIRE(t1.input == 200);
+    REQUIRE(t1.output == 100);
+}
+
+TEST_CASE("TokenUsage.OperatorPlus", "[Core][Message]") {
+    TokenUsage t1;
+    t1.input = 100;
+    t1.output = 50;
+    
+    TokenUsage t2;
+    t2.input = 200;
+    t2.output = 100;
+    
+    TokenUsage t3 = t1 + t2;
+    
+    REQUIRE(t3.input == 300);
+    REQUIRE(t3.output == 150);
+    // Originals unchanged
+    REQUIRE(t1.input == 100);
+    REQUIRE(t2.input == 200);
 }
