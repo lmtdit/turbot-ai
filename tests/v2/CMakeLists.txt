@@ -53,6 +53,8 @@ set(V2_TEST_SOURCES
     skill/skill_tool_test.cpp
     # storage
     storage/storage_test.cpp
+    # snapshot
+    snapshot/snapshot_test.cpp
     # lsp
     lsp/lsp_test.cpp
     # acp
