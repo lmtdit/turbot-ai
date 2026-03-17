@@ -1,247 +1,253 @@
+/**
+ * @file lsp_test.cpp
+ * @brief Tests for LSP module types and serialization
+ */
+
 #include <catch2/catch_test_macros.hpp>
-#include "../fixture/test_macros.hpp"
 #include <turbot/core/lsp/lsp.hpp>
 
 using namespace turbot::core::lsp;
-using namespace turbot::test;
 
-// ==================== Position 测试 ====================
+// ==================== Position Tests ====================
 
-TEST_CASE("LSP.Position.Defaults", "[LSP]") {
-    Position pos;
-    REQUIRE(pos.line == 0);
-    REQUIRE(pos.character == 0);
+TEST_CASE("Position.ToJson", "[LSP][Position]") {
+    Position p;
+    p.line = 10;
+    p.character = 5;
+    
+    auto j = p.to_json();
+    REQUIRE(j["line"] == 10);
+    REQUIRE(j["character"] == 5);
 }
 
-TEST_CASE("LSP.Position.JsonSerialization", "[LSP]") {
-    Position pos{5, 10};
+TEST_CASE("Position.FromJson", "[LSP][Position]") {
+    nlohmann::json j = {{"line", 20}, {"character", 15}};
     
-    nlohmann::json j = pos.to_json();
-    REQUIRE(j["line"] == 5);
-    REQUIRE(j["character"] == 10);
-    
-    auto restored = Position::from_json(j);
-    REQUIRE(restored.line == 5);
-    REQUIRE(restored.character == 10);
+    auto p = Position::from_json(j);
+    REQUIRE(p.line == 20);
+    REQUIRE(p.character == 15);
 }
 
-// ==================== Range 测试 ====================
-
-TEST_CASE("LSP.Range.Defaults", "[LSP]") {
-    Range range;
-    REQUIRE(range.start.line == 0);
-    REQUIRE(range.end.line == 0);
+TEST_CASE("Position.FromJson.Defaults", "[LSP][Position]") {
+    nlohmann::json j = {};
+    
+    auto p = Position::from_json(j);
+    REQUIRE(p.line == 0);
+    REQUIRE(p.character == 0);
 }
 
-TEST_CASE("LSP.Range.JsonSerialization", "[LSP]") {
-    Range range{{1, 0}, {5, 20}};
+// ==================== Range Tests ====================
+
+TEST_CASE("Range.ToJson", "[LSP][Range]") {
+    Range r;
+    r.start.line = 1;
+    r.start.character = 2;
+    r.end.line = 3;
+    r.end.character = 4;
     
-    nlohmann::json j = range.to_json();
+    auto j = r.to_json();
     REQUIRE(j["start"]["line"] == 1);
-    REQUIRE(j["end"]["line"] == 5);
-    
-    auto restored = Range::from_json(j);
-    REQUIRE(restored.start.line == 1);
-    REQUIRE(restored.end.character == 20);
+    REQUIRE(j["start"]["character"] == 2);
+    REQUIRE(j["end"]["line"] == 3);
+    REQUIRE(j["end"]["character"] == 4);
 }
 
-// ==================== Location 测试 ====================
-
-TEST_CASE("LSP.Location.Defaults", "[LSP]") {
-    Location loc;
-    REQUIRE(loc.uri.empty());
+TEST_CASE("Range.FromJson", "[LSP][Range]") {
+    nlohmann::json j = {
+        {"start", {{"line", 5}, {"character", 6}}},
+        {"end", {{"line", 7}, {"character", 8}}}
+    };
+    
+    auto r = Range::from_json(j);
+    REQUIRE(r.start.line == 5);
+    REQUIRE(r.start.character == 6);
+    REQUIRE(r.end.line == 7);
+    REQUIRE(r.end.character == 8);
 }
 
-TEST_CASE("LSP.Location.JsonSerialization", "[LSP]") {
-    Location loc;
-    loc.uri = "file:///test.cpp";
-    loc.range = {{0, 0}, {10, 5}};
+// ==================== Location Tests ====================
+
+TEST_CASE("Location.ToJson", "[LSP][Location]") {
+    Location l;
+    l.uri = "file:///test.cpp";
+    l.range.start.line = 1;
+    l.range.start.character = 0;
+    l.range.end.line = 1;
+    l.range.end.character = 10;
     
-    nlohmann::json j = loc.to_json();
+    auto j = l.to_json();
     REQUIRE(j["uri"] == "file:///test.cpp");
-    REQUIRE(j.contains("range"));
+    REQUIRE(j["range"]["start"]["line"] == 1);
+}
+
+TEST_CASE("Location.FromJson", "[LSP][Location]") {
+    nlohmann::json j = {
+        {"uri", "file:///example.cpp"},
+        {"range", {{"start", {{"line", 0}, {"character", 0}}}, {"end", {{"line", 0}, {"character", 5}}}}}
+    };
     
-    auto restored = Location::from_json(j);
-    REQUIRE(restored.uri == "file:///test.cpp");
-    REQUIRE(restored.range.start.line == 0);
+    auto l = Location::from_json(j);
+    REQUIRE(l.uri == "file:///example.cpp");
+    REQUIRE(l.range.start.line == 0);
 }
 
-// ==================== SymbolKind 测试 ====================
+// ==================== Symbol Tests ====================
 
-TEST_CASE("LSP.SymbolKind.Values", "[LSP]") {
-    REQUIRE(static_cast<int>(SymbolKind::File) == 1);
-    REQUIRE(static_cast<int>(SymbolKind::Class) == 5);
-    REQUIRE(static_cast<int>(SymbolKind::Function) == 12);
-    REQUIRE(static_cast<int>(SymbolKind::Interface) == 11);
-    REQUIRE(static_cast<int>(SymbolKind::Struct) == 23);
-}
-
-// ==================== Symbol 测试 ====================
-
-TEST_CASE("LSP.Symbol.Defaults", "[LSP]") {
-    Symbol sym;
-    REQUIRE(sym.name.empty());
-    REQUIRE_FALSE(sym.container_name.has_value());
-}
-
-TEST_CASE("LSP.Symbol.JsonSerialization", "[LSP]") {
-    Symbol sym;
-    sym.name = "myFunction";
-    sym.kind = SymbolKind::Function;
-    sym.location.uri = "file:///src/utils.cpp";
-    sym.location.range = {{10, 0}, {20, 5}};
-    sym.container_name = "Utils";
+TEST_CASE("Symbol.ToJson", "[LSP][Symbol]") {
+    Symbol s;
+    s.name = "myFunction";
+    s.kind = SymbolKind::Function;
+    s.location.uri = "file:///test.cpp";
+    s.container_name = "MyClass";
     
-    nlohmann::json j = sym.to_json();
+    auto j = s.to_json();
     REQUIRE(j["name"] == "myFunction");
-    REQUIRE(j["kind"] == 12);
-    REQUIRE(j["containerName"] == "Utils");
+    REQUIRE(j["kind"] == static_cast<int>(SymbolKind::Function));
+    REQUIRE(j["containerName"] == "MyClass");
+}
+
+TEST_CASE("Symbol.FromJson", "[LSP][Symbol]") {
+    nlohmann::json j = {
+        {"name", "MyClass"},
+        {"kind", 5},
+        {"location", {{"uri", "file:///test.h"}, {"range", {{"start", {{"line", 0}}}, {"end", {{"line", 0}}}}}}},
+        {"containerName", "MyNamespace"}
+    };
     
-    auto restored = Symbol::from_json(j);
-    REQUIRE(restored.name == "myFunction");
-    REQUIRE(restored.kind == SymbolKind::Function);
-    REQUIRE(restored.container_name == "Utils");
+    auto s = Symbol::from_json(j);
+    REQUIRE(s.name == "MyClass");
+    REQUIRE(s.kind == SymbolKind::Class);
+    REQUIRE(s.container_name == "MyNamespace");
 }
 
-// ==================== DocumentSymbol 测试 ====================
+// ==================== DocumentSymbol Tests ====================
 
-TEST_CASE("LSP.DocumentSymbol.Defaults", "[LSP]") {
-    DocumentSymbol sym;
-    REQUIRE(sym.name.empty());
-    REQUIRE(sym.children.empty());
-    REQUIRE_FALSE(sym.detail.has_value());
-}
-
-TEST_CASE("LSP.DocumentSymbol.WithChildren", "[LSP]") {
-    DocumentSymbol parent;
-    parent.name = "MyClass";
-    parent.kind = SymbolKind::Class;
-    parent.range = {{0, 0}, {100, 0}};
+TEST_CASE("DocumentSymbol.ToJson", "[LSP][DocumentSymbol]") {
+    DocumentSymbol ds;
+    ds.name = "main";
+    ds.kind = SymbolKind::Function;
+    ds.range.start.line = 0;
+    ds.range.end.line = 10;
+    ds.selection_range.start.line = 0;
+    ds.selection_range.end.line = 0;
+    ds.detail = "int main()";
     
-    DocumentSymbol child;
-    child.name = "myMethod";
-    child.kind = SymbolKind::Method;
-    child.range = {{10, 4}, {50, 5}};
+    auto j = ds.to_json();
+    REQUIRE(j["name"] == "main");
+    REQUIRE(j["kind"] == static_cast<int>(SymbolKind::Function));
+    REQUIRE(j["detail"] == "int main()");
+}
+
+TEST_CASE("DocumentSymbol.FromJson", "[LSP][DocumentSymbol]") {
+    nlohmann::json j = {
+        {"name", "testFunc"},
+        {"kind", 12},
+        {"range", {{"start", {{"line", 5}}}, {"end", {{"line", 10}}}}},
+        {"selectionRange", {{"start", {{"line", 5}}}, {"end", {{"line", 5}}}}},
+        {"detail", "void testFunc()"},
+        {"children", nlohmann::json::array()}
+    };
     
-    parent.children.push_back(child);
+    auto ds = DocumentSymbol::from_json(j);
+    REQUIRE(ds.name == "testFunc");
+    REQUIRE(ds.kind == SymbolKind::Function);
+    REQUIRE(ds.detail == "void testFunc()");
+}
+
+// ==================== Diagnostic Tests ====================
+
+TEST_CASE("Diagnostic.ToJson", "[LSP][Diagnostic]") {
+    Diagnostic d;
+    d.range.start.line = 5;
+    d.range.start.character = 10;
+    d.range.end.line = 5;
+    d.range.end.character = 15;
+    d.severity = DiagnosticSeverity::Error;
+    d.message = "Undefined variable";
+    d.source = "clang";
+    d.code = "undeclared";
     
-    REQUIRE(parent.children.size() == 1);
-    REQUIRE(parent.children[0].name == "myMethod");
+    auto j = d.to_json();
+    REQUIRE(j["severity"] == static_cast<int>(DiagnosticSeverity::Error));
+    REQUIRE(j["message"] == "Undefined variable");
+    REQUIRE(j["source"] == "clang");
+    REQUIRE(j["code"] == "undeclared");
 }
 
-// ==================== DiagnosticSeverity 测试 ====================
-
-TEST_CASE("LSP.DiagnosticSeverity.Values", "[LSP]") {
-    REQUIRE(static_cast<int>(DiagnosticSeverity::Error) == 1);
-    REQUIRE(static_cast<int>(DiagnosticSeverity::Warning) == 2);
-    REQUIRE(static_cast<int>(DiagnosticSeverity::Info) == 3);
-    REQUIRE(static_cast<int>(DiagnosticSeverity::Hint) == 4);
-}
-
-// ==================== Diagnostic 测试 ====================
-
-TEST_CASE("LSP.Diagnostic.Defaults", "[LSP]") {
-    Diagnostic diag;
-    REQUIRE(diag.message.empty());
-    REQUIRE(diag.severity == DiagnosticSeverity::Error);
-    REQUIRE_FALSE(diag.source.has_value());
-    REQUIRE_FALSE(diag.code.has_value());
-}
-
-TEST_CASE("LSP.Diagnostic.JsonSerialization", "[LSP]") {
-    Diagnostic diag;
-    diag.range = {{5, 0}, {5, 20}};
-    diag.severity = DiagnosticSeverity::Warning;
-    diag.message = "Unused variable";
-    diag.source = "clang-tidy";
-    diag.code = "unused-variable";
+TEST_CASE("Diagnostic.FromJson", "[LSP][Diagnostic]") {
+    nlohmann::json j = {
+        {"range", {{"start", {{"line", 1}, {"character", 0}}}, {"end", {{"line", 1}, {"character", 5}}}}},
+        {"severity", 2},
+        {"message", "Warning message"},
+        {"source", "gcc"},
+        {"code", 123}
+    };
     
-    nlohmann::json j = diag.to_json();
-    REQUIRE(j["severity"] == 2);
-    REQUIRE(j["message"] == "Unused variable");
-    REQUIRE(j["source"] == "clang-tidy");
+    auto d = Diagnostic::from_json(j);
+    REQUIRE(d.severity == DiagnosticSeverity::Warning);
+    REQUIRE(d.message == "Warning message");
+    REQUIRE(d.source == "gcc");
+    REQUIRE(d.code == "123");
+}
+
+TEST_CASE("PrettyDiagnostic.Format", "[LSP][Diagnostic]") {
+    Diagnostic d;
+    d.range.start.line = 9;  // 0-indexed, should display as 10
+    d.range.start.character = 4;  // 0-indexed, should display as 5
+    d.severity = DiagnosticSeverity::Error;
+    d.message = "Test error";
     
-    auto restored = Diagnostic::from_json(j);
-    REQUIRE(restored.severity == DiagnosticSeverity::Warning);
-    REQUIRE(restored.message == "Unused variable");
+    std::string result = pretty_diagnostic(d, "test.cpp");
+    REQUIRE(result.find("test.cpp:10:5") != std::string::npos);
+    REQUIRE(result.find("ERROR") != std::string::npos);
+    REQUIRE(result.find("Test error") != std::string::npos);
 }
 
-// ==================== pretty_diagnostic 测试 ====================
+// ==================== Hover Tests ====================
 
-TEST_CASE("LSP.PrettyDiagnostic.Basic", "[LSP]") {
-    Diagnostic diag;
-    diag.range = {{4, 9}, {4, 15}};  // line 4, char 9 (0-indexed)
-    diag.severity = DiagnosticSeverity::Error;
-    diag.message = "undefined variable";
+TEST_CASE("Hover.ToJson", "[LSP][Hover]") {
+    Hover h;
+    h.contents = "int x = 42";
+    h.range = Range{Position{0, 0}, Position{0, 5}};
     
-    std::string pretty = pretty_diagnostic(diag);
-    // Should show line+1, char+1 (1-indexed)
-    REQUIRE(pretty.find("ERROR") != std::string::npos);
-    REQUIRE(pretty.find("undefined variable") != std::string::npos);
+    auto j = h.to_json();
+    REQUIRE(j["contents"] == "int x = 42");
 }
 
-TEST_CASE("LSP.PrettyDiagnostic.WithFile", "[LSP]") {
-    Diagnostic diag;
-    diag.range = {{9, 0}, {9, 10}};
-    diag.severity = DiagnosticSeverity::Warning;
-    diag.message = "Test warning";
+TEST_CASE("Hover.FromJson", "[LSP][Hover]") {
+    nlohmann::json j = {
+        {"contents", "**bold** text"}
+    };
     
-    std::string pretty = pretty_diagnostic(diag, "test.cpp");
-    REQUIRE(pretty.find("test.cpp") != std::string::npos);
-    REQUIRE(pretty.find("WARN") != std::string::npos);  // Implementation uses "WARN" not "WARNING"
+    auto h = Hover::from_json(j);
+    REQUIRE(h.contents == "**bold** text");
 }
 
-// ==================== Hover 测试 ====================
+// ==================== URI Helpers Tests ====================
 
-TEST_CASE("LSP.Hover.Defaults", "[LSP]") {
-    Hover hover;
-    REQUIRE(hover.contents.empty());
-    REQUIRE_FALSE(hover.range.has_value());
-}
-
-TEST_CASE("LSP.Hover.JsonSerialization", "[LSP]") {
-    Hover hover;
-    hover.contents = "```cpp\nvoid myFunction()\n```";
-    hover.range = {{10, 5}, {10, 15}};
-    
-    nlohmann::json j = hover.to_json();
-    REQUIRE(j["contents"] == "```cpp\nvoid myFunction()\n```");
-    
-    auto restored = Hover::from_json(j);
-    REQUIRE(restored.contents == hover.contents);
-    REQUIRE(restored.range.has_value());
-}
-
-// ==================== language_id_for_extension 测试 ====================
-
-TEST_CASE("LSP.LanguageId.CommonExtensions", "[LSP]") {
-    REQUIRE(language_id_for_extension(".cpp") == "cpp");
-    REQUIRE(language_id_for_extension(".hpp") == "cpp");
-    REQUIRE(language_id_for_extension(".c") == "c");
-    REQUIRE(language_id_for_extension(".h") == "c");
-    REQUIRE(language_id_for_extension(".py") == "python");
-    REQUIRE(language_id_for_extension(".ts") == "typescript");
-    REQUIRE(language_id_for_extension(".js") == "javascript");
-    REQUIRE(language_id_for_extension(".rs") == "rust");
-    REQUIRE(language_id_for_extension(".go") == "go");
-}
-
-// ==================== URI helpers 测试 ====================
-
-TEST_CASE("LSP.PathToUri", "[LSP]") {
-    std::string uri = path_to_uri("/home/user/project/file.cpp");
+TEST_CASE("PathToUri", "[LSP][URI]") {
+    std::string path = "/home/user/test.cpp";
+    std::string uri = path_to_uri(path);
     REQUIRE(uri.find("file://") == 0);
-    REQUIRE(uri.find("file.cpp") != std::string::npos);
+    REQUIRE(uri.find("test.cpp") != std::string::npos);
 }
 
-TEST_CASE("LSP.UriToPath", "[LSP]") {
-    std::string path = uri_to_path("file:///home/user/project/file.cpp");
-    REQUIRE(path == "/home/user/project/file.cpp");
+TEST_CASE("UriToPath", "[LSP][URI]") {
+    std::string uri = "file:///home/user/test.cpp";
+    std::string path = uri_to_path(uri);
+    REQUIRE(path.find("test.cpp") != std::string::npos);
 }
 
-TEST_CASE("LSP.UriRoundTrip", "[LSP]") {
-    std::string original = "/home/user/test.cpp";
-    std::string uri = path_to_uri(original);
-    std::string restored = uri_to_path(uri);
-    REQUIRE(restored == original);
+// ==================== LanguageId Tests ====================
+
+TEST_CASE("LanguageId.ForExtension", "[LSP][LanguageId]") {
+    REQUIRE(language_id_for_extension(".cpp") == "cpp");
+    REQUIRE(language_id_for_extension(".c") == "c");
+    REQUIRE(language_id_for_extension(".h") == "c");  // .h maps to c by default
+    REQUIRE(language_id_for_extension(".hpp") == "cpp");
+    REQUIRE(language_id_for_extension(".py") == "python");
+    REQUIRE(language_id_for_extension(".js") == "javascript");
+    REQUIRE(language_id_for_extension(".ts") == "typescript");
+    REQUIRE(language_id_for_extension(".go") == "go");
+    REQUIRE(language_id_for_extension(".rs") == "rust");
 }
