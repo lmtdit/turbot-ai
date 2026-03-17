@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <turbot/core/llm/stream_event.hpp>
 #include <turbot/core/llm/llm.hpp>
+#include <turbot/core/llm/system_prompt.hpp>
 
 using namespace turbot::core;
 
@@ -585,4 +586,333 @@ TEST_CASE("LLM.StreamingState.MarkError", "[Core][LLM]") {
     state.mark_error("Connection failed", "NET_ERR");
     
     REQUIRE(state.error() == "Connection failed");
+}
+
+// ==================== ProviderType Tests ====================
+
+TEST_CASE("LLM.ProviderType.OpenAI", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("openai") == llm::ProviderType::OpenAI);
+}
+
+TEST_CASE("LLM.ProviderType.Anthropic", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("anthropic") == llm::ProviderType::Anthropic);
+}
+
+TEST_CASE("LLM.ProviderType.Gemini", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("gemini") == llm::ProviderType::Gemini);
+    REQUIRE(llm::get_provider_type("google") == llm::ProviderType::Gemini);
+}
+
+TEST_CASE("LLM.ProviderType.Azure", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("azure") == llm::ProviderType::Azure);
+}
+
+TEST_CASE("LLM.ProviderType.OpenRouter", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("openrouter") == llm::ProviderType::OpenRouter);
+}
+
+TEST_CASE("LLM.ProviderType.Groq", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("groq") == llm::ProviderType::Groq);
+}
+
+TEST_CASE("LLM.ProviderType.DeepSeek", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("deepseek") == llm::ProviderType::DeepSeek);
+}
+
+TEST_CASE("LLM.ProviderType.XAI", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("xai") == llm::ProviderType::XAI);
+}
+
+TEST_CASE("LLM.ProviderType.Mistral", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("mistral") == llm::ProviderType::Mistral);
+}
+
+TEST_CASE("LLM.ProviderType.Bedrock", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("bedrock") == llm::ProviderType::Bedrock);
+}
+
+TEST_CASE("LLM.ProviderType.Unknown", "[Core][LLM]") {
+    REQUIRE(llm::get_provider_type("unknown_provider") == llm::ProviderType::Other);
+}
+
+// ==================== SystemPrompt Tests ====================
+
+TEST_CASE("LLM.SystemPrompt.LoadTemplate", "[Core][LLM]") {
+    // Try loading a template (may return empty if file doesn't exist)
+    std::string prompt = llm::SystemPrompt::load_template("title");
+    // Just verify it doesn't crash
+    REQUIRE(true);
+}
+
+TEST_CASE("LLM.SystemPrompt.PromptCodex", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::prompt_codex();
+    REQUIRE_FALSE(prompt.empty());
+    REQUIRE(prompt.find("Turbot") != std::string::npos);
+}
+
+TEST_CASE("LLM.SystemPrompt.PromptBeast", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::prompt_beast();
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.PromptAnthropic", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::prompt_anthropic();
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.PromptOpenAI", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::prompt_openai();
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.PromptGemini", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::prompt_gemini();
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.PromptQwen", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::prompt_qwen();
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.Instructions", "[Core][LLM]") {
+    std::string instructions = llm::SystemPrompt::instructions();
+    REQUIRE_FALSE(instructions.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.OpenAI", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("openai", "gpt-4");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Anthropic", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("anthropic", "claude-3-opus");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Gemini", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("gemini", "gemini-pro");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.GPT5", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("openai", "gpt-5");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.O1Model", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("openai", "o1-preview");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Claude", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("anthropic", "claude-3-sonnet");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Qwen", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("qwen", "qwen-turbo");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Unknown", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("unknown", "unknown-model");
+    REQUIRE_FALSE(prompt.empty());  // Should return a default prompt
+}
+
+// ==================== SystemPrompt Advanced Tests ====================
+
+TEST_CASE("LLM.SystemPrompt.Environment", "[Core][LLM]") {
+    llm::SystemPromptParams params;
+    params.session_id = "test-session-123";
+    params.model_id = "gpt-4";
+    params.provider_id = "openai";
+    params.working_directory = "/home/user/project";
+    params.is_git_repo = true;
+    params.platform = "darwin";
+    params.current_date = "2024-01-15";
+    
+    std::string env = llm::SystemPrompt::environment(params);
+    
+    REQUIRE_FALSE(env.empty());
+    REQUIRE(env.find("gpt-4") != std::string::npos);
+    REQUIRE(env.find("openai") != std::string::npos);
+    REQUIRE(env.find("test-session-123") != std::string::npos);
+    REQUIRE(env.find("/home/user/project") != std::string::npos);
+    REQUIRE(env.find("darwin") != std::string::npos);
+    REQUIRE(env.find("2024-01-15") != std::string::npos);
+    REQUIRE(env.find("yes") != std::string::npos);  // is_git_repo
+}
+
+TEST_CASE("LLM.SystemPrompt.Environment.NoGit", "[Core][LLM]") {
+    llm::SystemPromptParams params;
+    params.model_id = "claude-3";
+    params.provider_id = "anthropic";
+    params.working_directory = "/tmp";
+    params.is_git_repo = false;
+    params.platform = "linux";
+    params.current_date = "2024-01-15";
+    
+    std::string env = llm::SystemPrompt::environment(params);
+    
+    REQUIRE(env.find("no") != std::string::npos);  // is_git_repo = false
+}
+
+TEST_CASE("LLM.SystemPrompt.JoinPrompts", "[Core][LLM]") {
+    std::vector<std::string> parts = {
+        "First part",
+        "Second part",
+        "Third part"
+    };
+    
+    std::string joined = llm::SystemPrompt::join_prompts(parts);
+    
+    REQUIRE(joined == "First part\n\nSecond part\n\nThird part");
+}
+
+TEST_CASE("LLM.SystemPrompt.JoinPrompts.EmptyParts", "[Core][LLM]") {
+    std::vector<std::string> parts = {
+        "First",
+        "",
+        "Second",
+        "",
+        "Third"
+    };
+    
+    std::string joined = llm::SystemPrompt::join_prompts(parts);
+    
+    REQUIRE(joined == "First\n\nSecond\n\nThird");
+}
+
+TEST_CASE("LLM.SystemPrompt.JoinPrompts.AllEmpty", "[Core][LLM]") {
+    std::vector<std::string> parts = {"", "", ""};
+    
+    std::string joined = llm::SystemPrompt::join_prompts(parts);
+    
+    REQUIRE(joined.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.JoinPrompts.Single", "[Core][LLM]") {
+    std::vector<std::string> parts = {"Only one part"};
+    
+    std::string joined = llm::SystemPrompt::join_prompts(parts);
+    
+    REQUIRE(joined == "Only one part");
+}
+
+TEST_CASE("LLM.SystemPrompt.Build", "[Core][LLM]") {
+    llm::SystemPromptParams params;
+    params.session_id = "build-test";
+    params.agent.name = "build";
+    params.model_id = "gpt-4";
+    params.provider_id = "openai";
+    params.working_directory = "/project";
+    params.platform = "darwin";
+    params.current_date = "2024-01-15";
+    
+    std::string prompt = llm::SystemPrompt::build(params);
+    
+    REQUIRE_FALSE(prompt.empty());
+    REQUIRE(prompt.find("gpt-4") != std::string::npos);
+    REQUIRE(prompt.find("/project") != std::string::npos);
+}
+
+TEST_CASE("LLM.SystemPrompt.Build.WithCustomPrompts", "[Core][LLM]") {
+    llm::SystemPromptParams params;
+    params.session_id = "custom-test";
+    params.agent.name = "build";
+    params.model_id = "claude-3";
+    params.provider_id = "anthropic";
+    params.working_directory = "/project";
+    params.platform = "linux";
+    params.current_date = "2024-01-15";
+    params.custom_prompts = {"Custom prompt 1", "Custom prompt 2"};
+    params.user_system_prompts = {"User system prompt"};
+    
+    std::string prompt = llm::SystemPrompt::build(params);
+    
+    REQUIRE_FALSE(prompt.empty());
+    REQUIRE(prompt.find("Custom prompt 1") != std::string::npos);
+    REQUIRE(prompt.find("Custom prompt 2") != std::string::npos);
+    REQUIRE(prompt.find("User system prompt") != std::string::npos);
+}
+
+TEST_CASE("LLM.SystemPrompt.Build.WithAgentPrompt", "[Core][LLM]") {
+    llm::SystemPromptParams params;
+    params.session_id = "agent-prompt-test";
+    params.agent.name = "custom";
+    params.agent.prompt = "Custom agent prompt";
+    params.model_id = "gpt-4";
+    params.provider_id = "openai";
+    params.working_directory = "/project";
+    params.platform = "darwin";
+    params.current_date = "2024-01-15";
+    
+    std::string prompt = llm::SystemPrompt::build(params);
+    
+    REQUIRE_FALSE(prompt.empty());
+    REQUIRE(prompt.find("Custom agent prompt") != std::string::npos);
+}
+
+TEST_CASE("LLM.SystemPrompt.AgentPrompt", "[Core][LLM]") {
+    agent::AgentInfo info;
+    info.name = "test";
+    info.prompt = "Agent specific prompt";
+    
+    std::string result = llm::SystemPrompt::agent_prompt(info);
+    REQUIRE(result == "Agent specific prompt");
+}
+
+TEST_CASE("LLM.SystemPrompt.AgentPrompt.Empty", "[Core][LLM]") {
+    agent::AgentInfo info;
+    info.name = "test";
+    
+    std::string result = llm::SystemPrompt::agent_prompt(info);
+    REQUIRE(result.empty());
+}
+
+// ==================== ProviderPrompt Model-Specific Tests ====================
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.GPT4", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("openai", "gpt-4-turbo");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.O3Model", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("openai", "o3-mini");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.GeminiModel", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("google", "gemini-2.0-flash");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.TrinityModel", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("trinity", "trinity-1");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Bedrock", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("bedrock", "anthropic.claude-3");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.Cohere", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("cohere", "command");
+    REQUIRE_FALSE(prompt.empty());
+}
+
+TEST_CASE("LLM.SystemPrompt.ProviderPrompt.ChineseProviders", "[Core][LLM]") {
+    std::string prompt = llm::SystemPrompt::provider_prompt("bailian", "qwen-turbo");
+    REQUIRE_FALSE(prompt.empty());
+    
+    prompt = llm::SystemPrompt::provider_prompt("zhipu", "glm-4");
+    REQUIRE_FALSE(prompt.empty());
+    
+    prompt = llm::SystemPrompt::provider_prompt("kimi", "moonshot-v1");
+    REQUIRE_FALSE(prompt.empty());
+    
+    prompt = llm::SystemPrompt::provider_prompt("minimax", "abab5");
+    REQUIRE_FALSE(prompt.empty());
 }
