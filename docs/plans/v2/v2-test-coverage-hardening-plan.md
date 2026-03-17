@@ -168,13 +168,13 @@
 
 ### 7.3 执行进度
 
-| 步骤                          | 状态    | 备注                     |
-| ----------------------------- | ------- | ------------------------ |
-| builtin_tools_test.cpp        | ✅ 完成 | 90 个测试用例            |
-| config_serialization_test.cpp | ✅ 完成 | 18 个测试用例            |
-| session_compaction_test.cpp   | ⏳ 待执行 | 压缩功能                 |
-| acp_module_test.cpp           | ⏳ 待执行 | ACP 协议                 |
-| 覆盖率验证                    | ⏳ 待执行 | 验证 > 90%               |
+| 步骤                          | 状态      | 备注          |
+| ----------------------------- | --------- | ------------- |
+| builtin_tools_test.cpp        | ✅ 完成   | 90 个测试用例 |
+| config_serialization_test.cpp | ✅ 完成   | 18 个测试用例 |
+| session_compaction_test.cpp   | ⏳ 待执行 | 压缩功能      |
+| acp_module_test.cpp           | ⏳ 待执行 | ACP 协议      |
+| 覆盖率验证                    | ⏳ 待执行 | 验证 > 90%    |
 
 **当前覆盖率**: 行 41.37%, 函数 54.27%, 分支 22.59%
 
