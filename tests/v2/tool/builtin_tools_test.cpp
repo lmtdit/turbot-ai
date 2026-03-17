@@ -30,6 +30,7 @@
 #include <turbot/core/tool/builtin/plan_tool.hpp>
 #include <turbot/core/tool/builtin/multiedit_tool.hpp>
 #include <turbot/core/tool/builtin/webfetch_tool.hpp>
+#include <turbot/core/tool/builtin/codesearch_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
 #include <filesystem>
 #include <fstream>
@@ -1732,5 +1733,118 @@ TEST_CASE("WebFetchTool.ValidateInput.InternalIp", "[Tool][Builtin][WebFetch]") 
     WebFetchTool tool;
     nlohmann::json input = {{"url", "http://192.168.1.1/test"}};
     REQUIRE_FALSE(tool.validate_input(input));
+}
+
+// ==================== CodeSearchTool Tests ====================
+
+TEST_CASE("CodeSearchTool.Name", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    REQUIRE(tool.name() == "codesearch");
+}
+
+TEST_CASE("CodeSearchTool.Description", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    REQUIRE_FALSE(tool.description().empty());
+}
+
+TEST_CASE("CodeSearchTool.InputSchema", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    auto schema = tool.input_schema();
+    REQUIRE(schema["type"] == "object");
+    REQUIRE(schema["properties"].contains("query"));
+    REQUIRE(schema["required"].is_array());
+}
+
+TEST_CASE("CodeSearchTool.ValidateInput.Valid", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    nlohmann::json input = {{"query", "function\\s+\\w+"}};
+    REQUIRE(tool.validate_input(input));
+}
+
+TEST_CASE("CodeSearchTool.ValidateInput.MissingQuery", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    nlohmann::json input = {};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("CodeSearchTool.ValidateInput.EmptyQuery", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    nlohmann::json input = {{"query", ""}};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("CodeSearchTool.ValidateInput.NonStringQuery", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    nlohmann::json input = {{"query", 123}};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("CodeSearchTool.Execute.InvalidRegex", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    auto ctx = make_tool_ctx();
+    ctx.working_directory = "/tmp";
+    
+    nlohmann::json input = {{"query", "[invalid(regex"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("CodeSearchTool.Execute.PathNotFound", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    auto ctx = make_tool_ctx();
+    ctx.working_directory = "/tmp";
+    
+    nlohmann::json input = {
+        {"query", "test"},
+        {"path", "/nonexistent/path/that/does/not/exist"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("CodeSearchTool.Execute.WithFilePattern", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create temp directory with test file
+    std::string dir = "/tmp/turbot_codesearch_test_" + std::to_string(std::time(nullptr));
+    fs::create_directories(dir);
+    ctx.working_directory = fs::canonical(dir).string();
+    
+    // Create test files
+    std::ofstream(dir + "/test.cpp") << "void myFunction() {}\nint main() { return 0; }\n";
+    std::ofstream(dir + "/test.py") << "def my_function():\n    pass\n";
+    
+    nlohmann::json input = {
+        {"query", "function"},
+        {"filePattern", "*.cpp"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    // Cleanup
+    fs::remove_all(dir);
+}
+
+TEST_CASE("CodeSearchTool.Execute.WithMaxResults", "[Tool][Builtin][CodeSearch]") {
+    CodeSearchTool tool;
+    auto ctx = make_tool_ctx();
+    
+    std::string dir = "/tmp/turbot_codesearch_max_" + std::to_string(std::time(nullptr));
+    fs::create_directories(dir);
+    ctx.working_directory = fs::canonical(dir).string();
+    
+    // Create test file with multiple matches
+    std::ofstream(dir + "/test.cpp") << "int a = 1;\nint b = 2;\nint c = 3;\nint d = 4;\nint e = 5;\n";
+    
+    nlohmann::json input = {
+        {"query", "int"},
+        {"maxResults", 2}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    // Cleanup
+    fs::remove_all(dir);
 }
 
