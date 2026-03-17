@@ -31,6 +31,7 @@
 #include <turbot/core/tool/builtin/multiedit_tool.hpp>
 #include <turbot/core/tool/builtin/webfetch_tool.hpp>
 #include <turbot/core/tool/builtin/codesearch_tool.hpp>
+#include <turbot/core/tool/builtin/websearch_tool.hpp>
 #include <turbot/core/permission/permission.hpp>
 #include <filesystem>
 #include <fstream>
@@ -1846,5 +1847,80 @@ TEST_CASE("CodeSearchTool.Execute.WithMaxResults", "[Tool][Builtin][CodeSearch]"
     
     // Cleanup
     fs::remove_all(dir);
+}
+
+// ==================== WebSearchTool Tests ====================
+
+TEST_CASE("WebSearchTool.Name", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    REQUIRE(tool.name() == "websearch");
+}
+
+TEST_CASE("WebSearchTool.Description", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    REQUIRE_FALSE(tool.description().empty());
+}
+
+TEST_CASE("WebSearchTool.InputSchema", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    auto schema = tool.input_schema();
+    REQUIRE(schema["type"] == "object");
+    REQUIRE(schema["properties"].contains("query"));
+    REQUIRE(schema["required"].is_array());
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.Valid", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    nlohmann::json input = {{"query", "test search"}};
+    REQUIRE(tool.validate_input(input));
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.WithOptions", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    nlohmann::json input = {
+        {"query", "test search"},
+        {"numResults", 5},
+        {"livecrawl", "fallback"},
+        {"type", "auto"},
+        {"contextMaxCharacters", 5000}
+    };
+    REQUIRE(tool.validate_input(input));
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.MissingQuery", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    nlohmann::json input = {};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.EmptyQuery", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    nlohmann::json input = {{"query", ""}};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.QueryTooLong", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    std::string long_query(1001, 'a');
+    nlohmann::json input = {{"query", long_query}};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.InvalidNumResults", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    nlohmann::json input = {
+        {"query", "test"},
+        {"numResults", "not a number"}
+    };
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("WebSearchTool.ValidateInput.InvalidType", "[Tool][Builtin][WebSearch]") {
+    WebSearchTool tool;
+    nlohmann::json input = {
+        {"query", "test"},
+        {"type", 123}
+    };
+    REQUIRE_FALSE(tool.validate_input(input));
 }
 
