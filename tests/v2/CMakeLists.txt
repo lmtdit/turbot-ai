@@ -18,6 +18,7 @@ set(V2_TEST_SOURCES
     session/session_loop_test.cpp
     session/session_state_machine_test.cpp
     session/retry_manager_test.cpp
+    session/session_compaction_test.cpp
     # config
     config/config_test.cpp
     config/config_enhanced_test.cpp
@@ -55,7 +56,16 @@ set(V2_TEST_SOURCES
     # lsp
     lsp/lsp_test.cpp
     # acp
+    # core
+    core/event_bus_test.cpp
+    core/message_test.cpp
+    core/llm_test.cpp
     acp/acp_test.cpp
+    # utils
+    utils/crypto_utils_test.cpp
+    utils/env_utils_test.cpp
+    utils/json_utils_test.cpp
+    utils/string_utils_test.cpp
 )
 
 # V2 测试头文件

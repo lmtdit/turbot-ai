@@ -251,6 +251,87 @@ TEST_CASE("EditToolParams.ToJson", "[Tool][Builtin][Edit]") {
     REQUIRE(j["replaceAll"] == true);
 }
 
+TEST_CASE("EditTool.Execute.SimpleEdit", "[Tool][Builtin][Edit]") {
+    EditTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create a temp file
+    std::string path = create_temp_file("Hello World\nThis is a test\nGoodbye World");
+    
+    nlohmann::json input = {
+        {"filePath", path},
+        {"oldString", "This is a test"},
+        {"newString", "This is modified"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    // Verify the edit
+    std::ifstream ifs(path);
+    std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    REQUIRE(content.find("This is modified") != std::string::npos);
+    REQUIRE(content.find("This is a test") == std::string::npos);
+    
+    // Cleanup
+    fs::remove(path);
+}
+
+TEST_CASE("EditTool.Execute.ReplaceAll", "[Tool][Builtin][Edit]") {
+    EditTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create a temp file with multiple occurrences
+    std::string path = create_temp_file("foo bar foo baz foo");
+    
+    nlohmann::json input = {
+        {"filePath", path},
+        {"oldString", "foo"},
+        {"newString", "qux"},
+        {"replaceAll", true}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    // Verify all occurrences were replaced
+    std::ifstream ifs(path);
+    std::string content((std::istreambuf_iterator<char>(ifs)), std::istreambuf_iterator<char>());
+    REQUIRE(content == "qux bar qux baz qux");
+    
+    // Cleanup
+    fs::remove(path);
+}
+
+TEST_CASE("EditTool.Execute.FileNotFound", "[Tool][Builtin][Edit]") {
+    EditTool tool;
+    auto ctx = make_tool_ctx();
+    
+    nlohmann::json input = {
+        {"filePath", "/nonexistent/path/file.txt"},
+        {"oldString", "old"},
+        {"newString", "new"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("EditTool.Execute.OldStringNotFound", "[Tool][Builtin][Edit]") {
+    EditTool tool;
+    auto ctx = make_tool_ctx();
+    
+    std::string path = create_temp_file("Hello World");
+    
+    nlohmann::json input = {
+        {"filePath", path},
+        {"oldString", "NonExistentString"},
+        {"newString", "new"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    
+    // Cleanup
+    fs::remove(path);
+}
+
 // ==================== ReadFileTool Tests ====================
 
 TEST_CASE("ReadFileTool.Name", "[Tool][Builtin][Read]") {
@@ -464,6 +545,85 @@ TEST_CASE("GlobTool.ValidateInput.MissingPattern", "[Tool][Builtin][Glob]") {
     REQUIRE_FALSE(tool.validate_input(input));
 }
 
+TEST_CASE("GlobTool.Execute.WithPattern", "[Tool][Builtin][Glob]") {
+    GlobTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create temp directory with files
+    std::string dir = "/tmp/turbot_glob_test_" + std::to_string(std::time(nullptr));
+    fs::create_directory(dir);
+    std::ofstream(dir + "/test1.txt") << "content1";
+    std::ofstream(dir + "/test2.txt") << "content2";
+    std::ofstream(dir + "/test3.cpp") << "content3";
+    
+    // Set working directory to the test directory
+    ctx.working_directory = dir;
+    
+    nlohmann::json input = {
+        {"pattern", "*.txt"},
+        {"path", dir}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    // Check that output contains .txt files (either relative or absolute path)
+    bool found_txt = result.output.find(".txt") != std::string::npos;
+    REQUIRE(found_txt);
+    // Check that .cpp file is not included
+    bool found_cpp = result.output.find("test3.cpp") != std::string::npos;
+    REQUIRE_FALSE(found_cpp);
+    
+    // Cleanup
+    fs::remove_all(dir);
+}
+
+TEST_CASE("GlobTool.Execute.RecursivePattern", "[Tool][Builtin][Glob]") {
+    GlobTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create nested directory structure
+    std::string dir = "/tmp/turbot_glob_recursive_" + std::to_string(std::time(nullptr));
+    fs::create_directory(dir);
+    fs::create_directory(dir + "/subdir");
+    std::ofstream(dir + "/file.txt") << "content";
+    std::ofstream(dir + "/subdir/nested.txt") << "nested content";
+    
+    // Set working directory to the test directory
+    ctx.working_directory = dir;
+    
+    nlohmann::json input = {
+        {"pattern", "**/*.txt"},
+        {"path", dir}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    // Check that output contains .txt files
+    bool found_txt = result.output.find(".txt") != std::string::npos;
+    REQUIRE(found_txt);
+    
+    // Cleanup
+    fs::remove_all(dir);
+}
+
+TEST_CASE("GlobToolParams.FromJson", "[Tool][Builtin][Glob]") {
+    nlohmann::json j = {
+        {"pattern", "*.cpp"},
+        {"path", "/src"}
+    };
+    auto params = GlobToolParams::from_json(j);
+    REQUIRE(params.pattern == "*.cpp");
+    REQUIRE(params.path.value() == "/src");
+}
+
+TEST_CASE("GlobToolParams.ToJson", "[Tool][Builtin][Glob]") {
+    GlobToolParams params;
+    params.pattern = "*.h";
+    params.path = "/include";
+    
+    auto j = params.to_json();
+    REQUIRE(j["pattern"] == "*.h");
+    REQUIRE(j["path"] == "/include");
+}
+
 // ==================== GrepTool Tests ====================
 
 TEST_CASE("GrepTool.Name", "[Tool][Builtin][Grep]") {
@@ -497,6 +657,97 @@ TEST_CASE("GrepTool.ValidateInput.MissingPattern", "[Tool][Builtin][Grep]") {
         {"path", "/tmp"}
     };
     REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("GrepTool.Execute.WithPattern", "[Tool][Builtin][Grep]") {
+    GrepTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create temp directory with files
+    std::string dir = "/tmp/turbot_grep_test_" + std::to_string(std::time(nullptr));
+    fs::create_directory(dir);
+    std::ofstream(dir + "/file1.txt") << "hello world\nfoo bar\nhello again";
+    std::ofstream(dir + "/file2.txt") << "no match here";
+    
+    // Set working directory to the test directory
+    ctx.working_directory = dir;
+    
+    nlohmann::json input = {
+        {"pattern", "hello"},
+        {"path", dir}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    // Check that output contains matches
+    bool found_hello = result.output.find("hello") != std::string::npos;
+    REQUIRE(found_hello);
+    
+    // Cleanup
+    fs::remove_all(dir);
+}
+
+TEST_CASE("GrepTool.Execute.WithInclude", "[Tool][Builtin][Grep]") {
+    GrepTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create temp directory with files
+    std::string dir = "/tmp/turbot_grep_include_" + std::to_string(std::time(nullptr));
+    fs::create_directory(dir);
+    std::ofstream(dir + "/test.cpp") << "int main() { return 0; }";
+    std::ofstream(dir + "/test.txt") << "int main() { return 0; }";
+    
+    // Set working directory to the test directory
+    ctx.working_directory = dir;
+    
+    nlohmann::json input = {
+        {"pattern", "main"},
+        {"path", dir},
+        {"include", "*.cpp"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    // Check that output contains matches
+    bool found_main = result.output.find("main") != std::string::npos;
+    REQUIRE(found_main);
+    
+    // Cleanup
+    fs::remove_all(dir);
+}
+
+TEST_CASE("GrepTool.Execute.InvalidRegex", "[Tool][Builtin][Grep]") {
+    GrepTool tool;
+    auto ctx = make_tool_ctx();
+    ctx.working_directory = "/tmp";
+    
+    nlohmann::json input = {
+        {"pattern", "[invalid(regex"}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("GrepToolParams.FromJson", "[Tool][Builtin][Grep]") {
+    nlohmann::json j = {
+        {"pattern", "TODO"},
+        {"path", "/src"},
+        {"include", "*.cpp"}
+    };
+    auto params = GrepToolParams::from_json(j);
+    REQUIRE(params.pattern == "TODO");
+    REQUIRE(params.path.value() == "/src");
+    REQUIRE(params.include.value() == "*.cpp");
+}
+
+TEST_CASE("GrepToolParams.ToJson", "[Tool][Builtin][Grep]") {
+    GrepToolParams params;
+    params.pattern = "FIXME";
+    params.path = "/lib";
+    params.include = "*.h";
+    
+    auto j = params.to_json();
+    REQUIRE(j["pattern"] == "FIXME");
+    REQUIRE(j["path"] == "/lib");
+    REQUIRE(j["include"] == "*.h");
 }
 
 // ==================== Tool Registry Integration ====================
