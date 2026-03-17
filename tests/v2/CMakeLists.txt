@@ -68,6 +68,8 @@ set(V2_TEST_SOURCES
     utils/env_utils_test.cpp
     utils/json_utils_test.cpp
     utils/string_utils_test.cpp
+    # network
+    network/http_client_test.cpp
 )
 
 # V2 测试头文件
@@ -88,6 +90,7 @@ target_link_libraries(turbot-v2-tests
         turbot::core
         turbot::utils
         turbot::storage
+        turbot::network
         Catch2::Catch2WithMain
         nlohmann_json::nlohmann_json
 )
@@ -99,6 +102,7 @@ target_include_directories(turbot-v2-tests
         ${CMAKE_SOURCE_DIR}/libs/core/include
         ${CMAKE_SOURCE_DIR}/libs/utils/include
         ${CMAKE_SOURCE_DIR}/libs/storage/include
+        ${CMAKE_SOURCE_DIR}/libs/network/include
         ${CMAKE_SOURCE_DIR}/tests  # for mock headers
 )
 
