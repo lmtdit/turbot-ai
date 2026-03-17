@@ -12,8 +12,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include "../fixture/test_macros.hpp"
 #include <turbot/core/session/session_compaction.hpp>
+#include <turbot/core/message/message.hpp>
 
 using namespace turbot::core::session;
+using namespace turbot::core;
 
 // ==================== CompactionConfig Tests ====================
 
@@ -240,4 +242,160 @@ TEST_CASE("PruneResult.Defaults", "[Session][Compaction]") {
     REQUIRE(result.pruned_parts == 0);
     REQUIRE(result.freed_tokens == 0);
     REQUIRE_FALSE(result.did_prune);
+}
+
+// ==================== Prune Tests ====================
+
+TEST_CASE("SessionCompaction.Prune.EmptyMessages", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    PruneConfig config;
+    
+    auto result = SessionCompaction::prune(messages, config);
+    REQUIRE_FALSE(result.did_prune);
+    REQUIRE(result.pruned_parts == 0);
+    REQUIRE(result.freed_tokens == 0);
+}
+
+TEST_CASE("SessionCompaction.Prune.NoToolParts", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    Message msg("session-1", Role::User, "agent", "model", "provider");
+    msg.add_text("Hello world");
+    messages.push_back(msg);
+    
+    PruneConfig config;
+    auto result = SessionCompaction::prune(messages, config);
+    
+    REQUIRE_FALSE(result.did_prune);
+    REQUIRE(result.pruned_parts == 0);
+}
+
+TEST_CASE("SessionCompaction.Prune.BelowMinimum", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    Message msg("session-1", Role::Assistant, "agent", "model", "provider");
+    
+    // Add a tool part with small result
+    nlohmann::json args = {{"path", "/tmp/test"}};
+    nlohmann::json result_json = {{"output", "small"}};  // Small result
+    msg.add_tool("tool-1", "read_file", args, result_json);
+    messages.push_back(msg);
+    
+    PruneConfig config;
+    config.protect_tokens = 0;  // No protection, all candidates
+    config.minimum_prune = 100000;  // High threshold
+    
+    auto result = SessionCompaction::prune(messages, config);
+    
+    // Should not prune because freed_tokens < minimum_prune
+    REQUIRE_FALSE(result.did_prune);
+}
+
+TEST_CASE("SessionCompaction.Prune.ExemptTool", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    Message msg("session-1", Role::Assistant, "agent", "model", "provider");
+    
+    // Add a tool part with exempt tool name
+    nlohmann::json args = {{"query", "test"}};
+    nlohmann::json result_json = {{"output", std::string(10000, 'x')}};  // Large result
+    msg.add_tool("tool-1", "exempt_tool", args, result_json);
+    messages.push_back(msg);
+    
+    PruneConfig config;
+    config.protect_tokens = 0;
+    config.minimum_prune = 0;
+    config.exempt_tools = {"exempt_tool"};
+    
+    auto result = SessionCompaction::prune(messages, config);
+    
+    // Exempt tool should not be pruned
+    REQUIRE_FALSE(result.did_prune);
+}
+
+TEST_CASE("SessionCompaction.Prune.AlreadyCompacted", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    Message msg("session-1", Role::Assistant, "agent", "model", "provider");
+    
+    nlohmann::json args = {{"path", "/tmp/test"}};
+    nlohmann::json result_json = {{"output", std::string(10000, 'x')}};
+    msg.add_tool("tool-1", "read_file", args, result_json);
+    
+    // Mark as already compacted
+    msg.mutable_part(0).set_tool_compacted_at(1234567890);
+    messages.push_back(msg);
+    
+    PruneConfig config;
+    config.protect_tokens = 0;
+    config.minimum_prune = 0;
+    
+    auto result = SessionCompaction::prune(messages, config);
+    
+    // Already compacted part should be skipped
+    REQUIRE_FALSE(result.did_prune);
+}
+
+// ==================== Compact Tests ====================
+
+TEST_CASE("SessionCompaction.Compact.EmptyMessages", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    CompactionConfig config;
+    
+    SessionCompaction compaction;
+    auto result = compaction.compact(messages, config);
+    REQUIRE(result.summary.empty());
+    REQUIRE(result.retained_ids.empty());
+    REQUIRE(result.removed_ids.empty());
+    REQUIRE(result.original_tokens == 0);
+}
+
+TEST_CASE("SessionCompaction.Compact.SingleMessage", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    Message msg("session-1", Role::User, "agent", "model", "provider");
+    msg.add_text("Hello world");
+    messages.push_back(msg);
+    
+    CompactionConfig config;
+    config.min_messages_to_keep = 1;
+    
+    SessionCompaction compaction;
+    auto result = compaction.compact(messages, config);
+    REQUIRE(result.retained_ids.size() == 1);
+    REQUIRE(result.removed_ids.empty());
+}
+
+TEST_CASE("SessionCompaction.Compact.MultipleMessages", "[Session][Compaction]") {
+    std::vector<Message> messages;
+    
+    // Create multiple messages
+    for (int i = 0; i < 10; ++i) {
+        Message msg("session-1", Role::User, "agent", "model", "provider");
+        msg.add_text("Message " + std::to_string(i));
+        messages.push_back(msg);
+    }
+    
+    CompactionConfig config;
+    config.min_messages_to_keep = 5;
+    
+    SessionCompaction compaction;
+    auto result = compaction.compact(messages, config);
+    REQUIRE(result.retained_ids.size() >= 5);
+    REQUIRE(result.original_tokens > 0);
+}
+
+// ==================== Estimate Tokens Tests ====================
+
+TEST_CASE("SessionCompaction.EstimateTokens.Message", "[Session][Compaction]") {
+    Message msg("session-1", Role::User, "agent", "model", "provider");
+    msg.add_text("Hello, this is a test message for token estimation");
+    
+    int64_t tokens = SessionCompaction::estimate_tokens(msg);
+    REQUIRE(tokens > 0);
+}
+
+TEST_CASE("SessionCompaction.EstimateTokens.MessageWithParts", "[Session][Compaction]") {
+    Message msg("session-1", Role::Assistant, "agent", "model", "provider");
+    msg.add_text("First part");
+    msg.add_reasoning("Thinking about something");
+    msg.add_tool("tool-1", "test", {}, {{"result", "output"}});
+    
+    int64_t tokens = SessionCompaction::estimate_tokens(msg);
+    REQUIRE(tokens > 0);
 }
