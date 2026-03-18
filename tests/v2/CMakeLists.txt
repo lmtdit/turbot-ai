@@ -62,6 +62,7 @@ set(V2_TEST_SOURCES
     core/event_bus_test.cpp
     core/message_test.cpp
     core/llm_test.cpp
+    core/plugin_test.cpp
     acp/acp_test.cpp
     # utils
     utils/crypto_utils_test.cpp
