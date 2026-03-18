@@ -19,9 +19,11 @@ set(V2_TEST_SOURCES
     session/session_state_machine_test.cpp
     session/retry_manager_test.cpp
     session/session_compaction_test.cpp
+    session/usage_tracker_test.cpp
     # config
     config/config_test.cpp
     config/config_enhanced_test.cpp
+    config/config_manager_test.cpp
     config/config_yaml_test.cpp
     config/config_env_test.cpp
     config/config_persistence_test.cpp
