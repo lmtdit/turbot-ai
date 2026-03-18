@@ -63,6 +63,26 @@ public:
     /// Stop the server (thread-safe; callable from signal handlers).
     static void stop();
 
+    /// Test access helper - exposes private methods for testing
+    class TestAccess {
+    public:
+        static void dispatch(
+            const nlohmann::json& request,
+            std::unique_ptr<ACPAgent>& agent,
+            const std::function<void(const nlohmann::json&)>& write_fn);
+
+        static nlohmann::json make_error(
+            const nlohmann::json& id, int code, const std::string& message,
+            const nlohmann::json& data = nlohmann::json());
+
+        static nlohmann::json make_result(
+            const nlohmann::json& id, const nlohmann::json& result);
+
+        static void write_response(
+            const nlohmann::json& response,
+            const std::function<void(const nlohmann::json&)>& write_fn);
+    };
+
 private:
     static void dispatch(
         const nlohmann::json& request,

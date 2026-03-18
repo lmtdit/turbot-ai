@@ -71,6 +71,7 @@ set(V2_TEST_SOURCES
     utils/string_utils_test.cpp
     # network
     network/http_client_test.cpp
+    network/url_test.cpp
 )
 
 # V2 测试头文件

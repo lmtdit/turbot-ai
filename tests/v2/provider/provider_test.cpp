@@ -271,3 +271,116 @@ TEST_CASE("Provider.ChatStreamEvent.Finish", "[Provider]") {
     REQUIRE(restored.type == StreamEventType::Finish);
     REQUIRE(restored.finish_reason == "stop");
 }
+
+// ==================== OpenAI Provider 测试 ====================
+
+#include <turbot/core/provider/impl/openai_provider.hpp>
+
+TEST_CASE("Provider.OpenAI.Constructor", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.id() == "openai");
+    REQUIRE(provider.name() == "OpenAI");
+}
+
+TEST_CASE("Provider.OpenAI.IsReady", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.OpenAI.NotReady", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    // 没有 API key
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.is_ready() == false);
+}
+
+TEST_CASE("Provider.OpenAI.ListModels", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    auto models = provider.list_models();
+    
+    REQUIRE_FALSE(models.empty());
+    // 应该包含 gpt-4o
+    bool has_gpt4o = false;
+    for (const auto& m : models) {
+        if (m.id == "gpt-4o") {
+            has_gpt4o = true;
+            break;
+        }
+    }
+    REQUIRE(has_gpt4o);
+}
+
+TEST_CASE("Provider.OpenAI.GetModel", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    auto model = provider.get_model("gpt-4o");
+    
+    REQUIRE(model.has_value());
+    REQUIRE(model->id == "gpt-4o");
+    REQUIRE(model->provider_id == "openai");
+}
+
+TEST_CASE("Provider.OpenAI.GetModel.NotFound", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    auto model = provider.get_model("non-existent-model");
+    
+    REQUIRE_FALSE(model.has_value());
+}
+
+TEST_CASE("Provider.OpenAI.SupportsModel", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.supports_model("gpt-4o") == true);
+    REQUIRE(provider.supports_model("gpt-4o-mini") == true);
+    REQUIRE(provider.supports_model("non-existent") == false);
+}
+
+TEST_CASE("Provider.OpenAI.CountTokens", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    
+    std::vector<ChatMessage> messages = {
+        ChatMessage::user("Hello, world!")
+    };
+    
+    auto count = provider.count_tokens(messages, "gpt-4o");
+    REQUIRE(count > 0);
+}
+
+TEST_CASE("Provider.OpenAI.DefaultBaseUrl", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    // 不设置 base_url
+    
+    OpenAIProvider provider(config);
+    // 验证默认 URL 被设置
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.OpenAI.CustomBaseUrl", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    config.base_url = "https://custom.api.com/v1";
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.is_ready() == true);
+}

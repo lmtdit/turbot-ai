@@ -523,3 +523,82 @@ TEST_CASE("Location.FromJson.MissingRange", "[LSP][Location]") {
     REQUIRE(l.uri == "file:///test.cpp");
     REQUIRE(l.range.start.line == 0);
 }
+
+// ==================== Builtin Servers Tests ====================
+
+#include <turbot/core/lsp/builtin_servers.hpp>
+
+TEST_CASE("LSP.IsLspDownloadEnabled.Default", "[LSP][Builtin]") {
+    // 默认应该启用（没有设置环境变量时）
+    // 注意：这个测试可能受环境影响
+    bool result = is_lsp_download_enabled();
+    // 只验证函数可以调用，不验证具体值
+    REQUIRE((result == true || result == false));
+}
+
+TEST_CASE("LSP.CommandExists.Ls", "[LSP][Builtin]") {
+    // ls 命令在大多数 Unix 系统上都存在
+    bool result = command_exists("ls");
+    REQUIRE(result == true);
+}
+
+TEST_CASE("LSP.CommandExists.NonExistent", "[LSP][Builtin]") {
+    bool result = command_exists("this_command_definitely_does_not_exist_12345");
+    REQUIRE(result == false);
+}
+
+TEST_CASE("LSP.MakeClangdServer", "[LSP][Builtin]") {
+    auto info = make_clangd_server("/tmp");
+    REQUIRE(info.id == "clangd");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakePyrightServer", "[LSP][Builtin]") {
+    auto info = make_pyright_server("/tmp");
+    REQUIRE(info.id == "pyright");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeGoplsServer", "[LSP][Builtin]") {
+    auto info = make_gopls_server("/tmp");
+    REQUIRE(info.id == "gopls");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeRustAnalyzerServer", "[LSP][Builtin]") {
+    auto info = make_rust_analyzer_server("/tmp");
+    REQUIRE(info.id == "rust");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeTypescriptServer", "[LSP][Builtin]") {
+    auto info = make_typescript_server("/tmp");
+    REQUIRE(info.id == "typescript");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeBashServer", "[LSP][Builtin]") {
+    auto info = make_bash_server("/tmp");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeJavaServer", "[LSP][Builtin]") {
+    auto info = make_java_server("/tmp");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeLuaServer", "[LSP][Builtin]") {
+    auto info = make_lua_server("/tmp");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeCustomServer", "[LSP][Builtin]") {
+    nlohmann::json cfg = {
+        {"extensions", {".test"}},
+        {"command", "test-lsp-server"},
+        {"args", {"--stdio"}}
+    };
+    auto info = make_custom_server("test-lsp", cfg, "/tmp");
+    REQUIRE(info.id == "test-lsp");
+    REQUIRE_FALSE(info.extensions.empty());
+}

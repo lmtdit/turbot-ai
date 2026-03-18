@@ -315,3 +315,31 @@ void ACPServer::start(
 }
 
 }  // namespace turbot::core::acp
+
+// ---------------------------------------------------------------------------
+// ACPServer::TestAccess - exposes private methods for unit testing
+// ---------------------------------------------------------------------------
+
+void turbot::core::acp::ACPServer::TestAccess::dispatch(
+    const nlohmann::json& request,
+    std::unique_ptr<ACPAgent>& agent,
+    const std::function<void(const nlohmann::json&)>& write_fn) {
+    ACPServer::dispatch(request, agent, write_fn);
+}
+
+nlohmann::json turbot::core::acp::ACPServer::TestAccess::make_error(
+    const nlohmann::json& id, int code, const std::string& message,
+    const nlohmann::json& data) {
+    return ACPServer::make_error(id, code, message, data);
+}
+
+nlohmann::json turbot::core::acp::ACPServer::TestAccess::make_result(
+    const nlohmann::json& id, const nlohmann::json& result) {
+    return ACPServer::make_result(id, result);
+}
+
+void turbot::core::acp::ACPServer::TestAccess::write_response(
+    const nlohmann::json& response,
+    const std::function<void(const nlohmann::json&)>& write_fn) {
+    ACPServer::write_response(response, write_fn);
+}
