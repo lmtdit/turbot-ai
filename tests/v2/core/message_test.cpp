@@ -687,3 +687,147 @@ TEST_CASE("TokenUsage.OperatorPlus", "[Core][Message]") {
     REQUIRE(t1.input == 100);
     REQUIRE(t2.input == 200);
 }
+
+// ==================== Extended Message Tests ====================
+
+TEST_CASE("Message.WithMultipleParts", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    msg.add_part(Part::create_text("First part"));
+    msg.add_part(Part::create_text("Second part"));
+    msg.add_part(Part::create_reasoning("Thinking..."));
+    
+    REQUIRE(msg.parts().size() == 3);
+    REQUIRE(msg.parts()[0].is_text());
+    REQUIRE(msg.parts()[2].is_reasoning());
+}
+
+TEST_CASE("Message.WithToolParts", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    nlohmann::json args = {{"path", "/test"}};
+    nlohmann::json result = {{"content", "file content"}};
+    msg.add_tool("call_1", "read", args, result);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_tool());
+}
+
+TEST_CASE("Message.WithError", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    msg.add_part(Part::create_error("Something went wrong"));
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_error());
+}
+
+TEST_CASE("Message.WithFile", "[Core][Message]") {
+    Message msg("test-session", Role::User, "test-agent", "test-model", "test-provider");
+    
+    Part file_part = Part::create_file("/path/to/file.txt", "file content here");
+    msg.add_part(file_part);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_file());
+}
+
+TEST_CASE("Message.WithImage", "[Core][Message]") {
+    Message msg("test-session", Role::User, "test-agent", "test-model", "test-provider");
+    
+    Part image_part = Part::create_image("base64imagedata", "image/png");
+    msg.add_part(image_part);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_image());
+}
+
+TEST_CASE("Message.WithSubtask", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part subtask = Part::create_subtask("subtask-1", "explore", "Explore the codebase");
+    msg.add_part(subtask);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_subtask());
+}
+
+TEST_CASE("Message.WithStepStart", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part step = Part::create_step_start("step-1", "Processing");
+    msg.add_part(step);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_step_start());
+}
+
+TEST_CASE("Message.WithStepFinish", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part step = Part::create_step_finish("step-1", "Completed", true);
+    msg.add_part(step);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_step_finish());
+}
+
+TEST_CASE("Message.WithSnapshot", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part snapshot = Part::create_snapshot({{"key", "value"}});
+    msg.add_part(snapshot);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_snapshot());
+}
+
+TEST_CASE("Message.WithPatch", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part patch = Part::create_patch("/file.txt", {{"old", "new"}});
+    msg.add_part(patch);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_patch());
+}
+
+TEST_CASE("Message.WithAgent", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part agent_part = Part::create_agent("agent-1", "build");
+    msg.add_part(agent_part);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_agent());
+}
+
+TEST_CASE("Message.WithRetry", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part retry = Part::create_retry(3, "Rate limited");
+    msg.add_part(retry);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_retry());
+}
+
+TEST_CASE("Message.WithCompaction", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part compaction = Part::create_compaction(100, 50, {{"summary", "compacted"}});
+    msg.add_part(compaction);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_compaction());
+}
+
+TEST_CASE("Message.WithSource", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part source = Part::create_source("source-1", "read_file", {{"path", "/test"}});
+    msg.add_part(source);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].is_source());
+}

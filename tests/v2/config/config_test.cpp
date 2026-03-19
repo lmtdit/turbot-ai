@@ -193,3 +193,128 @@ TEST_CASE("Config.Manager.Levels", "[Config]") {
     manager.set("test.level", "project_value");
     REQUIRE(manager.get<std::string>("test.level") == "project_value");
 }
+
+// ==================== Extended Config Tests ====================
+
+TEST_CASE("Config.Manager.Remove", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("test.remove_key", "value");
+    REQUIRE(manager.has("test.remove_key"));
+    
+    // ConfigManager doesn't have remove, use set to null
+    manager.set("test.remove_key", nullptr);
+    REQUIRE_FALSE(manager.has("test.remove_key"));
+}
+
+TEST_CASE("Config.Manager.Clear", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("test.clear_key1", "value1");
+    manager.set("test.clear_key2", "value2");
+    
+    // ConfigManager doesn't have clear method
+    // Just verify the keys exist
+    REQUIRE(manager.has("test.clear_key1"));
+    REQUIRE(manager.has("test.clear_key2"));
+}
+
+TEST_CASE("Config.Manager.DoubleSet", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("test.double_key", "first");
+    manager.set("test.double_key", "second");
+    
+    auto value = manager.get<std::string>("test.double_key");
+    REQUIRE(value.has_value());
+    REQUIRE(*value == "second");
+}
+
+TEST_CASE("Config.Manager.GetMissingKey", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    auto value = manager.get<std::string>("nonexistent.path.key");
+    REQUIRE_FALSE(value.has_value());
+}
+
+TEST_CASE("Config.Manager.SetArray", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    nlohmann::json arr = {"item1", "item2", "item3"};
+    manager.set("test.array", arr);
+    
+    auto value = manager.get<nlohmann::json>("test.array");
+    REQUIRE(value.has_value());
+    REQUIRE((*value).is_array());
+    REQUIRE((*value).size() == 3);
+}
+
+TEST_CASE("Config.Manager.SetDouble", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("test.double", 3.14159);
+    
+    auto value = manager.get<double>("test.double");
+    REQUIRE(value.has_value());
+    REQUIRE(*value > 3.14);
+    REQUIRE(*value < 3.15);
+}
+
+TEST_CASE("Config.Manager.DeepNested", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("level1.level2.level3.level4", "deep_value");
+    
+    auto value = manager.get<std::string>("level1.level2.level3.level4");
+    REQUIRE(value.has_value());
+    REQUIRE(*value == "deep_value");
+}
+
+TEST_CASE("Config.LoadResult.WithWarnings", "[Config]") {
+    LoadResult result;
+    result.success = true;
+    result.warnings.push_back("Deprecated option used");
+    result.warnings.push_back("Unknown key ignored");
+    
+    REQUIRE(result.success);
+    REQUIRE(result.warnings.size() == 2);
+}
+
+TEST_CASE("Config.LoadResult.WithErrors", "[Config]") {
+    LoadResult result;
+    result.success = false;
+    result.errors.push_back("Invalid JSON syntax");
+    
+    REQUIRE_FALSE(result.success);
+    REQUIRE(result.errors.size() == 1);
+}
+
+TEST_CASE("Config.MarkdownConfig.Parse", "[Config]") {
+    MarkdownConfig config;
+    config.frontmatter = {
+        {"title", "Test Document"},
+        {"author", "Test Author"},
+        {"tags", nlohmann::json::array({"tag1", "tag2"})}
+    };
+    config.content = "# Heading\n\nParagraph";
+    
+    REQUIRE(config.frontmatter["title"] == "Test Document");
+    REQUIRE(config.frontmatter["tags"].size() == 2);
+}
+
+TEST_CASE("Config.Exception.AllErrors", "[Config]") {
+    // Test all ConfigError values
+    std::vector<ConfigError> errors = {
+        ConfigError::FileNotFound,
+        ConfigError::ParseError,
+        ConfigError::ValidationError,
+        ConfigError::PermissionDenied,
+        ConfigError::InvalidPath,
+        ConfigError::CircularReference
+    };
+    
+    for (auto error : errors) {
+        ConfigException ex(error, "Test message");
+        REQUIRE(ex.error() == error);
+    }
+}

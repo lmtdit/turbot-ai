@@ -1870,3 +1870,20 @@ TEST_CASE("LLM.ToolCallResult.FromJson.WithError", "[Core][LLM]") {
     REQUIRE(result.tool_call_id == "tc_err");
 }
 
+// ==================== Extended LLM Tests ====================
+
+TEST_CASE("LLM.ToolCallChunk.Streaming", "[Core][LLM]") {
+    ToolCallChunk chunk;
+    chunk.id = "stream_call";
+    chunk.name = "test_tool";
+    chunk.arguments = R"({"arg":)";
+    chunk.is_complete = false;
+    
+    REQUIRE_FALSE(chunk.is_complete);
+    
+    // Complete the chunk
+    chunk.arguments += R"( "value"})";
+    chunk.is_complete = true;
+    
+    REQUIRE(chunk.is_complete);
+}

@@ -403,3 +403,306 @@ TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.SummaryAgent.ExecuteResult"
     // Without provider, it returns an error
     REQUIRE_FALSE(result.is_success);
 }
+
+// ==================== Extended BuildAgent Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.BuildAgent.ExecuteWithoutProvider", "[Agent][Builtin]") {
+    BuildAgent agent;
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Build the project";
+    
+    auto result = agent.execute(params);
+    // Without provider, returns placeholder result (still success)
+    REQUIRE(result.is_success);
+    REQUIRE_FALSE(result.output.empty());
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.BuildAgent.HasPrompt", "[Agent][Builtin]") {
+    BuildAgent agent;
+    
+    // BuildAgent has a prompt field
+    auto info = agent.info();
+    REQUIRE(info.prompt.has_value());
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.BuildAgent.InfoCopy", "[Agent][Builtin]") {
+    BuildAgent agent;
+    auto info1 = agent.info();
+    auto info2 = agent.info();
+    
+    // Info should be consistent
+    REQUIRE(info1.name == info2.name);
+    REQUIRE(info1.mode == info2.mode);
+}
+
+// ==================== Extended ExploreAgent Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.ExploreAgent.ExecuteWithoutProvider", "[Agent][Builtin]") {
+    ExploreAgent agent;
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Explore the codebase";
+    
+    auto result = agent.execute(params);
+    // Without provider, returns placeholder result (still success)
+    REQUIRE(result.is_success);
+    REQUIRE_FALSE(result.output.empty());
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.ExploreAgent.HasPrompt", "[Agent][Builtin]") {
+    ExploreAgent agent;
+    auto info = agent.info();
+    REQUIRE(info.prompt.has_value());
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.ExploreAgent.NoWritePermission", "[Agent][Builtin]") {
+    ExploreAgent agent;
+    auto info = agent.info();
+    
+    // ExploreAgent should NOT have write permission
+    bool has_write = false;
+    for (const auto& rule : info.permission) {
+        if (rule.permission == "write" || rule.permission == "edit") {
+            if (rule.action == PermissionAction::Allow) {
+                has_write = true;
+                break;
+            }
+        }
+    }
+    REQUIRE_FALSE(has_write);
+}
+
+// ==================== Extended PlanAgent Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.PlanAgent.ExecuteWithoutProvider", "[Agent][Builtin]") {
+    PlanAgent agent;
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Create a plan";
+    
+    auto result = agent.execute(params);
+    // Without provider, returns placeholder result (still success)
+    REQUIRE(result.is_success);
+    REQUIRE_FALSE(result.output.empty());
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.PlanAgent.HasPrompt", "[Agent][Builtin]") {
+    PlanAgent agent;
+    auto info = agent.info();
+    REQUIRE(info.prompt.has_value());
+}
+
+// ==================== Extended TitleAgent Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.TitleAgent.HasPrompt", "[Agent][Builtin]") {
+    TitleAgent agent;
+    auto info = agent.info();
+    REQUIRE(info.prompt.has_value());
+}
+
+// ==================== Extended SummaryAgent Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.SummaryAgent.HasPrompt", "[Agent][Builtin]") {
+    SummaryAgent agent;
+    auto info = agent.info();
+    REQUIRE(info.prompt.has_value());
+}
+
+// ==================== AgentRegistry Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.Register", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    
+    registry.register_agent(std::make_unique<BuildAgent>());
+    REQUIRE(registry.has("build"));
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.Get", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    
+    registry.register_agent(std::make_unique<BuildAgent>());
+    auto agent = registry.get("build");
+    REQUIRE(agent != nullptr);
+    REQUIRE(agent->name() == "build");
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.List", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    
+    registry.register_agent(std::make_unique<BuildAgent>());
+    registry.register_agent(std::make_unique<ExploreAgent>());
+    
+    auto agents = registry.list();
+    REQUIRE(agents.size() >= 2);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.Clear", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    
+    registry.register_agent(std::make_unique<BuildAgent>());
+    registry.clear();
+    
+    REQUIRE_FALSE(registry.has("build"));
+}
+
+// ==================== Extended Agent Tests ====================
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.BuildAgent.Temperature", "[Agent][Builtin]") {
+    BuildAgent agent;
+    auto info = agent.info();
+    
+    // BuildAgent may have temperature configured
+    if (info.temperature.has_value()) {
+        REQUIRE(*info.temperature >= 0.0);
+        REQUIRE(*info.temperature <= 2.0);
+    }
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.BuildAgent.Steps", "[Agent][Builtin]") {
+    BuildAgent agent;
+    auto info = agent.info();
+    
+    // BuildAgent may have steps configured
+    if (info.steps.has_value()) {
+        REQUIRE(*info.steps >= 1);
+    }
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.ExploreAgent.Temperature", "[Agent][Builtin]") {
+    ExploreAgent agent;
+    auto info = agent.info();
+    
+    if (info.temperature.has_value()) {
+        REQUIRE(*info.temperature >= 0.0);
+        REQUIRE(*info.temperature <= 2.0);
+    }
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.PlanAgent.Temperature", "[Agent][Builtin]") {
+    PlanAgent agent;
+    auto info = agent.info();
+    
+    if (info.temperature.has_value()) {
+        REQUIRE(*info.temperature >= 0.0);
+        REQUIRE(*info.temperature <= 2.0);
+    }
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.TitleAgent.Temperature", "[Agent][Builtin]") {
+    TitleAgent agent;
+    auto info = agent.info();
+    
+    // TitleAgent should have temperature configured
+    REQUIRE(info.temperature.has_value());
+    REQUIRE(*info.temperature >= 0.0);
+    REQUIRE(*info.temperature <= 2.0);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.TitleAgent.Steps", "[Agent][Builtin]") {
+    TitleAgent agent;
+    auto info = agent.info();
+    
+    // TitleAgent should have steps = 1
+    REQUIRE(info.steps.has_value());
+    REQUIRE(*info.steps == 1);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.SummaryAgent.Temperature", "[Agent][Builtin]") {
+    SummaryAgent agent;
+    auto info = agent.info();
+    
+    if (info.temperature.has_value()) {
+        REQUIRE(*info.temperature >= 0.0);
+        REQUIRE(*info.temperature <= 2.0);
+    }
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.BuildAgent.PermissionRules", "[Agent][Builtin]") {
+    BuildAgent agent;
+    auto info = agent.info();
+    
+    REQUIRE_FALSE(info.permission.empty());
+    
+    // Check that build agent has allow rules
+    bool has_allow = false;
+    for (const auto& rule : info.permission) {
+        if (rule.action == PermissionAction::Allow) {
+            has_allow = true;
+            break;
+        }
+    }
+    REQUIRE(has_allow);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.TitleAgent.DenyAllPermission", "[Agent][Builtin]") {
+    TitleAgent agent;
+    auto info = agent.info();
+    
+    REQUIRE_FALSE(info.permission.empty());
+    
+    // TitleAgent should deny all tools
+    bool has_deny = false;
+    for (const auto& rule : info.permission) {
+        if (rule.permission == "*" && rule.action == PermissionAction::Deny) {
+            has_deny = true;
+            break;
+        }
+    }
+    REQUIRE(has_deny);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.AgentInfo.ToJson", "[Agent][Builtin]") {
+    BuildAgent agent;
+    auto info = agent.info();
+    
+    auto j = info.to_json();
+    REQUIRE(j["name"] == "build");
+    REQUIRE(j.contains("mode"));
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.AgentInfo.FromJson", "[Agent][Builtin]") {
+    nlohmann::json j = {
+        {"name", "test_agent"},
+        {"mode", "primary"},
+        {"description", "Test agent"}
+    };
+    
+    auto info = AgentInfo::from_json(j);
+    REQUIRE(info.name == "test_agent");
+    REQUIRE(info.mode == AgentMode::Primary);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.AgentInfo.ModelRef", "[Agent][Builtin]") {
+    BuildAgent agent;
+    auto info = agent.info();
+    
+    // Model is optional
+    if (info.model.has_value()) {
+        REQUIRE_FALSE(info.model->model_id.empty());
+    }
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.HasFalse", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    
+    REQUIRE_FALSE(registry.has("nonexistent_agent"));
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.GetNull", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    
+    auto agent = registry.get("nonexistent_agent");
+    REQUIRE(agent == nullptr);
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.ListEmpty", "[Agent][Builtin]") {
+    auto& registry = AgentRegistry::instance();
+    registry.clear();
+    
+    auto agents = registry.list();
+    REQUIRE(agents.empty());
+}
