@@ -57,7 +57,7 @@ struct SessionLoopFixture {
     std::shared_ptr<MockProvider> provider;
 
     void setup() {
-        test_dir = std::filesystem::temp_directory_path() / ("turbot-loop-" + std::to_string(std::time(nullptr)));
+        test_dir = std::filesystem::path("/tmp") / ("turbot-loop-" + std::to_string(std::time(nullptr)));
         std::filesystem::create_directories(test_dir);
 
         // 使用内存数据库

@@ -32,7 +32,7 @@ public:
     BuiltinAgentFixture() {
         // Ensure valid current directory
         try {
-            std::filesystem::current_path(std::filesystem::temp_directory_path());
+            std::filesystem::current_path(std::filesystem::path("/tmp"));
         } catch (...) {}
         
         // Clear registry before each test

@@ -34,7 +34,7 @@ struct SessionStoreFixture {
 
     void setup() {
         unique_id = generate_unique_id();
-        test_dir = std::filesystem::temp_directory_path() / ("turbot-store-" + unique_id);
+        test_dir = std::filesystem::path("/tmp") / ("turbot-store-" + unique_id);
         
         // 使用内存数据库避免文件系统问题
         DatabaseConfig config;

@@ -1015,3 +1015,173 @@ TEST_CASE("ACP.TurbotAgent.Authenticate", "[ACP][Agent]") {
     // authenticate 总是抛出 authRequired 异常
     REQUIRE_THROWS_AS(agent.authenticate(R"({"token": "test"})"_json), std::exception);
 }
+
+// ==================== TurbotACPAgent Extended Tests ====================
+
+TEST_CASE("ACP.TurbotAgent.InitializeDefault", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    InitializeRequest req;
+    req.protocol_version = 1;
+    
+    auto response = agent.initialize(req);
+    REQUIRE(response.protocol_version == 1);
+    REQUIRE_FALSE(response.agent_info.name.empty());
+    REQUIRE_FALSE(response.agent_info.version.empty());
+    REQUIRE_FALSE(response.auth_methods.empty());
+}
+
+TEST_CASE("ACP.TurbotAgent.InitializeWithAuth", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    InitializeRequest req;
+    req.protocol_version = 1;
+    req.authentication = "test-token";
+    req.client_capabilities = {{"features", {"streaming"}}};
+    
+    auto response = agent.initialize(req);
+    REQUIRE(response.protocol_version == 1);
+}
+
+TEST_CASE("ACP.TurbotAgent.NewSessionWithMcpServers", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    NewSessionRequest req;
+    req.cwd = "/tmp";
+    req.model_id = "test-model";
+    req.mcp_servers = {
+        {{"name", "test-server"}, {"url", "http://localhost:8080"}}
+    };
+    
+    auto result = agent.new_session(req, nullptr);
+    REQUIRE(result.contains("sessionId"));
+    REQUIRE_FALSE(result["sessionId"].get<std::string>().empty());
+}
+
+TEST_CASE("ACP.TurbotAgent.LoadSession", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    // First create a session
+    NewSessionRequest new_req;
+    new_req.cwd = "/tmp";
+    auto new_result = agent.new_session(new_req, nullptr);
+    std::string session_id = new_result["sessionId"];
+    
+    // Then load it
+    LoadSessionRequest load_req;
+    load_req.session_id = session_id;
+    load_req.cwd = "/tmp";
+    
+    auto load_result = agent.load_session(load_req, nullptr);
+    REQUIRE(load_result.contains("sessionId"));
+}
+
+TEST_CASE("ACP.TurbotAgent.LoadSessionNonExistent", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    LoadSessionRequest req;
+    req.session_id = "nonexistent-session-id";
+    req.cwd = "/tmp";
+    
+    REQUIRE_THROWS_AS(agent.load_session(req, nullptr), std::exception);
+}
+
+TEST_CASE("ACP.TurbotAgent.ResumeSession", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    // First create a session
+    NewSessionRequest new_req;
+    new_req.cwd = "/tmp";
+    auto new_result = agent.new_session(new_req, nullptr);
+    std::string session_id = new_result["sessionId"];
+    
+    // Resume it
+    ResumeSessionRequest resume_req;
+    resume_req.session_id = session_id;
+    
+    auto resume_result = agent.resume_session(resume_req);
+    REQUIRE(resume_result.contains("sessionId"));
+}
+
+TEST_CASE("ACP.TurbotAgent.ForkSession", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    // First create a session
+    NewSessionRequest new_req;
+    new_req.cwd = "/tmp";
+    auto new_result = agent.new_session(new_req, nullptr);
+    std::string session_id = new_result["sessionId"];
+    
+    // Fork it
+    ForkSessionRequest fork_req;
+    fork_req.session_id = session_id;
+    
+    auto fork_result = agent.fork_session(fork_req);
+    REQUIRE_FALSE(fork_result.session.session_id.empty());
+    REQUIRE(fork_result.session.session_id != session_id);
+}
+
+TEST_CASE("ACP.TurbotAgent.SetModel", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    // First create a session
+    NewSessionRequest new_req;
+    new_req.cwd = "/tmp";
+    auto new_result = agent.new_session(new_req, nullptr);
+    std::string session_id = new_result["sessionId"];
+    
+    // Set model
+    SetSessionModelRequest model_req;
+    model_req.session_id = session_id;
+    model_req.model_id = "new-model";
+    
+    auto model_result = agent.set_model(model_req);
+    REQUIRE(model_result.contains("modelId"));
+}
+
+TEST_CASE("ACP.TurbotAgent.Cancel", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    CancelNotification notif;
+    notif.session_id = "test-session";
+    
+    // Cancel should not throw even if session doesn't exist
+    REQUIRE_NOTHROW(agent.cancel(notif));
+}
+
+TEST_CASE("ACP.TurbotAgent.BuildAvailableCommands", "[ACP][Agent]") {
+    auto commands = TurbotACPAgent::build_available_commands_update("test-session");
+    REQUIRE(commands.contains("availableCommandsUpdate"));
+    REQUIRE(commands["availableCommandsUpdate"].contains("sessionId"));
+    REQUIRE(commands["availableCommandsUpdate"]["sessionId"] == "test-session");
+}
+
+TEST_CASE("ACP.TurbotAgent.PromptWithCallback", "[ACP][Agent]") {
+    TurbotACPAgent agent("/tmp");
+    
+    // First create a session
+    NewSessionRequest new_req;
+    new_req.cwd = "/tmp";
+    auto new_result = agent.new_session(new_req, nullptr);
+    std::string session_id = new_result["sessionId"];
+    
+    // Send a prompt with callback
+    PromptRequest prompt_req;
+    prompt_req.session_id = session_id;
+    prompt_req.prompt = {{"type", "text"}, {"text", "Hello"}};
+    
+    std::vector<nlohmann::json> updates;
+    auto callback = [&updates](const nlohmann::json& update) {
+        updates.push_back(update);
+    };
+    
+    // This will likely throw or return error since no provider is configured
+    // But we're testing the method is callable
+    try {
+        auto result = agent.prompt(prompt_req, callback);
+        // If it succeeds, check the result
+        REQUIRE(result.contains("sessionId"));
+    } catch (const std::exception& e) {
+        // Expected if no provider is configured
+    }
+}

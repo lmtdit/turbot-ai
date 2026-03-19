@@ -353,7 +353,7 @@ TEST_CASE("Agent.Registry.Instance.Enhanced", "[Agent]") {
 TEST_CASE("Agent.Registry.List", "[Agent]") {
     // 确保有有效的当前目录
     try {
-        std::filesystem::current_path(std::filesystem::temp_directory_path());
+        std::filesystem::current_path(std::filesystem::path("/tmp"));
     } catch (...) {}
     
     auto& registry = AgentRegistry::instance();
@@ -372,7 +372,7 @@ TEST_CASE("Agent.Registry.List", "[Agent]") {
 TEST_CASE("Agent.Registry.Clear", "[Agent]") {
     // 确保有有效的当前目录
     try {
-        std::filesystem::current_path(std::filesystem::temp_directory_path());
+        std::filesystem::current_path(std::filesystem::path("/tmp"));
     } catch (...) {}
     
     auto& registry = AgentRegistry::instance();
@@ -388,7 +388,7 @@ TEST_CASE("Agent.Registry.Clear", "[Agent]") {
 TEST_CASE("Agent.Registry.ListByMode", "[Agent]") {
     // 确保有有效的当前目录
     try {
-        std::filesystem::current_path(std::filesystem::temp_directory_path());
+        std::filesystem::current_path(std::filesystem::path("/tmp"));
     } catch (...) {}
     
     auto& registry = AgentRegistry::instance();
@@ -407,7 +407,7 @@ TEST_CASE("Agent.Registry.ListByMode", "[Agent]") {
 TEST_CASE("Agent.Registry.ListVisible", "[Agent]") {
     // 确保有有效的当前目录
     try {
-        std::filesystem::current_path(std::filesystem::temp_directory_path());
+        std::filesystem::current_path(std::filesystem::path("/tmp"));
     } catch (...) {}
     
     auto& registry = AgentRegistry::instance();
@@ -426,7 +426,7 @@ TEST_CASE("Agent.Registry.ListVisible", "[Agent]") {
 TEST_CASE("Agent.Registry.DefaultAgent", "[Agent]") {
     // 确保有有效的当前目录
     try {
-        std::filesystem::current_path(std::filesystem::temp_directory_path());
+        std::filesystem::current_path(std::filesystem::path("/tmp"));
     } catch (...) {}
     
     auto& registry = AgentRegistry::instance();

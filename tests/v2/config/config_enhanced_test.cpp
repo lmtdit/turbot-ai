@@ -363,7 +363,7 @@ TEST_CASE("Config.Manager.GetConfigPath", "[Config]") {
         original_cwd = std::filesystem::current_path();
     } catch (...) {
         // 如果当前目录不可访问，使用临时目录
-        original_cwd = std::filesystem::temp_directory_path();
+        original_cwd = std::filesystem::path("/tmp");
     }
     
     auto& manager = ConfigManager::instance();
@@ -395,7 +395,7 @@ TEST_CASE("Config.Manager.GetExtensionPath", "[Config]") {
     try {
         original_cwd = std::filesystem::current_path();
     } catch (...) {
-        original_cwd = std::filesystem::temp_directory_path();
+        original_cwd = std::filesystem::path("/tmp");
     }
     
     auto& manager = ConfigManager::instance();

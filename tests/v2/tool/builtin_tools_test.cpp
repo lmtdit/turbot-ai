@@ -1924,3 +1924,253 @@ TEST_CASE("WebSearchTool.ValidateInput.InvalidType", "[Tool][Builtin][WebSearch]
     REQUIRE_FALSE(tool.validate_input(input));
 }
 
+// ==================== LSPTool Tests ====================
+
+#include <turbot/core/tool/builtin/lsp_tool.hpp>
+
+TEST_CASE("LSPTool.Name", "[Tool][Builtin][LSP]") {
+    LSPTool tool;
+    REQUIRE(tool.name() == "lsp");
+}
+
+TEST_CASE("LSPTool.Description", "[Tool][Builtin][LSP]") {
+    LSPTool tool;
+    REQUIRE_FALSE(tool.description().empty());
+}
+
+TEST_CASE("LSPTool.InputSchema", "[Tool][Builtin][LSP]") {
+    LSPTool tool;
+    auto schema = tool.input_schema();
+    REQUIRE(schema["type"] == "object");
+    REQUIRE(schema.contains("properties"));
+}
+
+TEST_CASE("LSPTool.ValidateInput.MissingOperation", "[Tool][Builtin][LSP]") {
+    LSPTool tool;
+    nlohmann::json input = {
+        {"file_path", "/path/to/file.cpp"},
+        {"line", 10},
+        {"character", 5}
+    };
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("LSPTool.ValidateInput.MissingFilePath", "[Tool][Builtin][LSP]") {
+    LSPTool tool;
+    nlohmann::json input = {
+        {"operation", "goToDefinition"},
+        {"line", 10},
+        {"character", 5}
+    };
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("LSPTool.ValidateInput.Valid", "[Tool][Builtin][LSP]") {
+    LSPTool tool;
+    nlohmann::json input = {
+        {"operation", "goToDefinition"},
+        {"file_path", "/path/to/file.cpp"},
+        {"line", 10},
+        {"character", 5}
+    };
+    REQUIRE(tool.validate_input(input));
+}
+
+TEST_CASE("LSPTool.IsEnabled", "[Tool][Builtin][LSP]") {
+    // By default, LSP tool should be disabled
+    // This test just checks the function works
+    bool enabled = LSPTool::is_enabled();
+    // The result depends on whether TURBOT_EXPERIMENTAL_LSP_TOOL is set
+    // We just verify the function doesn't crash
+    (void)enabled;
+}
+
+TEST_CASE("LSPTool.LSPOperation.ToString", "[Tool][Builtin][LSP]") {
+    REQUIRE(lsp_operation_to_string(LSPOperation::GoToDefinition) == "goToDefinition");
+    REQUIRE(lsp_operation_to_string(LSPOperation::FindReferences) == "findReferences");
+    REQUIRE(lsp_operation_to_string(LSPOperation::Hover) == "hover");
+    REQUIRE(lsp_operation_to_string(LSPOperation::DocumentSymbol) == "documentSymbol");
+    REQUIRE(lsp_operation_to_string(LSPOperation::WorkspaceSymbol) == "workspaceSymbol");
+    REQUIRE(lsp_operation_to_string(LSPOperation::GoToImplementation) == "goToImplementation");
+}
+
+TEST_CASE("LSPTool.LSPOperation.FromString", "[Tool][Builtin][LSP]") {
+    REQUIRE(string_to_lsp_operation("goToDefinition") == LSPOperation::GoToDefinition);
+    REQUIRE(string_to_lsp_operation("findReferences") == LSPOperation::FindReferences);
+    REQUIRE(string_to_lsp_operation("hover") == LSPOperation::Hover);
+    REQUIRE(string_to_lsp_operation("documentSymbol") == LSPOperation::DocumentSymbol);
+    REQUIRE(string_to_lsp_operation("workspaceSymbol") == LSPOperation::WorkspaceSymbol);
+    REQUIRE(string_to_lsp_operation("goToImplementation") == LSPOperation::GoToImplementation);
+    REQUIRE(string_to_lsp_operation("invalid") == std::nullopt);
+}
+
+TEST_CASE("LSPToolParams.FromJson", "[Tool][Builtin][LSP]") {
+    nlohmann::json j = {
+        {"operation", "goToDefinition"},
+        {"file_path", "/path/to/file.cpp"},
+        {"line", 10},
+        {"character", 5}
+    };
+    
+    auto params = LSPToolParams::from_json(j);
+    REQUIRE(params.operation == LSPOperation::GoToDefinition);
+    REQUIRE(params.file_path == "/path/to/file.cpp");
+    REQUIRE(params.line == 10);
+    REQUIRE(params.character == 5);
+}
+
+TEST_CASE("LSPToolParams.ToJson", "[Tool][Builtin][LSP]") {
+    LSPToolParams params;
+    params.operation = LSPOperation::FindReferences;
+    params.file_path = "/test/file.cpp";
+    params.line = 20;
+    params.character = 10;
+    
+    auto j = params.to_json();
+    REQUIRE(j["operation"] == "findReferences");
+    REQUIRE(j["file_path"] == "/test/file.cpp");
+    REQUIRE(j["line"] == 20);
+    REQUIRE(j["character"] == 10);
+}
+
+// ==================== ExternalCommandTool Tests ====================
+
+#include <turbot/core/tool/external_command_tool.hpp>
+
+TEST_CASE("CustomToolConfig.FromJson", "[Tool][External]") {
+    nlohmann::json j = {
+        {"name", "test_tool"},
+        {"description", "A test tool"},
+        {"inputSchema", {{"type", "object"}}},
+        {"command", "echo"},
+        {"args", {"hello", "${input}"}},
+        {"timeout", 30}
+    };
+    
+    auto config = CustomToolConfig::from_json(j);
+    REQUIRE(config.has_value());
+    REQUIRE(config->name == "test_tool");
+    REQUIRE(config->description == "A test tool");
+    REQUIRE(config->command == "echo");
+    REQUIRE(config->args.size() == 2);
+    REQUIRE(config->timeout_seconds == 30);
+}
+
+TEST_CASE("CustomToolConfig.FromJson.MissingName", "[Tool][External]") {
+    nlohmann::json j = {
+        {"description", "A test tool"},
+        {"command", "echo"}
+    };
+    
+    auto config = CustomToolConfig::from_json(j);
+    REQUIRE_FALSE(config.has_value());
+}
+
+TEST_CASE("CustomToolConfig.ToJson", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "test_tool";
+    config.description = "A test tool";
+    config.command = "echo";
+    config.args = {"hello"};
+    config.timeout_seconds = 30;
+    
+    auto j = config.to_json();
+    REQUIRE(j["name"] == "test_tool");
+    REQUIRE(j["description"] == "A test tool");
+    REQUIRE(j["command"] == "echo");
+    REQUIRE(j["timeout"] == 30);
+}
+
+TEST_CASE("ExternalCommandTool.Name", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "custom_tool";
+    config.description = "A custom tool";
+    config.command = "echo";
+    
+    ExternalCommandTool tool(config);
+    REQUIRE(tool.name() == "custom_tool");
+}
+
+TEST_CASE("ExternalCommandTool.Description", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "custom_tool";
+    config.description = "A custom tool description";
+    config.command = "echo";
+    
+    ExternalCommandTool tool(config);
+    REQUIRE(tool.description() == "A custom tool description");
+}
+
+TEST_CASE("ExternalCommandTool.InputSchema", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "custom_tool";
+    config.description = "A custom tool";
+    config.command = "echo";
+    config.input_schema = {{"type", "object"}, {"properties", {{"input", {{"type", "string"}}}}}};
+    
+    ExternalCommandTool tool(config);
+    auto schema = tool.input_schema();
+    REQUIRE(schema["type"] == "object");
+}
+
+TEST_CASE("ExternalCommandTool.Execute.Echo", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "echo_tool";
+    config.description = "Echo tool";
+    config.command = "echo";
+    config.args = {"hello"};
+    
+    ExternalCommandTool tool(config);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output.find("hello") != std::string::npos);
+}
+
+TEST_CASE("ExternalCommandTool.Execute.WithInput", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "echo_tool";
+    config.description = "Echo tool with input";
+    config.command = "echo";
+    config.args = {"${input}"};
+    
+    ExternalCommandTool tool(config);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"input", "test_value"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output.find("test_value") != std::string::npos);
+}
+
+TEST_CASE("ExternalCommandTool.Execute.Timeout", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "slow_tool";
+    config.description = "A slow tool";
+    config.command = "sleep";
+    config.args = {"10"};
+    config.timeout_seconds = 1;
+    
+    ExternalCommandTool tool(config);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("ExternalCommandTool.Execute.MissingCommand", "[Tool][External]") {
+    CustomToolConfig config;
+    config.name = "missing_tool";
+    config.description = "Tool with missing command";
+    config.command = "nonexistent_command_12345";
+    
+    ExternalCommandTool tool(config);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}

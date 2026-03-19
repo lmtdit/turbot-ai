@@ -300,7 +300,7 @@ TEST_CASE("Crypto.SHA256FileEx.NonExistent", "[Utils][Crypto]") {
 
 TEST_CASE("Crypto.SHA256FileEx.ValidFile", "[Utils][Crypto]") {
     // Create a temp file
-    std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "turbot_test_hash.txt";
+    std::filesystem::path temp_path = std::filesystem::path("/tmp") / "turbot_test_hash.txt";
     std::ofstream file(temp_path);
     file << "test content";
     file.close();
@@ -317,7 +317,7 @@ TEST_CASE("Crypto.SHA256FileEx.ValidFile", "[Utils][Crypto]") {
 
 TEST_CASE("Crypto.SHA256File.ValidFile", "[Utils][Crypto]") {
     // Create a temp file
-    std::filesystem::path temp_path = std::filesystem::temp_directory_path() / "turbot_test_hash2.txt";
+    std::filesystem::path temp_path = std::filesystem::path("/tmp") / "turbot_test_hash2.txt";
     std::ofstream file(temp_path);
     file << "hello world";
     file.close();
