@@ -399,3 +399,227 @@ TEST_CASE("MCP.JsonRpcResponse.FromJsonWithoutResultOrError", "[MCP]") {
     REQUIRE_FALSE(resp.is_error());
     REQUIRE_FALSE(resp.result.has_value());
 }
+
+// ==================== McpAuth 文件操作测试 ====================
+
+TEST_CASE("MCP.McpAuth.SetAndGet", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    // Set HOME to temp directory
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    AuthEntry entry;
+    entry.tokens = Tokens{};
+    entry.tokens->access_token = "test-access-token";
+    entry.tokens->refresh_token = "test-refresh-token";
+    
+    McpAuth::set("test-mcp", entry);
+    
+    auto retrieved = McpAuth::get("test-mcp");
+    REQUIRE(retrieved.has_value());
+    REQUIRE(retrieved->tokens->access_token == "test-access-token");
+    REQUIRE(retrieved->tokens->refresh_token == "test-refresh-token");
+    
+    // Cleanup
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.GetForUrl", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    AuthEntry entry;
+    entry.tokens = Tokens{};
+    entry.tokens->access_token = "url-test-token";
+    
+    McpAuth::set("url-mcp", entry, "https://example.com/mcp");
+    
+    // Should return entry for matching URL
+    auto retrieved = McpAuth::get_for_url("url-mcp", "https://example.com/mcp");
+    REQUIRE(retrieved.has_value());
+    REQUIRE(retrieved->tokens->access_token == "url-test-token");
+    
+    // Should return nullopt for different URL
+    auto not_found = McpAuth::get_for_url("url-mcp", "https://different.com/mcp");
+    REQUIRE_FALSE(not_found.has_value());
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.Remove", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    AuthEntry entry;
+    entry.tokens = Tokens{};
+    entry.tokens->access_token = "to-remove";
+    
+    McpAuth::set("remove-mcp", entry);
+    REQUIRE(McpAuth::get("remove-mcp").has_value());
+    
+    McpAuth::remove("remove-mcp");
+    REQUIRE_FALSE(McpAuth::get("remove-mcp").has_value());
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.UpdateTokens", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    Tokens tokens;
+    tokens.access_token = "updated-token";
+    tokens.expires_at = 9999999999;
+    
+    McpAuth::update_tokens("update-mcp", tokens);
+    
+    auto entry = McpAuth::get("update-mcp");
+    REQUIRE(entry.has_value());
+    REQUIRE(entry->tokens->access_token == "updated-token");
+    REQUIRE(entry->tokens->expires_at == 9999999999);
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.UpdateClientInfo", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    ClientInfo info;
+    info.client_id = "test-client-id";
+    info.client_secret = "test-secret";
+    
+    McpAuth::update_client_info("client-mcp", info);
+    
+    auto entry = McpAuth::get("client-mcp");
+    REQUIRE(entry.has_value());
+    REQUIRE(entry->client_info->client_id == "test-client-id");
+    REQUIRE(entry->client_info->client_secret == "test-secret");
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.CodeVerifier", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    McpAuth::update_code_verifier("verifier-mcp", "test-verifier-123");
+    
+    auto entry = McpAuth::get("verifier-mcp");
+    REQUIRE(entry.has_value());
+    REQUIRE(entry->code_verifier == "test-verifier-123");
+    
+    McpAuth::clear_code_verifier("verifier-mcp");
+    
+    entry = McpAuth::get("verifier-mcp");
+    REQUIRE(entry.has_value());
+    REQUIRE_FALSE(entry->code_verifier.has_value());
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.OAuthState", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    McpAuth::update_oauth_state("state-mcp", "test-state-456");
+    
+    auto state = McpAuth::get_oauth_state("state-mcp");
+    REQUIRE(state.has_value());
+    REQUIRE(*state == "test-state-456");
+    
+    McpAuth::clear_oauth_state("state-mcp");
+    
+    state = McpAuth::get_oauth_state("state-mcp");
+    REQUIRE_FALSE(state.has_value());
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.TokenExpiry", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    // Test with expired token (expires_at in the past)
+    AuthEntry entry;
+    entry.tokens = Tokens{};
+    entry.tokens->access_token = "expired-token";
+    entry.tokens->expires_at = 1000000000;  // Past timestamp
+    
+    McpAuth::set("expired-mcp", entry);
+    
+    auto expired = McpAuth::is_token_expired("expired-mcp");
+    REQUIRE(expired.has_value());
+    REQUIRE(*expired == true);
+    
+    // Test with valid token (expires_at in the future)
+    entry.tokens->expires_at = 9999999999;
+    McpAuth::set("valid-mcp", entry);
+    
+    auto valid = McpAuth::is_token_expired("valid-mcp");
+    REQUIRE(valid.has_value());
+    REQUIRE(*valid == false);
+    
+    // Test with no expiry
+    entry.tokens->expires_at = std::nullopt;
+    McpAuth::set("no-expiry-mcp", entry);
+    
+    auto no_expiry = McpAuth::is_token_expired("no-expiry-mcp");
+    REQUIRE(no_expiry.has_value());
+    REQUIRE(*no_expiry == false);
+    
+    // Test with no token
+    auto no_token = McpAuth::is_token_expired("nonexistent-mcp");
+    REQUIRE_FALSE(no_token.has_value());
+    
+    unsetenv("HOME");
+}
+
+TEST_CASE("MCP.McpAuth.AuthStatusFull", "[MCP][Auth]") {
+    TURBOT_TEST_TMPDIR(tmp, false);
+    
+    auto turbot_dir = tmp.path() / ".turbot";
+    std::filesystem::create_directories(turbot_dir);
+    setenv("HOME", tmp.path().c_str(), 1);
+    
+    // Not authenticated
+    REQUIRE(McpAuth::get_auth_status("no-auth-mcp") == McpAuth::AuthStatus::NotAuthenticated);
+    
+    // Authenticated (valid token)
+    AuthEntry entry;
+    entry.tokens = Tokens{};
+    entry.tokens->access_token = "valid-token";
+    entry.tokens->expires_at = 9999999999;
+    McpAuth::set("auth-mcp", entry);
+    REQUIRE(McpAuth::get_auth_status("auth-mcp") == McpAuth::AuthStatus::Authenticated);
+    
+    // Expired
+    entry.tokens->expires_at = 1000000000;
+    McpAuth::set("expired-auth-mcp", entry);
+    REQUIRE(McpAuth::get_auth_status("expired-auth-mcp") == McpAuth::AuthStatus::Expired);
+    
+    unsetenv("HOME");
+}

@@ -65,9 +65,9 @@ TEST_CASE("UsageTracker.CostInfo.PlusEquals", "[UsageTracker]") {
     b.total_cost = 0.15;
     
     a += b;
-    REQUIRE(a.input_cost == 0.06);
-    REQUIRE(a.output_cost == 0.12);
-    REQUIRE(a.total_cost == 0.18);
+    REQUIRE(a.input_cost == Catch::Approx(0.06));
+    REQUIRE(a.output_cost == Catch::Approx(0.12));
+    REQUIRE(a.total_cost == Catch::Approx(0.18));
 }
 
 TEST_CASE("UsageTracker.CostInfo.MinusEquals", "[UsageTracker]") {
@@ -82,9 +82,9 @@ TEST_CASE("UsageTracker.CostInfo.MinusEquals", "[UsageTracker]") {
     b.total_cost = 0.08;
     
     a -= b;
-    REQUIRE(a.input_cost == 0.07);
-    REQUIRE(a.output_cost == 0.15);
-    REQUIRE(a.total_cost == 0.22);
+    REQUIRE(a.input_cost == Catch::Approx(0.07));
+    REQUIRE(a.output_cost == Catch::Approx(0.15));
+    REQUIRE(a.total_cost == Catch::Approx(0.22));
 }
 
 // ==================== SessionUsage 测试 ====================
@@ -302,4 +302,174 @@ TEST_CASE("UsageTracker.TokenUsage.Cost", "[UsageTracker]") {
     double cost = usage.cost(pricing);
     // 1000 * 0.01 + 500 * 0.03 + 200 * 0.005 = 10 + 15 + 1 = 26
     REQUIRE(cost == Catch::Approx(26.0));
+}
+
+// ==================== UsageTracker 实例方法测试 ====================
+
+TEST_CASE("UsageTracker.Instance.AddUsage", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    TokenUsage usage;
+    usage.input = 100;
+    usage.output = 50;
+    
+    tracker.add_usage("session1", usage);
+    
+    SessionUsage session_usage = tracker.get_session_usage("session1");
+    REQUIRE(session_usage.tokens.input == 100);
+    REQUIRE(session_usage.tokens.output == 50);
+}
+
+TEST_CASE("UsageTracker.Instance.AddUsageWithCost", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    TokenUsage usage;
+    usage.input = 100;
+    usage.output = 50;
+    
+    CostInfo cost;
+    cost.input_cost = 0.01;
+    cost.output_cost = 0.02;
+    cost.total_cost = 0.03;
+    
+    tracker.add_usage("session1", usage, cost);
+    
+    SessionUsage session_usage = tracker.get_session_usage("session1");
+    REQUIRE(session_usage.cost.total_cost == Catch::Approx(0.03));
+}
+
+TEST_CASE("UsageTracker.Instance.IncrementCounts", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    tracker.increment_message_count("session1");
+    tracker.increment_message_count("session1");
+    tracker.increment_tool_calls("session1");
+    tracker.increment_request_count("session1");
+    tracker.increment_request_count("session1");
+    tracker.increment_request_count("session1");
+    
+    SessionUsage usage = tracker.get_session_usage("session1");
+    REQUIRE(usage.message_count == 2);
+    REQUIRE(usage.tool_calls == 1);
+    REQUIRE(usage.request_count == 3);
+}
+
+TEST_CASE("UsageTracker.Instance.GetTotalUsage", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    TokenUsage u1;
+    u1.input = 100;
+    u1.output = 50;
+    
+    TokenUsage u2;
+    u2.input = 200;
+    u2.output = 100;
+    
+    tracker.add_usage("session1", u1);
+    tracker.add_usage("session2", u2);
+    
+    SessionUsage total = tracker.get_total_usage();
+    REQUIRE(total.tokens.input == 300);
+    REQUIRE(total.tokens.output == 150);
+}
+
+TEST_CASE("UsageTracker.Instance.HasSession", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    REQUIRE_FALSE(tracker.has_session("nonexistent"));
+    
+    TokenUsage usage;
+    usage.input = 100;
+    tracker.add_usage("session1", usage);
+    
+    REQUIRE(tracker.has_session("session1"));
+    REQUIRE_FALSE(tracker.has_session("session2"));
+}
+
+TEST_CASE("UsageTracker.Instance.GetSessionIds", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    TokenUsage usage;
+    usage.input = 100;
+    
+    tracker.add_usage("session1", usage);
+    tracker.add_usage("session2", usage);
+    tracker.add_usage("session3", usage);
+    
+    std::vector<std::string> ids = tracker.get_session_ids();
+    REQUIRE(ids.size() == 3);
+}
+
+TEST_CASE("UsageTracker.Instance.ResetSession", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    TokenUsage usage;
+    usage.input = 100;
+    tracker.add_usage("session1", usage);
+    
+    REQUIRE(tracker.has_session("session1"));
+    
+    tracker.reset_session("session1");
+    
+    SessionUsage reset_usage = tracker.get_session_usage("session1");
+    REQUIRE(reset_usage.tokens.input == 0);
+}
+
+TEST_CASE("UsageTracker.Instance.ResetAll", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    TokenUsage usage;
+    usage.input = 100;
+    
+    tracker.add_usage("session1", usage);
+    tracker.add_usage("session2", usage);
+    
+    REQUIRE(tracker.session_count() == 2);
+    
+    tracker.reset_all();
+    
+    REQUIRE(tracker.session_count() == 0);
+}
+
+TEST_CASE("UsageTracker.Instance.SessionCount", "[UsageTracker]") {
+    UsageTracker tracker;
+    
+    REQUIRE(tracker.session_count() == 0);
+    
+    TokenUsage usage;
+    usage.input = 100;
+    
+    tracker.add_usage("session1", usage);
+    REQUIRE(tracker.session_count() == 1);
+    
+    tracker.add_usage("session2", usage);
+    REQUIRE(tracker.session_count() == 2);
+}
+
+// ==================== UsageTracker.calculate_cost 测试 ====================
+
+TEST_CASE("UsageTracker.CalculateCost.WithPricing", "[UsageTracker]") {
+    TokenUsage usage;
+    usage.input = 1000;
+    usage.output = 500;
+    usage.cache.read = 200;
+    usage.reasoning = 100;
+    
+    // Pricing is per 1K tokens
+    nlohmann::json pricing = R"({
+        "input": 10.0,
+        "output": 30.0,
+        "cache_read": 5.0,
+        "cache_write": 10.0,
+        "reasoning": 20.0
+    })"_json;
+    
+    CostInfo cost = UsageTracker::calculate_cost(pricing, usage);
+    // (1000/1000) * 10 + (500/1000) * 30 + (200/1000) * 5 + (100/1000) * 20
+    // = 10 + 15 + 1 + 2 = 28
+    REQUIRE(cost.input_cost == Catch::Approx(10.0));
+    REQUIRE(cost.output_cost == Catch::Approx(15.0));
+    REQUIRE(cost.cache_read_cost == Catch::Approx(1.0));
+    REQUIRE(cost.reasoning_cost == Catch::Approx(2.0));
+    REQUIRE(cost.total_cost == Catch::Approx(28.0));
 }

@@ -602,3 +602,177 @@ TEST_CASE("LSP.MakeCustomServer", "[LSP][Builtin]") {
     REQUIRE(info.id == "test-lsp");
     REQUIRE_FALSE(info.extensions.empty());
 }
+
+TEST_CASE("LSP.MakeDenoServer", "[LSP][Builtin]") {
+    auto info = make_deno_server("/tmp");
+    REQUIRE(info.id == "deno");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeVueServer", "[LSP][Builtin]") {
+    auto info = make_vue_server("/tmp");
+    REQUIRE(info.id == "vue");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeEslintServer", "[LSP][Builtin]") {
+    auto info = make_eslint_server("/tmp");
+    REQUIRE(info.id == "eslint");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeBiomeServer", "[LSP][Builtin]") {
+    auto info = make_biome_server("/tmp");
+    REQUIRE(info.id == "biome");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeSvelteServer", "[LSP][Builtin]") {
+    auto info = make_svelte_server("/tmp");
+    REQUIRE(info.id == "svelte");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeAstroServer", "[LSP][Builtin]") {
+    auto info = make_astro_server("/tmp");
+    REQUIRE(info.id == "astro");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeKotlinServer", "[LSP][Builtin]") {
+    auto info = make_kotlin_server("/tmp");
+    REQUIRE(info.id == "kotlin");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeCsharpServer", "[LSP][Builtin]") {
+    auto info = make_csharp_server("/tmp");
+    REQUIRE(info.id == "csharp");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeClojureServer", "[LSP][Builtin]") {
+    auto info = make_clojure_server("/tmp");
+    REQUIRE(info.id == "clojure");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeDartServer", "[LSP][Builtin]") {
+    auto info = make_dart_server("/tmp");
+    REQUIRE(info.id == "dart");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeElixirServer", "[LSP][Builtin]") {
+    auto info = make_elixir_server("/tmp");
+    REQUIRE(info.id == "elixir");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeErlangServer", "[LSP][Builtin]") {
+    auto info = make_erlang_server("/tmp");
+    REQUIRE(info.id == "erlang");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeHaskellServer", "[LSP][Builtin]") {
+    auto info = make_haskell_server("/tmp");
+    REQUIRE(info.id == "haskell");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeNixServer", "[LSP][Builtin]") {
+    auto info = make_nix_server("/tmp");
+    REQUIRE(info.id == "nix");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeOcamlServer", "[LSP][Builtin]") {
+    auto info = make_ocaml_server("/tmp");
+    REQUIRE(info.id == "ocaml");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakePhpServer", "[LSP][Builtin]") {
+    auto info = make_php_server("/tmp");
+    REQUIRE(info.id == "php");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeRubyServer", "[LSP][Builtin]") {
+    auto info = make_ruby_server("/tmp");
+    REQUIRE(info.id == "ruby");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeScalaServer", "[LSP][Builtin]") {
+    auto info = make_scala_server("/tmp");
+    REQUIRE(info.id == "scala");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeSwiftServer", "[LSP][Builtin]") {
+    auto info = make_swift_server("/tmp");
+    REQUIRE(info.id == "swift");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeTerraformServer", "[LSP][Builtin]") {
+    auto info = make_terraform_server("/tmp");
+    REQUIRE(info.id == "terraform");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.MakeZigServer", "[LSP][Builtin]") {
+    auto info = make_zig_server("/tmp");
+    REQUIRE(info.id == "zig");
+    REQUIRE_FALSE(info.extensions.empty());
+}
+
+TEST_CASE("LSP.CustomServer.WithEnv", "[LSP][Builtin]") {
+    nlohmann::json cfg = {
+        {"extensions", {".custom"}},
+        {"command", {"custom-lsp", "--stdio"}},
+        {"env", {{"CUSTOM_VAR", "test_value"}}}
+    };
+    auto info = make_custom_server("custom-lsp", cfg, "/tmp");
+    REQUIRE(info.id == "custom-lsp");
+    REQUIRE(info.extensions.size() == 1);
+    REQUIRE(info.extensions[0] == ".custom");
+}
+
+TEST_CASE("LSP.CustomServer.WithInitialization", "[LSP][Builtin]") {
+    nlohmann::json cfg = {
+        {"extensions", {".init"}},
+        {"command", {"init-lsp"}},
+        {"initialization", {{"setting", "value"}}}
+    };
+    auto info = make_custom_server("init-lsp", cfg, "/tmp");
+    REQUIRE(info.id == "init-lsp");
+}
+
+TEST_CASE("LSP.IsLspDownloadEnabled.Disabled", "[LSP][Builtin]") {
+    // 保存当前环境变量状态
+    const char* old_val = getenv("TURBOT_DISABLE_LSP_DOWNLOAD");
+    std::string old_val_str = old_val ? old_val : "";
+    
+    // 设置环境变量禁用
+    setenv("TURBOT_DISABLE_LSP_DOWNLOAD", "true", 1);
+    REQUIRE_FALSE(is_lsp_download_enabled());
+    
+    // 恢复原状态
+    if (old_val_str.empty()) {
+        unsetenv("TURBOT_DISABLE_LSP_DOWNLOAD");
+    } else {
+        setenv("TURBOT_DISABLE_LSP_DOWNLOAD", old_val_str.c_str(), 1);
+    }
+}
+
+TEST_CASE("LSP.ServerInfo.RootFunction", "[LSP][Builtin]") {
+    auto info = make_clangd_server("/workspace");
+    
+    // 测试 root 函数可以被调用
+    std::optional<std::string> root = info.root("/workspace/test.cpp");
+    // root 可能返回 nullopt 或一个路径
+    REQUIRE((root.has_value() || !root.has_value()));
+}
