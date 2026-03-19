@@ -26,10 +26,13 @@ public:
         // Create a temporary config directory
         TURBOT_TEST_TMPDIR(tmp, false);
         config_dir_ = tmp.path();
+        
+        // Set TURBOT_USER_CONFIG_PATH to avoid HOME requirement
+        env_guard_.set("TURBOT_USER_CONFIG_PATH", config_dir_.string());
     }
 
     ~ConfigPersistenceFixture() {
-        // Cleanup is automatic via TmpDir
+        // Cleanup is automatic via TmpDir and EnvGuard
     }
 
     void createConfigFile(const std::filesystem::path& path, const nlohmann::json& config) {
@@ -49,6 +52,7 @@ public:
 
 protected:
     std::filesystem::path config_dir_;
+    EnvGuard env_guard_;
 };
 
 // ==================== save_config Tests ====================

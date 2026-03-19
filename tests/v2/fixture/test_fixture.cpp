@@ -16,8 +16,8 @@ std::filesystem::path TmpDir::generate_unique_path() {
     ss << std::hex << dis(gen);
     std::string random_str = ss.str();
     
-    auto temp_dir = std::filesystem::temp_directory_path();
-    return temp_dir / ("turbot-test-" + random_str);
+    // 使用 /tmp 而不是 temp_directory_path() 以避免 macOS 沙盒限制
+    return std::filesystem::path("/tmp") / ("turbot-test-" + random_str);
 }
 
 TmpDir::TmpDir(bool git_init, std::optional<nlohmann::json> config) 

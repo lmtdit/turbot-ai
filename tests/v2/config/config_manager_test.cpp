@@ -10,6 +10,7 @@ using namespace turbot::test;
 
 TEST_CASE("Config.Validation.ValidProvider", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto config_file = tmp.path() / ".turbot" / "turbot.json";
     std::filesystem::create_directories(config_file.parent_path());
@@ -25,13 +26,13 @@ TEST_CASE("Config.Validation.ValidProvider", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE(result.success);
 }
 
 TEST_CASE("Config.Validation.InvalidProviderType", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto config_file = tmp.path() / ".turbot" / "turbot.json";
     std::filesystem::create_directories(config_file.parent_path());
@@ -210,7 +211,7 @@ TEST_CASE("Config.Yaml.ParseBoolean", "[Config]") {
     
     auto& manager = ConfigManager::instance();
     std::filesystem::current_path(tmp.path());
-    manager.load_config(ConfigLevel::Project);
+    manager.initialize();  // Use initialize() instead of load_config()
     
     auto v1 = manager.get<bool>("bool_true");
     auto v2 = manager.get<bool>("bool_false");
@@ -236,7 +237,7 @@ TEST_CASE("Config.Yaml.ParseNumbers", "[Config]") {
     
     auto& manager = ConfigManager::instance();
     std::filesystem::current_path(tmp.path());
-    manager.load_config(ConfigLevel::Project);
+    manager.initialize();  // Use initialize() instead of load_config()
     
     auto v1 = manager.get<int>("int_val");
     auto v2 = manager.get<double>("float_val");

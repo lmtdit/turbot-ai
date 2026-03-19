@@ -512,3 +512,163 @@ TEST_CASE("Provider.OpenAI.ValidateNotReady", "[Provider][OpenAI]") {
     REQUIRE(provider.is_ready() == false);
     REQUIRE(provider.validate() == false);
 }
+
+// ==================== BailianProvider Tests ====================
+
+#include <turbot/core/provider/impl/bailian_provider.hpp>
+
+TEST_CASE("Provider.Bailian.CreateWithApiKey", "[Provider][Bailian]") {
+    BailianProvider provider("test-api-key");
+    REQUIRE(provider.id() == "bailian");
+    REQUIRE(provider.name() == "阿里云百炼");
+}
+
+TEST_CASE("Provider.Bailian.CreateWithConfig", "[Provider][Bailian]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    config.base_url = "https://custom.api.url";
+    
+    BailianProvider provider(config);
+    REQUIRE(provider.id() == "bailian");
+}
+
+TEST_CASE("Provider.Bailian.IsReady", "[Provider][Bailian]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    BailianProvider provider(config);
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.Bailian.NotReadyWithoutKey", "[Provider][Bailian]") {
+    ProviderConfig config;
+    // No API key
+    
+    BailianProvider provider(config);
+    REQUIRE(provider.is_ready() == false);
+}
+
+TEST_CASE("Provider.Bailian.ListModels", "[Provider][Bailian]") {
+    BailianProvider provider("test-api-key");
+    auto models = provider.list_models();
+    
+    REQUIRE_FALSE(models.empty());
+    // Check for Qwen models
+    bool has_qwen = false;
+    for (const auto& m : models) {
+        if (m.id.find("qwen") != std::string::npos) {
+            has_qwen = true;
+            break;
+        }
+    }
+    REQUIRE(has_qwen);
+}
+
+TEST_CASE("Provider.Bailian.SupportsModel", "[Provider][Bailian]") {
+    BailianProvider provider("test-api-key");
+    REQUIRE(provider.supports_model("qwen-turbo"));
+    REQUIRE(provider.supports_model("qwen-plus"));
+    REQUIRE(provider.supports_model("qwen-max"));
+    REQUIRE_FALSE(provider.supports_model("gpt-4"));
+}
+
+TEST_CASE("Provider.Bailian.GetModel", "[Provider][Bailian]") {
+    BailianProvider provider("test-api-key");
+    auto model = provider.get_model("qwen-turbo");
+    REQUIRE(model.has_value());
+    REQUIRE(model->id == "qwen-turbo");
+}
+
+TEST_CASE("Provider.Bailian.CountTokens", "[Provider][Bailian]") {
+    BailianProvider provider("test-api-key");
+    std::vector<ChatMessage> messages = {
+        ChatMessage::user("Hello, world!")
+    };
+    auto count = provider.count_tokens(messages, "qwen-turbo");
+    REQUIRE(count > 0);
+}
+
+// ==================== KimiProvider Tests ====================
+
+#include <turbot/core/provider/impl/kimi_provider.hpp>
+
+TEST_CASE("Provider.Kimi.CreateWithApiKey", "[Provider][Kimi]") {
+    KimiProvider provider("test-api-key");
+    REQUIRE(provider.id() == "kimi");
+    REQUIRE(provider.name() == "Moonshot AI (Kimi)");
+}
+
+TEST_CASE("Provider.Kimi.IsReady", "[Provider][Kimi]") {
+    KimiProvider provider("test-api-key");
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.Kimi.ListModels", "[Provider][Kimi]") {
+    KimiProvider provider("test-api-key");
+    auto models = provider.list_models();
+    REQUIRE_FALSE(models.empty());
+}
+
+TEST_CASE("Provider.Kimi.SupportsModel", "[Provider][Kimi]") {
+    KimiProvider provider("test-api-key");
+    REQUIRE(provider.supports_model("moonshot-v1-8k"));
+    REQUIRE(provider.supports_model("moonshot-v1-32k"));
+    REQUIRE_FALSE(provider.supports_model("gpt-4"));
+}
+
+// ==================== ZhipuProvider Tests ====================
+
+#include <turbot/core/provider/impl/zhipu_provider.hpp>
+
+TEST_CASE("Provider.Zhipu.CreateWithApiKey", "[Provider][Zhipu]") {
+    ZhipuProvider provider("test-api-key");
+    REQUIRE(provider.id() == "zhipu");
+    REQUIRE(provider.name() == "智谱AI");
+}
+
+TEST_CASE("Provider.Zhipu.IsReady", "[Provider][Zhipu]") {
+    ZhipuProvider provider("test-api-key");
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.Zhipu.ListModels", "[Provider][Zhipu]") {
+    ZhipuProvider provider("test-api-key");
+    auto models = provider.list_models();
+    REQUIRE_FALSE(models.empty());
+}
+
+TEST_CASE("Provider.Zhipu.SupportsModel", "[Provider][Zhipu]") {
+    ZhipuProvider provider("test-api-key");
+    REQUIRE(provider.supports_model("glm-4"));
+    REQUIRE(provider.supports_model("glm-4-flash"));
+    REQUIRE_FALSE(provider.supports_model("gpt-4"));
+}
+
+// ==================== IflowProvider Tests ====================
+
+#include <turbot/core/provider/impl/iflow_provider.hpp>
+
+TEST_CASE("Provider.Iflow.CreateWithApiKey", "[Provider][Iflow]") {
+    IflowProvider provider("test-api-key");
+    REQUIRE(provider.id() == "iflow");
+}
+
+TEST_CASE("Provider.Iflow.IsReady", "[Provider][Iflow]") {
+    IflowProvider provider("test-api-key");
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.Iflow.ListModels", "[Provider][Iflow]") {
+    IflowProvider provider("test-api-key");
+    auto models = provider.list_models();
+    REQUIRE_FALSE(models.empty());
+}
+
+TEST_CASE("Provider.Iflow.SupportsModel", "[Provider][Iflow]") {
+    IflowProvider provider("test-api-key");
+    // Check that it supports some models
+    auto models = provider.list_models();
+    if (!models.empty()) {
+        REQUIRE(provider.supports_model(models[0].id));
+    }
+}

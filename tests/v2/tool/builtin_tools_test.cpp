@@ -506,7 +506,7 @@ TEST_CASE("ListTool.Execute.ListDirectory", "[Tool][Builtin][List]") {
     auto ctx = make_tool_ctx();
     
     // Create temp directory with files
-    std::string dir = "/tmp/turbot_list_test_" + std::to_string(std::time(nullptr));
+    std::string dir = "/Users/jg/Codes/turbot/turbot-ai/test_output/turbot_list_test_" + std::to_string(std::time(nullptr));
     fs::create_directory(dir);
     std::ofstream(dir + "/file1.txt") << "content1";
     std::ofstream(dir + "/file2.txt") << "content2";
@@ -561,7 +561,7 @@ TEST_CASE("GlobTool.Execute.WithPattern", "[Tool][Builtin][Glob]") {
     auto ctx = make_tool_ctx();
     
     // Create temp directory with files
-    std::string dir = "/tmp/turbot_glob_test_" + std::to_string(std::time(nullptr));
+    std::string dir = "/Users/jg/Codes/turbot/turbot-ai/test_output/turbot_glob_test_" + std::to_string(std::time(nullptr));
     fs::create_directory(dir);
     std::ofstream(dir + "/test1.txt") << "content1";
     std::ofstream(dir + "/test2.txt") << "content2";
@@ -592,7 +592,7 @@ TEST_CASE("GlobTool.Execute.RecursivePattern", "[Tool][Builtin][Glob]") {
     auto ctx = make_tool_ctx();
     
     // Create nested directory structure
-    std::string dir = "/tmp/turbot_glob_recursive_" + std::to_string(std::time(nullptr));
+    std::string dir = "/Users/jg/Codes/turbot/turbot-ai/test_output/turbot_glob_recursive_" + std::to_string(std::time(nullptr));
     fs::create_directory(dir);
     fs::create_directory(dir + "/subdir");
     std::ofstream(dir + "/file.txt") << "content";
@@ -675,7 +675,7 @@ TEST_CASE("GrepTool.Execute.WithPattern", "[Tool][Builtin][Grep]") {
     auto ctx = make_tool_ctx();
     
     // Create temp directory with files
-    std::string dir = "/tmp/turbot_grep_test_" + std::to_string(std::time(nullptr));
+    std::string dir = "/Users/jg/Codes/turbot/turbot-ai/test_output/turbot_grep_test_" + std::to_string(std::time(nullptr));
     fs::create_directory(dir);
     std::ofstream(dir + "/file1.txt") << "hello world\nfoo bar\nhello again";
     std::ofstream(dir + "/file2.txt") << "no match here";

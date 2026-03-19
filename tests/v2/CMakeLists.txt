@@ -8,6 +8,7 @@ find_package(nlohmann_json REQUIRED)
 set(V2_TEST_SOURCES
     # fixture
     fixture/test_fixture.cpp
+    fixture/test_environment.cpp
     fixture/fixture_test.cpp
     # permission
     permission/permission_test_v2.cpp
@@ -80,6 +81,7 @@ set(V2_TEST_SOURCES
 set(V2_TEST_HEADERS
     fixture/test_fixture.hpp
     fixture/test_macros.hpp
+    fixture/test_environment.hpp
 )
 
 # 创建测试可执行文件

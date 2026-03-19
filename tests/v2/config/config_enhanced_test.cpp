@@ -2,6 +2,7 @@
 #include "../fixture/test_macros.hpp"
 #include <turbot/core/config/config_manager.hpp>
 #include <fstream>
+#include <cstdlib>
 
 using namespace turbot::core;
 using namespace turbot::test;
@@ -9,6 +10,10 @@ using namespace turbot::test;
 // ==================== ConfigManager 初始化测试 ====================
 
 TEST_CASE("Config.Manager.Initialize", "[Config]") {
+    // Set TURBOT_USER_CONFIG_PATH to avoid HOME requirement
+    TURBOT_TEST_TMPDIR(user_config, false);
+    setenv("TURBOT_USER_CONFIG_PATH", user_config.path().c_str(), 1);
+    
     TURBOT_TEST_TMPDIR(tmp, false);
     
     auto& manager = ConfigManager::instance();

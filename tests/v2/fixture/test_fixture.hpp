@@ -115,4 +115,45 @@ namespace fs_utils {
     bool is_subpath(const std::filesystem::path& base, const std::filesystem::path& path);
 }
 
+/// 工作目录守卫 - RAII 风格的工作目录管理
+/// 在构造时保存当前工作目录，在析构时恢复
+class WorkingDirGuard {
+public:
+    WorkingDirGuard() : saved_cwd_(std::filesystem::current_path()) {}
+    
+    explicit WorkingDirGuard(const std::filesystem::path& new_dir) 
+        : saved_cwd_(std::filesystem::current_path()) {
+        std::filesystem::current_path(new_dir);
+    }
+    
+    ~WorkingDirGuard() {
+        try {
+            std::filesystem::current_path(saved_cwd_);
+        } catch (...) {
+            // Ignore errors during cleanup
+        }
+    }
+    
+    // 禁止拷贝
+    WorkingDirGuard(const WorkingDirGuard&) = delete;
+    WorkingDirGuard& operator=(const WorkingDirGuard&) = delete;
+    
+    // 允许移动
+    WorkingDirGuard(WorkingDirGuard&& other) noexcept 
+        : saved_cwd_(std::move(other.saved_cwd_)) {}
+    
+    WorkingDirGuard& operator=(WorkingDirGuard&& other) noexcept {
+        if (this != &other) {
+            try {
+                std::filesystem::current_path(saved_cwd_);
+            } catch (...) {}
+            saved_cwd_ = std::move(other.saved_cwd_);
+        }
+        return *this;
+    }
+    
+private:
+    std::filesystem::path saved_cwd_;
+};
+
 } // namespace turbot::test

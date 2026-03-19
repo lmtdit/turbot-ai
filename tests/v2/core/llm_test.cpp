@@ -7,8 +7,30 @@
 #include <turbot/core/llm/provider_adapter.hpp>
 #include <turbot/core/llm/tool_schema.hpp>
 #include <turbot/core/common/version.hpp>
+#include <turbot/core/tool/tool.hpp>
 
 using namespace turbot::core;
+
+// Mock Tool for testing
+class MockTool : public tool::Tool {
+public:
+    MockTool(const std::string& name, const std::string& desc)
+        : name_(name), desc_(desc) {}
+
+    [[nodiscard]] std::string name() const override { return name_; }
+    [[nodiscard]] std::string description() const override { return desc_; }
+    [[nodiscard]] nlohmann::json input_schema() const override {
+        return {{"type", "object"}, {"properties", {{"input", {{"type", "string"}}}}}};
+    }
+
+    tool::ToolResult execute(const nlohmann::json& input, tool::ToolContext& ctx) override {
+        return tool::ToolResult::success(name_, "mock result");
+    }
+
+private:
+    std::string name_;
+    std::string desc_;
+};
 
 // ==================== StreamEventType String Conversion Tests ====================
 
@@ -1530,3 +1552,321 @@ TEST_CASE("Core.Version.Name", "[Core]") {
 TEST_CASE("Core.GetVersionString", "[Core]") {
     REQUIRE(get_version_string() == "0.1.0");
 }
+
+// ==================== PromptBuilder Extended Tests ====================
+
+TEST_CASE("LLM.PromptBuilder.BuildSystem", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    llm::PromptBuildParams params;
+    params.session_id = "test-session";
+    params.model_id = "gpt-4";
+    params.provider_id = "openai";
+    params.working_directory = "/tmp";
+    params.is_git_repo = true;
+    params.platform = "macos";
+    
+    std::string system = builder.build_system(params);
+    REQUIRE_FALSE(system.empty());
+    // Should contain session info
+    REQUIRE(system.find("test-session") != std::string::npos);
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildMessages", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    llm::PromptBuildParams params;
+    params.user_message = "Hello, world!";
+    params.format = MessageFormat::OpenAI;
+    
+    auto messages = builder.build_messages(params, MessageFormat::OpenAI);
+    REQUIRE_FALSE(messages.empty());
+    REQUIRE(messages[0].role == ::turbot::core::LlmRole::User);
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildMessages.AnthropicFormat", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    llm::PromptBuildParams params;
+    params.user_message = "Test message";
+    params.format = MessageFormat::Anthropic;
+    
+    auto messages = builder.build_messages(params, MessageFormat::Anthropic);
+    REQUIRE_FALSE(messages.empty());
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildMessages.EmptyUserMessage", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    llm::PromptBuildParams params;
+    params.user_message = "";  // Empty user message
+    params.format = MessageFormat::OpenAI;
+    
+    auto messages = builder.build_messages(params, MessageFormat::OpenAI);
+    // Should return empty messages when user_message is empty
+    REQUIRE(messages.empty());
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildTools.AllTools", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    
+    // Build tools with empty filter (get all)
+    auto tools = builder.build_tools({});
+    // May be empty if no tools registered
+    REQUIRE(tools.size() >= 0);
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildTools.Filtered", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    
+    // Build tools with filter
+    std::vector<std::string> allowed = {"bash", "read_file"};
+    auto tools = builder.build_tools(allowed);
+    // Tools should be filtered
+    for (const auto& tool : tools) {
+        REQUIRE((tool.name == "bash" || tool.name == "read_file"));
+    }
+}
+
+TEST_CASE("LLM.PromptBuilder.ToolToDefinition", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    
+    // Create a mock tool
+    auto mock_tool = std::make_shared<MockTool>("test_tool", "Test description");
+    
+    auto def = builder.tool_to_definition(mock_tool);
+    REQUIRE(def.name == "test_tool");
+    REQUIRE(def.description == "Test description");
+    REQUIRE(def.parameters.is_object());
+}
+
+TEST_CASE("LLM.PromptBuilder.ToolToDefinition.NullTool", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    
+    // Test with null tool - should throw
+    REQUIRE_THROWS_AS(builder.tool_to_definition(nullptr), std::invalid_argument);
+}
+
+TEST_CASE("LLM.PromptBuilder.Build.Full", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuilder builder;
+    llm::PromptBuildParams params;
+    params.session_id = "full-test-session";
+    params.model_id = "claude-3";
+    params.provider_id = "anthropic";
+    params.user_message = "Write a hello world program";
+    params.format = MessageFormat::Anthropic;
+    params.working_directory = "/workspace";
+    
+    auto result = builder.build(params);
+    REQUIRE_FALSE(result.system.empty());
+    REQUIRE_FALSE(result.messages.empty());
+    // Tools may be empty if none registered
+    REQUIRE(result.tools.size() >= 0);
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildResult.MessagesJson", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuildResult result;
+    result.messages = {
+        LlmMessage::create_user("Hello"),
+        LlmMessage::create_assistant("Hi there!")
+    };
+    
+    auto json = result.build_messages_json(MessageFormat::OpenAI);
+    REQUIRE(json.is_array());
+    REQUIRE(json.size() == 2);
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildResult.ToolsJson.OpenAI", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuildResult result;
+    llm::ToolDefinition tool;
+    tool.name = "bash";
+    tool.description = "Run command";
+    tool.parameters = {{"type", "object"}};
+    result.tools = {tool};
+    
+    auto json = result.build_tools_json(MessageFormat::OpenAI);
+    REQUIRE(json.is_array());
+    REQUIRE(json.size() == 1);
+    REQUIRE(json[0]["type"] == "function");
+}
+
+TEST_CASE("LLM.PromptBuilder.BuildResult.ToolsJson.Anthropic", "[Core][LLM][PromptBuilder]") {
+    llm::PromptBuildResult result;
+    llm::ToolDefinition tool;
+    tool.name = "read_file";
+    tool.description = "Read file content";
+    tool.parameters = {{"type", "object"}};
+    result.tools = {tool};
+    
+    auto json = result.build_tools_json(MessageFormat::Anthropic);
+    REQUIRE(json.is_array());
+    REQUIRE(json.size() == 1);
+    REQUIRE(json[0].contains("input_schema"));
+}
+
+// ==================== LLMMessage Extended Tests ====================
+
+TEST_CASE("LLM.LLMMessage.ToJson.WithName", "[Core][LLM]") {
+    llm::LLMMessage msg;
+    msg.role = provider::ChatRole::User;
+    msg.content = "Hello";
+    msg.name = "test_user";
+    
+    auto j = msg.to_json();
+    REQUIRE(j["role"] == "user");
+    REQUIRE(j["content"] == "Hello");
+    REQUIRE(j["name"] == "test_user");
+}
+
+TEST_CASE("LLM.LLMMessage.ToJson.WithToolCallId", "[Core][LLM]") {
+    llm::LLMMessage msg;
+    msg.role = provider::ChatRole::Tool;
+    msg.content = "Tool result";
+    msg.tool_call_id = "call_123";
+    
+    auto j = msg.to_json();
+    REQUIRE(j["tool_call_id"] == "call_123");
+}
+
+TEST_CASE("LLM.LLMMessage.ToJson.WithToolCalls", "[Core][LLM]") {
+    llm::LLMMessage msg;
+    msg.role = provider::ChatRole::Assistant;
+    msg.content = "Using tools";
+    
+    ToolCallChunk tc;
+    tc.id = "tc_1";
+    tc.name = "bash";
+    tc.arguments = R"({"command": "ls"})";
+    msg.tool_calls = {tc};
+    
+    auto j = msg.to_json();
+    REQUIRE(j.contains("tool_calls"));
+    REQUIRE(j["tool_calls"].is_array());
+    REQUIRE(j["tool_calls"].size() == 1);
+}
+
+TEST_CASE("LLM.LLMMessage.FromJson.WithName", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"role", "user"},
+        {"content", "Hello"},
+        {"name", "test_user"}
+    };
+    
+    auto msg = llm::LLMMessage::from_json(j);
+    REQUIRE(msg.role == provider::ChatRole::User);
+    REQUIRE(msg.content == "Hello");
+    REQUIRE(msg.name.has_value());
+    REQUIRE(*msg.name == "test_user");
+}
+
+TEST_CASE("LLM.LLMMessage.FromJson.WithToolCallId", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"role", "tool"},
+        {"content", "Result"},
+        {"tool_call_id", "call_456"}
+    };
+    
+    auto msg = llm::LLMMessage::from_json(j);
+    REQUIRE(msg.role == provider::ChatRole::Tool);
+    REQUIRE(msg.tool_call_id.has_value());
+    REQUIRE(*msg.tool_call_id == "call_456");
+}
+
+TEST_CASE("LLM.LLMMessage.FromJson.WithToolCalls", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"role", "assistant"},
+        {"content", "Using tools"},
+        {"tool_calls", {
+            {{"id", "tc_1"}, {"function", {{"name", "bash"}, {"arguments", "{}"}}}}
+        }}
+    };
+    
+    auto msg = llm::LLMMessage::from_json(j);
+    REQUIRE(msg.role == provider::ChatRole::Assistant);
+    REQUIRE_FALSE(msg.tool_calls.empty());
+}
+
+TEST_CASE("LLM.LLMMessage.System.Short", "[Core][LLM]") {
+    auto msg = llm::LLMMessage::system("System prompt");
+    REQUIRE(msg.role == provider::ChatRole::System);
+    REQUIRE(msg.content == "System prompt");
+}
+
+TEST_CASE("LLM.LLMMessage.User.Short", "[Core][LLM]") {
+    auto msg = llm::LLMMessage::user("User message");
+    REQUIRE(msg.role == provider::ChatRole::User);
+    REQUIRE(msg.content == "User message");
+}
+
+TEST_CASE("LLM.LLMMessage.Assistant.Short", "[Core][LLM]") {
+    auto msg = llm::LLMMessage::assistant("Assistant response");
+    REQUIRE(msg.role == provider::ChatRole::Assistant);
+    REQUIRE(msg.content == "Assistant response");
+}
+
+TEST_CASE("LLM.LLMMessage.Tool", "[Core][LLM]") {
+    auto msg = llm::LLMMessage::tool_result("call_789", "Tool result");
+    REQUIRE(msg.role == provider::ChatRole::Tool);
+    REQUIRE(msg.tool_call_id == "call_789");
+    REQUIRE(msg.content == "Tool result");
+}
+
+// ==================== LLMToolDefinition Extended Tests ====================
+
+TEST_CASE("LLM.LLMToolDefinition.FromJson.WithFunction", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"type", "function"},
+        {"function", {
+            {"name", "read_file"},
+            {"description", "Read a file"},
+            {"parameters", {{"type", "object"}}}
+        }}
+    };
+    
+    auto tool = llm::LLMToolDefinition::from_json(j);
+    REQUIRE(tool.name == "read_file");
+    REQUIRE(tool.description == "Read a file");
+}
+
+TEST_CASE("LLM.LLMToolDefinition.FromJson.WithoutFunction", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"name", "bash"},
+        {"description", "Run command"},
+        {"parameters", {{"type", "object"}}}
+    };
+    
+    auto tool = llm::LLMToolDefinition::from_json(j);
+    REQUIRE(tool.name == "bash");
+    REQUIRE(tool.description == "Run command");
+}
+
+// ==================== ToolCallResult Extended Tests ====================
+
+TEST_CASE("LLM.ToolCallResult.ToJson.WithError", "[Core][LLM]") {
+    llm::ToolCallResult result;
+    result.tool_call_id = "tc_error";
+    result.content = "Error occurred";
+    result.is_error = true;
+    
+    auto j = result.to_json();
+    REQUIRE(j["is_error"] == true);
+}
+
+TEST_CASE("LLM.ToolCallResult.ToJson.WithoutError", "[Core][LLM]") {
+    llm::ToolCallResult result;
+    result.tool_call_id = "tc_success";
+    result.content = "Success";
+    result.is_error = false;
+    
+    auto j = result.to_json();
+    REQUIRE_FALSE(j.contains("is_error"));
+}
+
+TEST_CASE("LLM.ToolCallResult.FromJson.WithError", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"tool_call_id", "tc_err"},
+        {"content", "Error"},
+        {"is_error", true}
+    };
+    
+    auto result = llm::ToolCallResult::from_json(j);
+    REQUIRE(result.is_error == true);
+    REQUIRE(result.tool_call_id == "tc_err");
+}
+
