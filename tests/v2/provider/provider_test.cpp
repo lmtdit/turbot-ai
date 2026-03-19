@@ -384,3 +384,131 @@ TEST_CASE("Provider.OpenAI.CustomBaseUrl", "[Provider][OpenAI]") {
     OpenAIProvider provider(config);
     REQUIRE(provider.is_ready() == true);
 }
+
+TEST_CASE("Provider.OpenAI.ApiKeyConstructor", "[Provider][OpenAI]") {
+    OpenAIProvider provider("test-api-key");
+    REQUIRE(provider.is_ready() == true);
+    REQUIRE(provider.id() == "openai");
+}
+
+TEST_CASE("Provider.OpenAI.ModelCapabilities", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    
+    // GPT-4o should have vision capability
+    auto gpt4o = provider.get_model("gpt-4o");
+    REQUIRE(gpt4o.has_value());
+    REQUIRE(gpt4o->capabilities.vision == true);
+    REQUIRE(gpt4o->capabilities.tool_call == true);
+    REQUIRE(gpt4o->capabilities.streaming == true);
+    
+    // o1 models should have reasoning capability
+    auto o1 = provider.get_model("o1-preview");
+    REQUIRE(o1.has_value());
+    REQUIRE(o1->capabilities.reasoning == true);
+    REQUIRE(o1->capabilities.temperature == false);
+}
+
+TEST_CASE("Provider.OpenAI.ModelPricing", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    
+    auto gpt4o = provider.get_model("gpt-4o");
+    REQUIRE(gpt4o.has_value());
+    REQUIRE(gpt4o->pricing.contains("input"));
+    REQUIRE(gpt4o->pricing.contains("output"));
+    REQUIRE(gpt4o->pricing["input"].get<double>() > 0);
+    REQUIRE(gpt4o->pricing["output"].get<double>() > 0);
+}
+
+TEST_CASE("Provider.OpenAI.ModelContextWindow", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    
+    auto gpt4o = provider.get_model("gpt-4o");
+    REQUIRE(gpt4o.has_value());
+    REQUIRE(gpt4o->context_window > 0);
+    
+    auto gpt4 = provider.get_model("gpt-4");
+    REQUIRE(gpt4.has_value());
+    // GPT-4 has smaller context window than GPT-4o
+    REQUIRE(gpt4->context_window < gpt4o->context_window);
+}
+
+TEST_CASE("Provider.OpenAI.ChatMessageWithToolCalls", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    
+    std::vector<ChatMessage> messages = {
+        ChatMessage::user("What's the weather?"),
+        ChatMessage::assistant_with_tools("Let me check", {
+            {"call-1", "function", "get_weather", R"({"city": "NYC"})"_json}
+        }),
+        ChatMessage::tool_result("call-1", "Sunny, 72°F")
+    };
+    
+    auto count = provider.count_tokens(messages, "gpt-4o");
+    REQUIRE(count > 0);
+}
+
+TEST_CASE("Provider.OpenAI.ProviderConfigWithProxy", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    config.proxy = "http://proxy.example.com:8080";
+    config.timeout_seconds = 120;
+    config.verify_ssl = false;
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.OpenAI.ProviderConfigWithOrganization", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    config.organization = "org-123";
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.is_ready() == true);
+}
+
+TEST_CASE("Provider.OpenAI.AllModelsAvailable", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    config.api_key = "test-api-key";
+    
+    OpenAIProvider provider(config);
+    auto models = provider.list_models();
+    
+    // Check that all expected models are present
+    std::vector<std::string> expected_models = {
+        "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4",
+        "gpt-3.5-turbo", "o1-preview", "o1-mini"
+    };
+    
+    for (const auto& expected : expected_models) {
+        bool found = false;
+        for (const auto& m : models) {
+            if (m.id == expected) {
+                found = true;
+                break;
+            }
+        }
+        REQUIRE(found);
+    }
+}
+
+TEST_CASE("Provider.OpenAI.ValidateNotReady", "[Provider][OpenAI]") {
+    ProviderConfig config;
+    // No API key
+    
+    OpenAIProvider provider(config);
+    REQUIRE(provider.is_ready() == false);
+    REQUIRE(provider.validate() == false);
+}
