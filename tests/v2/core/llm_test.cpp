@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <turbot/core/llm/stream_event.hpp>
 #include <turbot/core/llm/llm.hpp>
 #include <turbot/core/llm/system_prompt.hpp>
@@ -189,7 +190,10 @@ TEST_CASE("LLM.StreamEvent.CreateStart", "[Core][LLM]") {
 }
 
 TEST_CASE("LLM.StreamEvent.CreateFinish", "[Core][LLM]") {
-    TokenUsage usage{100, 50, 150};
+    TokenUsage usage;
+    usage.input = 100;
+    usage.output = 50;
+    usage.reasoning = 150;
     StreamEvent event = StreamEvent::create_finish(FinishReason::Stop, usage);
     
     REQUIRE(event.is_finish());
@@ -378,7 +382,10 @@ TEST_CASE("LLM.StreamResult.ToJson", "[Core][LLM]") {
     result.id = "resp_123";
     result.model = "gpt-4";
     result.finish_reason = FinishReason::Stop;
-    result.usage = TokenUsage{100, 50, 150};
+    result.usage = TokenUsage{};
+    result.usage.input = 100;
+    result.usage.output = 50;
+    result.usage.reasoning = 150;
     
     nlohmann::json j = result.to_json();
     
@@ -599,7 +606,10 @@ TEST_CASE("LLM.StreamingState.MarkDone", "[Core][LLM]") {
     
     REQUIRE_FALSE(state.is_done());
     
-    TokenUsage usage{100, 50, 150};
+    TokenUsage usage;
+    usage.input = 100;
+    usage.output = 50;
+    usage.reasoning = 150;
     state.mark_done(FinishReason::Stop, usage);
     
     REQUIRE(state.is_done());
@@ -1886,4 +1896,1404 @@ TEST_CASE("LLM.ToolCallChunk.Streaming", "[Core][LLM]") {
     chunk.is_complete = true;
     
     REQUIRE(chunk.is_complete);
+}
+
+// ==================== Extended ProviderAdapter Tests ====================
+
+TEST_CASE("LLM.ProviderAdapter.MessageWithToolCalls", "[Core][LLM]") {
+    llm::LLMMessage msg;
+    msg.role = provider::ChatRole::Assistant;
+    msg.content = "";
+    msg.tool_calls.push_back(ToolCallChunk{"tc-1", "bash", R"({"cmd": "ls"})", true});
+    
+    auto pmsg = llm::ProviderAdapter::to_provider_message(msg);
+    REQUIRE(pmsg.tool_calls.has_value());
+    REQUIRE(pmsg.tool_calls->size() == 1);
+    REQUIRE(pmsg.tool_calls->at(0).name == "bash");
+    
+    // Convert back
+    auto restored = llm::ProviderAdapter::from_provider_message(pmsg);
+    REQUIRE(restored.tool_calls.size() == 1);
+    REQUIRE(restored.tool_calls[0].name == "bash");
+}
+
+TEST_CASE("LLM.ProviderAdapter.MessagesVector", "[Core][LLM]") {
+    std::vector<llm::LLMMessage> messages;
+    messages.push_back(llm::LLMMessage::system("System prompt"));
+    messages.push_back(llm::LLMMessage::user("User message"));
+    
+    auto pmsgs = llm::ProviderAdapter::to_provider_messages(messages);
+    REQUIRE(pmsgs.size() == 2);
+    REQUIRE(pmsgs[0].role == provider::ChatRole::System);
+    REQUIRE(pmsgs[1].role == provider::ChatRole::User);
+}
+
+TEST_CASE("LLM.ProviderAdapter.ToolsVector", "[Core][LLM]") {
+    std::vector<llm::LLMToolDefinition> tools;
+    tools.push_back({"bash", "Run command", {{"type", "object"}}});
+    tools.push_back({"read", "Read file", {{"type", "object"}}});
+    
+    auto ptools = llm::ProviderAdapter::to_provider_tools(tools);
+    REQUIRE(ptools.size() == 2);
+    REQUIRE(ptools[0].name == "bash");
+    REQUIRE(ptools[1].name == "read");
+}
+
+TEST_CASE("LLM.ProviderAdapter.ChatOptionsConversion", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.temperature = 0.7;
+    params.top_p = 0.9;
+    params.max_tokens = 2048;
+    params.stop = {"END", "STOP"};
+    params.tools.push_back({"test_tool", "A test tool", {{"type", "object"}}});
+    
+    auto options = llm::ProviderAdapter::to_chat_options(params);
+    REQUIRE(options.temperature == Catch::Approx(0.7));
+    REQUIRE(options.top_p == Catch::Approx(0.9));
+    REQUIRE(options.max_tokens == 2048);
+    REQUIRE(!options.stop.empty());
+    REQUIRE(options.stop.size() == 2);
+    REQUIRE(options.tools.size() == 1);
+    REQUIRE(options.stream == true);
+    
+    // Convert back
+    auto restored = llm::ProviderAdapter::from_chat_options(options);
+    REQUIRE(restored.temperature == Catch::Approx(0.7));
+    REQUIRE(restored.top_p.value() == Catch::Approx(0.9));
+    REQUIRE(restored.max_tokens.value() == 2048);
+}
+
+// ==================== Extended ToolSchema Tests ====================
+
+TEST_CASE("LLM.ToolSchema.AddArrayParam", "[Core][LLM]") {
+    llm::ToolSchema schema("test");
+    llm::ParameterSchema item_schema;
+    item_schema.type = llm::SchemaType::String;
+    
+    schema.add_array_param("items", "List of items", item_schema, false);
+    
+    auto params = schema.parameters();
+    REQUIRE(params.contains("items"));
+    REQUIRE(params.at("items").type == llm::SchemaType::Array);
+    REQUIRE(params.at("items").items != nullptr);
+}
+
+TEST_CASE("LLM.ToolSchema.AddObjectParam", "[Core][LLM]") {
+    llm::ToolSchema schema("test");
+    std::map<std::string, llm::ParameterSchema> properties;
+    
+    llm::ParameterSchema name_schema;
+    name_schema.type = llm::SchemaType::String;
+    name_schema.description = "Name";
+    properties["name"] = name_schema;
+    
+    llm::ParameterSchema age_schema;
+    age_schema.type = llm::SchemaType::Integer;
+    age_schema.description = "Age";
+    properties["age"] = age_schema;
+    
+    schema.add_object_param("person", "Person object", properties, true);
+    
+    auto params = schema.parameters();
+    REQUIRE(params.contains("person"));
+    REQUIRE(params.at("person").type == llm::SchemaType::Object);
+    REQUIRE(params.at("person").properties.size() == 2);
+}
+
+TEST_CASE("LLM.ToolSchema.SetName", "[Core][LLM]") {
+    llm::ToolSchema schema("old_name");
+    schema.set_name("new_name");
+    
+    REQUIRE(schema.name() == "new_name");
+}
+
+TEST_CASE("LLM.ToolSchema.SetDescription", "[Core][LLM]") {
+    llm::ToolSchema schema("test");
+    schema.set_description("New description");
+    
+    REQUIRE(schema.description() == "New description");
+}
+
+TEST_CASE("LLM.ParameterSchema.ToJsonSchema.Full", "[Core][LLM]") {
+    llm::ParameterSchema schema;
+    schema.type = llm::SchemaType::String;
+    schema.description = "A string parameter";
+    schema.default_value = "default";
+    schema.enum_values = nlohmann::json::array({"a", "b", "c"});
+    schema.min_length = 1;
+    schema.max_length = 10;
+    schema.pattern = "^[a-z]+$";
+    
+    auto j = schema.to_json_schema();
+    REQUIRE(j["type"] == "string");
+    REQUIRE(j["description"] == "A string parameter");
+    REQUIRE(j["default"] == "default");
+    REQUIRE(j["enum"].size() == 3);
+    REQUIRE(j["minLength"] == 1);
+    REQUIRE(j["maxLength"] == 10);
+    REQUIRE(j["pattern"] == "^[a-z]+$");
+}
+
+TEST_CASE("LLM.ParameterSchema.FromJsonSchema.Full", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"type", "integer"},
+        {"description", "An integer"},
+        {"default", 42},
+        {"minimum", 0},
+        {"maximum", 100}
+    };
+    
+    auto schema = llm::ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == llm::SchemaType::Integer);
+    REQUIRE(schema.description == "An integer");
+    REQUIRE(schema.default_value == 42);
+    REQUIRE(schema.minimum == 0);
+    REQUIRE(schema.maximum == 100);
+}
+
+TEST_CASE("LLM.ParameterSchema.ArrayWithItems", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"type", "array"},
+        {"items", {{"type", "string"}}}
+    };
+    
+    auto schema = llm::ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == llm::SchemaType::Array);
+    REQUIRE(schema.items != nullptr);
+    REQUIRE(schema.items->type == llm::SchemaType::String);
+}
+
+TEST_CASE("LLM.ParameterSchema.ObjectWithProperties", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"type", "object"},
+        {"properties", {
+            {"name", {{"type", "string"}}},
+            {"count", {{"type", "integer"}}}
+        }}
+    };
+    
+    auto schema = llm::ParameterSchema::from_json_schema(j);
+    REQUIRE(schema.type == llm::SchemaType::Object);
+    REQUIRE(schema.properties.size() == 2);
+}
+
+TEST_CASE("LLM.SchemaType.ToString.All", "[Core][LLM]") {
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::String) == "string");
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::Number) == "number");
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::Integer) == "integer");
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::Boolean) == "boolean");
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::Object) == "object");
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::Array) == "array");
+    REQUIRE(llm::schema_type_to_string(llm::SchemaType::Null) == "null");
+}
+
+TEST_CASE("LLM.SchemaType.FromString.All", "[Core][LLM]") {
+    REQUIRE(llm::string_to_schema_type("string") == llm::SchemaType::String);
+    REQUIRE(llm::string_to_schema_type("number") == llm::SchemaType::Number);
+    REQUIRE(llm::string_to_schema_type("integer") == llm::SchemaType::Integer);
+    REQUIRE(llm::string_to_schema_type("boolean") == llm::SchemaType::Boolean);
+    REQUIRE(llm::string_to_schema_type("object") == llm::SchemaType::Object);
+    REQUIRE(llm::string_to_schema_type("array") == llm::SchemaType::Array);
+    REQUIRE(llm::string_to_schema_type("null") == llm::SchemaType::Null);
+}
+
+TEST_CASE("LLM.SchemaType.FromString.Invalid", "[Core][LLM]") {
+    REQUIRE_THROWS_AS(llm::string_to_schema_type("invalid_type"), std::invalid_argument);
+}
+
+TEST_CASE("LLM.ToolSchema.FromJson.AnthropicFormat", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"name", "test_tool"},
+        {"description", "A test tool"},
+        {"input_schema", {
+            {"type", "object"},
+            {"properties", {
+                {"input", {{"type", "string"}}}
+            }},
+            {"required", {"input"}}
+        }}
+    };
+    
+    auto schema = llm::ToolSchema::from_json(j);
+    REQUIRE(schema.name() == "test_tool");
+    REQUIRE(schema.description() == "A test tool");
+    REQUIRE(schema.parameters().size() == 1);
+    REQUIRE(schema.required_params().size() == 1);
+}
+
+TEST_CASE("LLM.ToolSchema.FromJson.MissingFunction", "[Core][LLM]") {
+    nlohmann::json j = {{"type", "function"}};
+    
+    REQUIRE_THROWS_AS(llm::ToolSchema::from_json(j), std::invalid_argument);
+}
+
+TEST_CASE("LLM.ToolSchema.FromToolDefinition.Valid", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"type", "function"},
+        {"function", {
+            {"name", "valid_tool"},
+            {"description", "Valid tool"},
+            {"parameters", {{"type", "object"}}}
+        }}
+    };
+    
+    auto result = llm::ToolSchema::from_tool_definition(j);
+    REQUIRE(result.has_value());
+    REQUIRE(result->name() == "valid_tool");
+}
+
+TEST_CASE("LLM.ToolSchema.FromToolDefinition.Invalid", "[Core][LLM]") {
+    nlohmann::json j = {{"invalid", "format"}};
+    
+    auto result = llm::ToolSchema::from_tool_definition(j);
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("LLM.SchemaUtils.ValidateNumber", "[Core][LLM]") {
+    llm::ParameterSchema schema;
+    schema.type = llm::SchemaType::Number;
+    schema.minimum = 0.0;
+    schema.maximum = 100.0;
+    
+    REQUIRE(llm::schema_utils::validate_against_schema(50.0, schema));
+    REQUIRE(llm::schema_utils::validate_against_schema(0.0, schema));
+    REQUIRE(llm::schema_utils::validate_against_schema(100.0, schema));
+    REQUIRE_FALSE(llm::schema_utils::validate_against_schema(-1.0, schema));
+    REQUIRE_FALSE(llm::schema_utils::validate_against_schema(101.0, schema));
+}
+
+TEST_CASE("LLM.SchemaUtils.ValidateInteger", "[Core][LLM]") {
+    llm::ParameterSchema schema;
+    schema.type = llm::SchemaType::Integer;
+    schema.minimum = 1;
+    schema.maximum = 10;
+    
+    REQUIRE(llm::schema_utils::validate_against_schema(5, schema));
+    REQUIRE(llm::schema_utils::validate_against_schema(1, schema));
+    REQUIRE(llm::schema_utils::validate_against_schema(10, schema));
+    REQUIRE_FALSE(llm::schema_utils::validate_against_schema(0, schema));
+    REQUIRE_FALSE(llm::schema_utils::validate_against_schema(11, schema));
+}
+
+TEST_CASE("LLM.SchemaUtils.ValidateBoolean", "[Core][LLM]") {
+    llm::ParameterSchema schema;
+    schema.type = llm::SchemaType::Boolean;
+    
+    REQUIRE(llm::schema_utils::validate_against_schema(true, schema));
+    REQUIRE(llm::schema_utils::validate_against_schema(false, schema));
+}
+
+TEST_CASE("LLM.SchemaUtils.ValidateEnum", "[Core][LLM]") {
+    llm::ParameterSchema schema;
+    schema.type = llm::SchemaType::String;
+    schema.enum_values = nlohmann::json::array({"red", "green", "blue"});
+    
+    REQUIRE(llm::schema_utils::validate_against_schema("red", schema));
+    REQUIRE(llm::schema_utils::validate_against_schema("green", schema));
+    REQUIRE(llm::schema_utils::validate_against_schema("blue", schema));
+    REQUIRE_FALSE(llm::schema_utils::validate_against_schema("yellow", schema));
+}
+
+// ==================== ProviderAdapter Extended Tests ====================
+
+// ==================== LLMToolDefinition Extended Tests ====================
+
+TEST_CASE("LLM.LLMToolDefinition.ToJsonExtended", "[Core][LLM]") {
+    llm::LLMToolDefinition tool;
+    tool.name = "read_file";
+    tool.description = "Read a file from disk";
+    tool.parameters = {
+        {"type", "object"},
+        {"properties", {
+            {"path", {{"type", "string"}, {"description", "File path"}}}
+        }},
+        {"required", {"path"}}
+    };
+    
+    nlohmann::json j = tool.to_json();
+    
+    REQUIRE(j["type"] == "function");
+    REQUIRE(j["function"]["name"] == "read_file");
+    REQUIRE(j["function"]["description"] == "Read a file from disk");
+    REQUIRE(j["function"]["parameters"]["type"] == "object");
+}
+
+TEST_CASE("LLM.LLMToolDefinition.FromJsonExtended", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"type", "function"},
+        {"function", {
+            {"name", "write_file"},
+            {"description", "Write a file"},
+            {"parameters", {{"type", "object"}}}
+        }}
+    };
+    
+    auto tool = llm::LLMToolDefinition::from_json(j);
+    REQUIRE(tool.name == "write_file");
+    REQUIRE(tool.description == "Write a file");
+}
+
+TEST_CASE("LLM.LLMToolDefinition.FromJson.WithoutFunctionExtended", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"name", "simple_tool"},
+        {"description", "A simple tool"},
+        {"parameters", {{"type", "object"}}}
+    };
+    
+    auto tool = llm::LLMToolDefinition::from_json(j);
+    REQUIRE(tool.name == "simple_tool");
+    REQUIRE(tool.description == "A simple tool");
+}
+
+// ==================== ToolCallResult Tests ====================
+
+TEST_CASE("LLM.ToolCallResult.ToJsonExtended", "[Core][LLM]") {
+    llm::ToolCallResult result;
+    result.tool_call_id = "call_123";
+    result.content = "File content here";
+    result.is_error = false;
+    
+    nlohmann::json j = result.to_json();
+    
+    REQUIRE(j["tool_call_id"] == "call_123");
+    REQUIRE(j["content"] == "File content here");
+    REQUIRE_FALSE(j.contains("is_error"));
+}
+
+TEST_CASE("LLM.ToolCallResult.ToJsonWithErrorExtended", "[Core][LLM]") {
+    llm::ToolCallResult result;
+    result.tool_call_id = "call_456";
+    result.content = "Error: file not found";
+    result.is_error = true;
+    
+    nlohmann::json j = result.to_json();
+    
+    REQUIRE(j["tool_call_id"] == "call_456");
+    REQUIRE(j["content"] == "Error: file not found");
+    REQUIRE(j["is_error"] == true);
+}
+
+TEST_CASE("LLM.ToolCallResult.FromJsonExtended", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"tool_call_id", "call_789"},
+        {"content", "Success"},
+        {"is_error", true}
+    };
+    
+    auto result = llm::ToolCallResult::from_json(j);
+    REQUIRE(result.tool_call_id == "call_789");
+    REQUIRE(result.content == "Success");
+    REQUIRE(result.is_error == true);
+}
+
+// ==================== LLMMessage Extended Tests ====================
+
+TEST_CASE("LLM.LLMMessage.ToJsonExtended", "[Core][LLM]") {
+    llm::LLMMessage msg = llm::LLMMessage::user("Hello, world!");
+    
+    nlohmann::json j = msg.to_json();
+    
+    REQUIRE(j["role"] == "user");
+    REQUIRE(j["content"] == "Hello, world!");
+}
+
+TEST_CASE("LLM.LLMMessage.ToJsonWithToolCallsExtended", "[Core][LLM]") {
+    ToolCallChunk chunk;
+    chunk.id = "tc_123";
+    chunk.name = "read_file";
+    chunk.arguments = R"({"path": "/tmp/test.txt"})";
+    chunk.is_complete = true;
+    
+    llm::LLMMessage msg = llm::LLMMessage::assistant_with_tools("Let me read that file.", {chunk});
+    
+    nlohmann::json j = msg.to_json();
+    
+    REQUIRE(j["role"] == "assistant");
+    REQUIRE(j["content"] == "Let me read that file.");
+    REQUIRE(j["tool_calls"].size() == 1);
+    REQUIRE(j["tool_calls"][0]["id"] == "tc_123");
+}
+
+TEST_CASE("LLM.LLMMessage.ToJsonWithToolCallIdExtended", "[Core][LLM]") {
+    llm::LLMMessage msg = llm::LLMMessage::tool_result("tc_456", "File contents here");
+    
+    nlohmann::json j = msg.to_json();
+    
+    REQUIRE(j["role"] == "tool");
+    REQUIRE(j["tool_call_id"] == "tc_456");
+    REQUIRE(j["content"] == "File contents here");
+}
+
+TEST_CASE("LLM.LLMMessage.FromJsonExtended", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"role", "assistant"},
+        {"content", "Hello!"},
+        {"name", "assistant"}
+    };
+    
+    auto msg = llm::LLMMessage::from_json(j);
+    REQUIRE(msg.role == provider::ChatRole::Assistant);
+    REQUIRE(msg.content == "Hello!");
+    REQUIRE(msg.name.has_value());
+    REQUIRE(*msg.name == "assistant");
+}
+
+TEST_CASE("LLM.LLMMessage.FromJsonWithToolCallsExtended", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"role", "assistant"},
+        {"content", ""},
+        {"tool_calls", {
+            {
+                {"id", "tc_001"},
+                {"name", "bash"},
+                {"arguments", R"({"cmd": "ls"})"},
+                {"is_complete", true}
+            }
+        }}
+    };
+    
+    auto msg = llm::LLMMessage::from_json(j);
+    REQUIRE(msg.role == provider::ChatRole::Assistant);
+    REQUIRE(msg.tool_calls.size() == 1);
+    REQUIRE(msg.tool_calls[0].id == "tc_001");
+    REQUIRE(msg.tool_calls[0].name == "bash");
+}
+
+TEST_CASE("LLM.LLMMessage.FactoryMethods", "[Core][LLM]") {
+    auto system_msg = llm::LLMMessage::system("You are helpful.");
+    REQUIRE(system_msg.role == provider::ChatRole::System);
+    REQUIRE(system_msg.content == "You are helpful.");
+    
+    auto user_msg = llm::LLMMessage::user("Hi!");
+    REQUIRE(user_msg.role == provider::ChatRole::User);
+    REQUIRE(user_msg.content == "Hi!");
+    
+    auto assistant_msg = llm::LLMMessage::assistant("Hello!");
+    REQUIRE(assistant_msg.role == provider::ChatRole::Assistant);
+    REQUIRE(assistant_msg.content == "Hello!");
+    
+    auto tool_msg = llm::LLMMessage::tool_result("tc_123", "Result", false);
+    REQUIRE(tool_msg.role == provider::ChatRole::Tool);
+    REQUIRE(*tool_msg.tool_call_id == "tc_123");
+    REQUIRE(tool_msg.content == "Result");
+    
+    auto tool_error_msg = llm::LLMMessage::tool_result("tc_456", "Error", true);
+    REQUIRE(tool_error_msg.name.has_value());
+    REQUIRE(*tool_error_msg.name == "error");
+}
+
+// ==================== StreamParams Tests ====================
+
+TEST_CASE("LLM.StreamParams.ToJson", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.session_id = "session_123";
+    params.temperature = 0.7;
+    params.messages.push_back(llm::LLMMessage::user("Hello"));
+    
+    nlohmann::json j = params.to_json();
+    
+    REQUIRE(j["session_id"] == "session_123");
+    REQUIRE(j["temperature"] == 0.7);
+    REQUIRE(j["messages"].size() == 1);
+}
+
+TEST_CASE("LLM.StreamParams.ToJsonWithTools", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.temperature = 1.0;
+    
+    llm::LLMToolDefinition tool;
+    tool.name = "bash";
+    tool.description = "Run bash command";
+    tool.parameters = {{"type", "object"}};
+    params.tools.push_back(tool);
+    params.tool_choice = "auto";
+    
+    nlohmann::json j = params.to_json();
+    
+    REQUIRE(j["tools"].size() == 1);
+    REQUIRE(j["tool_choice"] == "auto");
+}
+
+TEST_CASE("LLM.StreamParams.ToJsonWithOptions", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.temperature = 0.5;
+    params.top_p = 0.9;
+    params.max_tokens = 2048;
+    params.stop = {"END", "STOP"};
+    
+    nlohmann::json j = params.to_json();
+    
+    REQUIRE(j["temperature"] == 0.5);
+    REQUIRE(j["top_p"] == 0.9);
+    REQUIRE(j["max_tokens"] == 2048);
+    REQUIRE(j["stop"].size() == 2);
+}
+
+TEST_CASE("LLM.StreamParams.FromJson", "[Core][LLM]") {
+    nlohmann::json j = {
+        {"session_id", "session_456"},
+        {"temperature", 0.8},
+        {"messages", {
+            {{"role", "user"}, {"content", "Test"}}
+        }},
+        {"tools", {
+            {{"type", "function"}, {"function", {{"name", "test"}, {"description", "Test tool"}}}}
+        }},
+        {"tool_choice", "required"},
+        {"top_p", 0.95},
+        {"max_tokens", 1024},
+        {"stop", {"END"}}
+    };
+    
+    auto params = llm::StreamParams::from_json(j);
+    
+    REQUIRE(params.session_id == "session_456");
+    REQUIRE(params.temperature == 0.8);
+    REQUIRE(params.messages.size() == 1);
+    REQUIRE(params.tools.size() == 1);
+    REQUIRE(params.tool_choice.has_value());
+    REQUIRE(*params.tool_choice == "required");
+    REQUIRE(params.top_p.has_value());
+    REQUIRE(*params.top_p == 0.95);
+    REQUIRE(params.max_tokens.has_value());
+    REQUIRE(*params.max_tokens == 1024);
+    REQUIRE(params.stop.size() == 1);
+}
+
+// ==================== StreamingState Tests ====================
+
+TEST_CASE("LLM.StreamingState.AddEvent", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    auto event = StreamEvent::create_text_delta("text-0", "Hello");
+    state.add_event(event);
+    
+    REQUIRE(state.has_events());
+    REQUIRE(state.events().size() == 1);
+}
+
+TEST_CASE("LLM.StreamingState.PopEvent", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    state.add_event(StreamEvent::create_text_delta("text-0", "Hello"));
+    state.add_event(StreamEvent::create_text_delta("text-0", " World"));
+    
+    auto event1 = state.pop_event();
+    REQUIRE(event1.has_value());
+    REQUIRE(event1->delta == "Hello");
+    
+    auto event2 = state.pop_event();
+    REQUIRE(event2.has_value());
+    REQUIRE(event2->delta == " World");
+    
+    auto event3 = state.pop_event();
+    REQUIRE_FALSE(event3.has_value());
+}
+
+TEST_CASE("LLM.StreamingState.MarkDone", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    TokenUsage usage;
+    usage.input = 100;
+    usage.output = 50;
+    state.mark_done(FinishReason::Stop, usage);
+    
+    REQUIRE(state.is_done());
+    REQUIRE(state.finish_reason() == FinishReason::Stop);
+    REQUIRE(state.usage().input == 100);
+    REQUIRE(state.usage().output == 50);
+    REQUIRE(state.usage().total() == 150);
+}
+
+TEST_CASE("LLM.StreamingState.MarkError", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    state.mark_error("Connection failed", "network_error");
+    
+    REQUIRE(state.is_done());
+    REQUIRE(state.finish_reason() == FinishReason::Error);
+    REQUIRE(state.error().has_value());
+    REQUIRE(*state.error() == "Connection failed");
+}
+
+TEST_CASE("LLM.StreamingState.GetText", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    state.add_event(StreamEvent::create_text_delta("text-0", "Hello"));
+    state.add_event(StreamEvent::create_text_delta("text-0", " "));
+    state.add_event(StreamEvent::create_text_delta("text-0", "World"));
+    
+    REQUIRE(state.get_text() == "Hello World");
+}
+
+TEST_CASE("LLM.StreamingState.GetReasoning", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    state.add_event(StreamEvent::create_reasoning_delta("reasoning-0", "Let me think..."));
+    state.add_event(StreamEvent::create_reasoning_delta("reasoning-0", " about this."));
+    
+    REQUIRE(state.get_reasoning() == "Let me think... about this.");
+}
+
+TEST_CASE("LLM.StreamingState.GetToolCalls", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    ToolCallChunk chunk1;
+    chunk1.id = "tc_001";
+    chunk1.name = "read_file";
+    chunk1.arguments = R"({"path": "/tmp/test.txt"})";
+    chunk1.is_complete = true;
+    
+    state.add_event(StreamEvent::create_tool_call(chunk1));
+    
+    auto tool_calls = state.get_tool_calls();
+    REQUIRE(tool_calls.size() == 1);
+    REQUIRE(tool_calls[0].id == "tc_001");
+    REQUIRE(tool_calls[0].name == "read_file");
+}
+
+TEST_CASE("LLM.StreamingState.GetToolCallsStreaming", "[Core][LLM]") {
+    llm::StreamingState state;
+    
+    // Simulate streaming tool call
+    state.add_event(StreamEvent::create_tool_input_start("tc_002", "bash"));
+    state.add_event(StreamEvent::create_tool_input_delta("tc_002", R"({"cmd": "ls")"));
+    state.add_event(StreamEvent::create_tool_input_delta("tc_002", R"(})"));
+    state.add_event(StreamEvent::create_tool_input_end("tc_002"));
+    
+    auto tool_calls = state.get_tool_calls();
+    REQUIRE(tool_calls.size() == 1);
+    REQUIRE(tool_calls[0].id == "tc_002");
+    REQUIRE(tool_calls[0].name == "bash");
+    REQUIRE(tool_calls[0].arguments == R"({"cmd": "ls"})");
+    REQUIRE(tool_calls[0].is_complete);
+}
+
+TEST_CASE("LLM.StreamingState.ToResult", "[Core][LLM]") {
+    llm::StreamingState state;
+    state.set_response_id("resp_123");
+    state.set_model("gpt-4");
+    state.add_event(StreamEvent::create_text_delta("text-0", "Hello"));
+    
+    TokenUsage usage;
+    usage.input = 10;
+    usage.output = 5;
+    usage.reasoning = 15;
+    state.mark_done(FinishReason::Stop, usage);
+    
+    auto result = state.to_result();
+    
+    REQUIRE(result.id == "resp_123");
+    REQUIRE(result.model == "gpt-4");
+    REQUIRE(result.events.size() == 2); // text delta + finish
+    REQUIRE(result.finish_reason == FinishReason::Stop);
+}
+
+// ==================== LLMStreamResult Tests ====================
+
+TEST_CASE("LLM.LLMStreamResult.DefaultConstructor", "[Core][LLM]") {
+    llm::LLMStreamResult result;
+    
+    REQUIRE(result.is_done());
+    REQUIRE(result.final_text().empty());
+    REQUIRE(result.final_reasoning().empty());
+    REQUIRE(result.tool_calls().empty());
+    REQUIRE_FALSE(result.has_error());
+}
+
+TEST_CASE("LLM.LLMStreamResult.WithState", "[Core][LLM]") {
+    auto state = std::make_shared<llm::StreamingState>();
+    state->add_event(StreamEvent::create_text_delta("text-0", "Test"));
+    
+    TokenUsage usage;
+    usage.input = 5;
+    usage.output = 2;
+    state->mark_done(FinishReason::Stop, usage);
+    
+    llm::LLMStreamResult result(state);
+    
+    REQUIRE(result.is_done());
+    REQUIRE(result.final_text() == "Test");
+    REQUIRE(result.usage().total() == 7);
+    REQUIRE(result.finish_reason() == FinishReason::Stop);
+}
+
+TEST_CASE("LLM.LLMStreamResult.Collect", "[Core][LLM]") {
+    auto state = std::make_shared<llm::StreamingState>();
+    state->add_event(StreamEvent::create_text_delta("text-0", "Hello"));
+    state->add_event(StreamEvent::create_text_delta("text-0", " World"));
+    state->mark_done(FinishReason::Stop);
+    
+    llm::LLMStreamResult result(state);
+    
+    auto events = result.collect();
+    REQUIRE(events.size() == 3); // 2 text deltas + finish
+}
+
+TEST_CASE("LLM.LLMStreamResult.Error", "[Core][LLM]") {
+    auto state = std::make_shared<llm::StreamingState>();
+    state->mark_error("Test error", "test_code");
+    
+    llm::LLMStreamResult result(state);
+    
+    REQUIRE(result.has_error());
+    REQUIRE(result.error().has_value());
+    REQUIRE(*result.error() == "Test error");
+}
+
+// ==================== LLM Static Methods Tests ====================
+
+TEST_CASE("LLM.ToProviderMessage", "[Core][LLM]") {
+    auto msg = llm::LLMMessage::user("Hello");
+    auto pmsg = llm::LLM::to_provider_message(msg);
+    
+    REQUIRE(pmsg.role == provider::ChatRole::User);
+    REQUIRE(pmsg.content == "Hello");
+}
+
+TEST_CASE("LLM.ToProviderMessageWithToolCalls", "[Core][LLM]") {
+    ToolCallChunk chunk;
+    chunk.id = "tc_123";
+    chunk.name = "read_file";
+    chunk.arguments = R"({"path": "/tmp/test.txt"})";
+    chunk.is_complete = true;
+    
+    auto msg = llm::LLMMessage::assistant_with_tools("", {chunk});
+    auto pmsg = llm::LLM::to_provider_message(msg);
+    
+    REQUIRE(pmsg.role == provider::ChatRole::Assistant);
+    REQUIRE(pmsg.tool_calls.has_value());
+    REQUIRE(pmsg.tool_calls->size() == 1);
+    REQUIRE((*pmsg.tool_calls)[0].id == "tc_123");
+    REQUIRE((*pmsg.tool_calls)[0].name == "read_file");
+}
+
+TEST_CASE("LLM.ToProviderTool", "[Core][LLM]") {
+    llm::LLMToolDefinition tool;
+    tool.name = "bash";
+    tool.description = "Run bash command";
+    tool.parameters = {{"type", "object"}};
+    
+    auto ptool = llm::LLM::to_provider_tool(tool);
+    
+    REQUIRE(ptool.type == "function");
+    REQUIRE(ptool.name == "bash");
+    REQUIRE(ptool.description == "Run bash command");
+}
+
+TEST_CASE("LLM.ToChatOptions", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.temperature = 0.5;
+    params.top_p = 0.9;
+    params.max_tokens = 1024;
+    params.stop = {"END"};
+    
+    llm::LLMToolDefinition tool;
+    tool.name = "test";
+    tool.description = "Test tool";
+    tool.parameters = {{"type", "object"}};
+    params.tools.push_back(tool);
+    params.tool_choice = "auto";
+    
+    auto options = llm::LLM::to_chat_options(params);
+    
+    REQUIRE(options.temperature == 0.5);
+    REQUIRE(options.top_p == 0.9);
+    REQUIRE(options.max_tokens == 1024);
+    REQUIRE(options.stop.size() == 1);
+    REQUIRE(options.tools.size() == 1);
+    REQUIRE(options.stream == true);
+    REQUIRE(options.extra["tool_choice"] == "auto");
+}
+
+TEST_CASE("LLM.ProviderAdapter.ToProviderMessages", "[Core][LLM]") {
+    std::vector<llm::LLMMessage> messages;
+    messages.push_back(llm::LLMMessage::user("Hello"));
+    messages.push_back(llm::LLMMessage::assistant("Hi there!"));
+    messages.push_back(llm::LLMMessage::user("How are you?"));
+    
+    auto pmsgs = llm::ProviderAdapter::to_provider_messages(messages);
+    REQUIRE(pmsgs.size() == 3);
+    REQUIRE(pmsgs[0].content == "Hello");
+    REQUIRE(pmsgs[1].content == "Hi there!");
+    REQUIRE(pmsgs[2].content == "How are you?");
+}
+
+TEST_CASE("LLM.ProviderAdapter.ToProviderTools", "[Core][LLM]") {
+    std::vector<llm::LLMToolDefinition> tools;
+    
+    llm::LLMToolDefinition tool1;
+    tool1.name = "read_file";
+    tool1.description = "Read a file";
+    tool1.parameters = {{"type", "object"}};
+    tools.push_back(tool1);
+    
+    llm::LLMToolDefinition tool2;
+    tool2.name = "write_file";
+    tool2.description = "Write a file";
+    tool2.parameters = {{"type", "object"}};
+    tools.push_back(tool2);
+    
+    auto ptools = llm::ProviderAdapter::to_provider_tools(tools);
+    REQUIRE(ptools.size() == 2);
+    REQUIRE(ptools[0].name == "read_file");
+    REQUIRE(ptools[0].type == "function");
+    REQUIRE(ptools[1].name == "write_file");
+}
+
+TEST_CASE("LLM.ProviderAdapter.ChatOptionsConversionExtended", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.temperature = 0.7;
+    params.top_p = 0.9;
+    params.max_tokens = 2048;
+    
+    auto options = llm::ProviderAdapter::to_chat_options(params);
+    REQUIRE(options.temperature == 0.7);
+    REQUIRE(options.top_p == 0.9);
+    REQUIRE(options.max_tokens == 2048);
+    REQUIRE(options.stream == true);
+    
+    // Convert back
+    auto restored = llm::ProviderAdapter::from_chat_options(options);
+    REQUIRE(restored.temperature == 0.7);
+    REQUIRE(restored.top_p == 0.9);
+    REQUIRE(restored.max_tokens == 2048);
+}
+
+TEST_CASE("LLM.ProviderAdapter.StreamEventConversion", "[Core][LLM]") {
+    provider::ChatStreamEvent event;
+    event.type = provider::StreamEventType::TextDelta;
+    event.content = "Hello";
+    
+    auto stream_event = llm::ProviderAdapter::to_stream_event(event);
+    // Verify conversion works
+    REQUIRE(stream_event.type == StreamEventType::TextDelta);
+}
+
+TEST_CASE("LLM.ProviderAdapter.StreamResultConversion", "[Core][LLM]") {
+    provider::ChatResponse response;
+    response.id = "chat_123";
+    response.model = "gpt-4";
+    
+    auto result = llm::ProviderAdapter::to_stream_result(response);
+    REQUIRE(result.id == "chat_123");
+    REQUIRE(result.model == "gpt-4");
+}
+
+TEST_CASE("LLM.ProviderAdapter.ChatOptionsWithTools", "[Core][LLM]") {
+    llm::StreamParams params;
+    params.temperature = 0.5;
+    
+    llm::LLMToolDefinition tool;
+    tool.name = "test_tool";
+    tool.description = "A test tool";
+    tool.parameters = {{"type", "object"}};
+    params.tools.push_back(tool);
+    
+    auto options = llm::ProviderAdapter::to_chat_options(params);
+    REQUIRE(options.tools.size() == 1);
+    REQUIRE(options.tools[0].name == "test_tool");
+}
+
+// ==================== MessageBuilder Extended Tests ====================
+
+TEST_CASE("LLM.MessageBuilder.WithOptions", "[Core][LLM]") {
+    MessageBuilderOptions options;
+    options.format = MessageFormat::Anthropic;
+    options.capabilities.supports_vision = true;
+    options.apply_caching = true;
+    
+    MessageBuilder builder(options);
+    builder.add_user("Hello");
+    
+    auto result = builder.build();
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0]["content"].is_array());
+}
+
+TEST_CASE("LLM.MessageBuilder.AddUserParts", "[Core][LLM]") {
+    MessageBuilder builder;
+    builder.add_user_parts({
+        content_parts::text("Hello"),
+        content_parts::text("World")
+    });
+    
+    auto messages = builder.get_messages();
+    REQUIRE(messages.size() == 1);
+    REQUIRE(messages[0].role == LlmRole::User);
+    REQUIRE(messages[0].content_parts.has_value());
+    REQUIRE(messages[0].content_parts->size() == 2);
+}
+
+TEST_CASE("LLM.MessageBuilder.AddAssistantParts", "[Core][LLM]") {
+    MessageBuilder builder;
+    builder.add_assistant_parts({
+        content_parts::text("Hi there!")
+    });
+    
+    auto messages = builder.get_messages();
+    REQUIRE(messages.size() == 1);
+    REQUIRE(messages[0].role == LlmRole::Assistant);
+}
+
+TEST_CASE("LLM.MessageBuilder.AddAssistantWithTools", "[Core][LLM]") {
+    MessageBuilder builder;
+    builder.add_assistant_with_tools(
+        "Let me help you.",
+        {content_parts::tool_call("tc_001", "read_file", {{"path", "/tmp/test.txt"}})}
+    );
+    
+    auto messages = builder.get_messages();
+    REQUIRE(messages.size() == 1);
+    REQUIRE(messages[0].role == LlmRole::Assistant);
+    REQUIRE(messages[0].tool_calls.has_value());
+    REQUIRE(messages[0].tool_calls->size() == 1);
+}
+
+TEST_CASE("LLM.MessageBuilder.AddToolResponse", "[Core][LLM]") {
+    MessageBuilder builder;
+    builder.add_tool_response("tc_001", "File contents here");
+    
+    auto messages = builder.get_messages();
+    REQUIRE(messages.size() == 1);
+    REQUIRE(messages[0].role == LlmRole::Tool);
+    REQUIRE(*messages[0].tool_call_id == "tc_001");
+    REQUIRE(*messages[0].content == "File contents here");
+}
+
+TEST_CASE("LLM.MessageBuilder.AddMessage", "[Core][LLM]") {
+    MessageBuilder builder;
+    auto msg = LlmMessage::create_user("Test");
+    builder.add_message(msg);
+    
+    REQUIRE(builder.size() == 1);
+    REQUIRE_FALSE(builder.empty());
+}
+
+TEST_CASE("LLM.MessageBuilder.SetCapabilities", "[Core][LLM]") {
+    ProviderCapabilities caps;
+    caps.supports_vision = true;
+    caps.supports_audio = true;
+    caps.supports_pdf = true;
+    
+    MessageBuilder builder;
+    builder.set_capabilities(caps);
+    builder.add_user("Test");
+    
+    REQUIRE(builder.get_messages().size() == 1);
+}
+
+TEST_CASE("LLM.MessageBuilder.SetCaching", "[Core][LLM]") {
+    MessageBuilder builder;
+    builder.set_format(MessageFormat::Anthropic);
+    builder.set_caching(true);
+    builder.add_system("System prompt");
+    builder.add_user("Hello");
+    
+    auto result = builder.build();
+    // Caching hints should be applied
+    REQUIRE(result.size() == 2);
+}
+
+TEST_CASE("LLM.MessageBuilder.Size", "[Core][LLM]") {
+    MessageBuilder builder;
+    REQUIRE(builder.size() == 0);
+    REQUIRE(builder.empty());
+    
+    builder.add_user("Test");
+    REQUIRE(builder.size() == 1);
+    REQUIRE_FALSE(builder.empty());
+    
+    builder.clear();
+    REQUIRE(builder.size() == 0);
+    REQUIRE(builder.empty());
+}
+
+// ==================== Content Parts Tests ====================
+
+TEST_CASE("LLM.ContentParts.Text", "[Core][LLM]") {
+    auto part = content_parts::text("Hello, world!");
+    
+    REQUIRE(part["type"] == "text");
+    REQUIRE(part["text"] == "Hello, world!");
+}
+
+TEST_CASE("LLM.ContentParts.ImageBase64", "[Core][LLM]") {
+    auto part = content_parts::image_base64("base64data", "image/png");
+    
+    REQUIRE(part["type"] == "image_url");
+    REQUIRE(part["image_url"]["url"] == "data:image/png;base64,base64data");
+}
+
+TEST_CASE("LLM.ContentParts.ImageUrl", "[Core][LLM]") {
+    auto part = content_parts::image_url("https://example.com/image.png");
+    
+    REQUIRE(part["type"] == "image_url");
+    REQUIRE(part["image_url"]["url"] == "https://example.com/image.png");
+}
+
+TEST_CASE("LLM.ContentParts.File", "[Core][LLM]") {
+    auto part = content_parts::file("test.pdf", "base64data", "application/pdf");
+    
+    REQUIRE(part["type"] == "file");
+    REQUIRE(part["filename"] == "test.pdf");
+    REQUIRE(part["data"] == "base64data");
+    REQUIRE(part["mime_type"] == "application/pdf");
+}
+
+TEST_CASE("LLM.ContentParts.ToolCall", "[Core][LLM]") {
+    auto part = content_parts::tool_call("tc_001", "read_file", {{"path", "/tmp/test.txt"}});
+    
+    REQUIRE(part["type"] == "tool_call");
+    REQUIRE(part["id"] == "tc_001");
+    REQUIRE(part["function"]["name"] == "read_file");
+    REQUIRE(part["function"]["arguments"].is_string());
+}
+
+TEST_CASE("LLM.ContentParts.ToolResult", "[Core][LLM]") {
+    auto part = content_parts::tool_result("tc_001", "File contents");
+    
+    REQUIRE(part["type"] == "tool_result");
+    REQUIRE(part["tool_call_id"] == "tc_001");
+    REQUIRE(part["content"] == "File contents");
+}
+
+TEST_CASE("LLM.ContentParts.Reasoning", "[Core][LLM]") {
+    auto part = content_parts::reasoning("Let me think about this...");
+    
+    REQUIRE(part["type"] == "reasoning");
+    REQUIRE(part["text"] == "Let me think about this...");
+}
+
+// ==================== LlmMessage Format Tests ====================
+
+TEST_CASE("LLM.LlmMessage.ToOpenAI", "[Core][LLM]") {
+    auto msg = LlmMessage::create_user("Hello");
+    auto j = msg.to_openai();
+    
+    REQUIRE(j["role"] == "user");
+    REQUIRE(j["content"] == "Hello");
+}
+
+TEST_CASE("LLM.LlmMessage.ToOpenAIWithParts", "[Core][LLM]") {
+    auto msg = LlmMessage::create_user_parts({
+        content_parts::text("Hello"),
+        content_parts::text("World")
+    });
+    auto j = msg.to_openai();
+    
+    REQUIRE(j["role"] == "user");
+    REQUIRE(j["content"].is_array());
+    REQUIRE(j["content"].size() == 2);
+}
+
+TEST_CASE("LLM.LlmMessage.ToOpenAIWithToolCalls", "[Core][LLM]") {
+    auto msg = LlmMessage::create_assistant_with_tools(
+        "Let me help",
+        {content_parts::tool_call("tc_001", "bash", {{"cmd", "ls"}})}
+    );
+    auto j = msg.to_openai();
+    
+    REQUIRE(j["role"] == "assistant");
+    REQUIRE(j.contains("tool_calls"));
+    REQUIRE(j["tool_calls"].size() == 1);
+}
+
+TEST_CASE("LLM.LlmMessage.ToOpenAIWithProviderOptions", "[Core][LLM]") {
+    LlmMessage msg = LlmMessage::create_user("Test");
+    msg.provider_options = {{"openai", {{"custom", "value"}}}};
+    
+    auto j = msg.to_openai();
+    REQUIRE(j.contains("provider_options"));
+}
+
+TEST_CASE("LLM.LlmMessage.ToAnthropic", "[Core][LLM]") {
+    auto msg = LlmMessage::create_user("Hello");
+    auto j = msg.to_anthropic();
+    
+    REQUIRE(j["role"] == "user");
+    REQUIRE(j["content"].is_array());
+    REQUIRE(j["content"][0]["type"] == "text");
+    REQUIRE(j["content"][0]["text"] == "Hello");
+}
+
+TEST_CASE("LLM.LlmMessage.ToAnthropicSystem", "[Core][LLM]") {
+    auto msg = LlmMessage::create_system("You are helpful.");
+    auto j = msg.to_anthropic();
+    
+    REQUIRE(j["type"] == "system");
+    REQUIRE(j["content"] == "You are helpful.");
+}
+
+TEST_CASE("LLM.LlmMessage.ToAnthropicWithImage", "[Core][LLM]") {
+    auto msg = LlmMessage::create_user_parts({
+        content_parts::text("What's in this image?"),
+        content_parts::image_base64("base64imagedata", "image/png")
+    });
+    auto j = msg.to_anthropic();
+    
+    REQUIRE(j["content"].is_array());
+    REQUIRE(j["content"].size() == 2);
+    // First part is text
+    REQUIRE(j["content"][0]["type"] == "text");
+    // Second part is image
+    REQUIRE(j["content"][1]["type"] == "image");
+    REQUIRE(j["content"][1]["source"]["type"] == "base64");
+}
+
+TEST_CASE("LLM.LlmMessage.ToAnthropicWithToolCall", "[Core][LLM]") {
+    auto msg = LlmMessage::create_assistant_with_tools(
+        std::nullopt,
+        {content_parts::tool_call("tc_001", "read_file", {{"path", "/tmp/test.txt"}})}
+    );
+    auto j = msg.to_anthropic();
+    
+    REQUIRE(j["role"] == "assistant");
+    REQUIRE(j["content"].is_array());
+    
+    // Find tool_use in content
+    bool found_tool_use = false;
+    for (const auto& part : j["content"]) {
+        if (part["type"] == "tool_use") {
+            found_tool_use = true;
+            REQUIRE(part["id"] == "tc_001");
+            REQUIRE(part["name"] == "read_file");
+            break;
+        }
+    }
+    REQUIRE(found_tool_use);
+}
+
+TEST_CASE("LLM.LlmMessage.ToAnthropicToolResponse", "[Core][LLM]") {
+    auto msg = LlmMessage::create_tool_response("tc_001", "File contents here");
+    auto j = msg.to_anthropic();
+    
+    REQUIRE(j["role"] == "tool");
+    REQUIRE(j["content"] == "File contents here");
+    REQUIRE(j["tool_call_id"] == "tc_001");
+}
+
+TEST_CASE("LLM.LlmMessage.ToFormat", "[Core][LLM]") {
+    auto msg = LlmMessage::create_user("Hello");
+    
+    auto openai_j = msg.to_format(MessageFormat::OpenAI);
+    REQUIRE(openai_j["role"] == "user");
+    
+    auto anthropic_j = msg.to_format(MessageFormat::Anthropic);
+    REQUIRE(anthropic_j["role"] == "user");
+    REQUIRE(anthropic_j["content"].is_array());
+    
+    auto compat_j = msg.to_format(MessageFormat::OpenAICompat);
+    REQUIRE(compat_j["role"] == "user");
+}
+
+// ==================== LlmRole Tests ====================
+
+TEST_CASE("LLM.LlmRole.ToString", "[Core][LLM]") {
+    REQUIRE(llm_role_to_string(LlmRole::System) == "system");
+    REQUIRE(llm_role_to_string(LlmRole::User) == "user");
+    REQUIRE(llm_role_to_string(LlmRole::Assistant) == "assistant");
+    REQUIRE(llm_role_to_string(LlmRole::Tool) == "tool");
+}
+
+TEST_CASE("LLM.LlmRole.FromString", "[Core][LLM]") {
+    REQUIRE(llm_role_from_string("system") == LlmRole::System);
+    REQUIRE(llm_role_from_string("user") == LlmRole::User);
+    REQUIRE(llm_role_from_string("assistant") == LlmRole::Assistant);
+    REQUIRE(llm_role_from_string("tool") == LlmRole::Tool);
+    
+    REQUIRE_THROWS_AS(llm_role_from_string("invalid"), std::invalid_argument);
+}
+
+// ==================== Message Transform Tests ====================
+
+TEST_CASE("LLM.MessageTransform.PartToContent.Text", "[Core][LLM]") {
+    Part part;
+    part.type = PartType::Text;
+    part.data = "Hello, world!";
+    
+    auto content = message_transform::part_to_content(part, MessageFormat::OpenAI);
+    
+    REQUIRE(content["type"] == "text");
+    REQUIRE(content["text"] == "Hello, world!");
+}
+
+TEST_CASE("LLM.MessageTransform.PartToContent.Tool", "[Core][LLM]") {
+    Part part;
+    part.type = PartType::Tool;
+    part.data = {
+        {"tool_id", "tc_001"},
+        {"tool_name", "read_file"},
+        {"arguments", {{"path", "/tmp/test.txt"}}}
+    };
+    
+    auto content = message_transform::part_to_content(part, MessageFormat::OpenAI);
+    
+    REQUIRE(content["type"] == "tool_call");
+    REQUIRE(content["id"] == "tc_001");
+    REQUIRE(content["function"]["name"] == "read_file");
+}
+
+TEST_CASE("LLM.MessageTransform.PartToContent.Reasoning", "[Core][LLM]") {
+    Part part;
+    part.type = PartType::Reasoning;
+    part.data = "Let me think...";
+    
+    auto content = message_transform::part_to_content(part, MessageFormat::OpenAI);
+    
+    REQUIRE(content["type"] == "reasoning");
+    REQUIRE(content["text"] == "Let me think...");
+}
+
+TEST_CASE("LLM.MessageTransform.PartToContent.File", "[Core][LLM]") {
+    Part part;
+    part.type = PartType::File;
+    part.data = {
+        {"path", "test.pdf"},
+        {"content", "base64data"},
+        {"mime_type", "application/pdf"}
+    };
+    
+    auto content = message_transform::part_to_content(part, MessageFormat::OpenAI);
+    
+    REQUIRE(content["type"] == "file");
+    REQUIRE(content["filename"] == "test.pdf");
+}
+
+TEST_CASE("LLM.MessageTransform.PartsToContent", "[Core][LLM]") {
+    std::vector<Part> parts;
+    
+    Part text_part;
+    text_part.type = PartType::Text;
+    text_part.data = "Hello";
+    parts.push_back(text_part);
+    
+    Part tool_part;
+    tool_part.type = PartType::Tool;
+    tool_part.data = {
+        {"tool_id", "tc_001"},
+        {"tool_name", "bash"},
+        {"arguments", {{"cmd", "ls"}}}
+    };
+    parts.push_back(tool_part);
+    
+    ProviderCapabilities caps;
+    auto contents = message_transform::parts_to_content(parts, MessageFormat::OpenAI, caps);
+    
+    REQUIRE(contents.size() == 2);
+    REQUIRE(contents[0]["type"] == "text");
+    REQUIRE(contents[1]["type"] == "tool_call");
+}
+
+TEST_CASE("LLM.MessageTransform.PartsToContent.FilterUnsupported", "[Core][LLM]") {
+    std::vector<Part> parts;
+    
+    Part image_part;
+    image_part.type = PartType::Image;
+    image_part.data = "base64imagedata";
+    parts.push_back(image_part);
+    
+    // Provider without vision support
+    ProviderCapabilities caps;
+    caps.supports_vision = false;
+    
+    auto contents = message_transform::parts_to_content(parts, MessageFormat::OpenAI, caps);
+    
+    REQUIRE(contents.size() == 1);
+    // Should be converted to text placeholder
+    REQUIRE(contents[0]["type"] == "text");
+}
+
+TEST_CASE("LLM.MessageTransform.NormalizeMessages.Anthropic", "[Core][LLM]") {
+    std::vector<LlmMessage> messages;
+    
+    // Empty content message should be removed
+    auto empty_msg = LlmMessage::create_user("");
+    messages.push_back(empty_msg);
+    
+    auto valid_msg = LlmMessage::create_user("Hello");
+    messages.push_back(valid_msg);
+    
+    // Tool call ID with special characters
+    auto tool_msg = LlmMessage::create_tool_response("tc@#$%123", "Result");
+    messages.push_back(tool_msg);
+    
+    ProviderCapabilities caps;
+    message_transform::normalize_messages(messages, "anthropic", caps);
+    
+    // Empty message should be removed
+    REQUIRE(messages.size() == 2);
+}
+
+TEST_CASE("LLM.MessageTransform.NormalizeMessages.Mistral", "[Core][LLM]") {
+    std::vector<LlmMessage> messages;
+    
+    // Tool call ID - Mistral requires exactly 9 alphanumeric chars
+    auto tool_msg = LlmMessage::create_tool_response("tc123", "Result");
+    messages.push_back(tool_msg);
+    
+    // User message after tool message should have assistant inserted
+    auto user_msg = LlmMessage::create_user("Next question");
+    messages.push_back(user_msg);
+    
+    ProviderCapabilities caps;
+    message_transform::normalize_messages(messages, "mistral", caps);
+    
+    // Tool call ID should be normalized to 9 chars
+    REQUIRE(messages[0].tool_call_id->length() == 9);
+    
+    // Assistant message should be inserted between tool and user
+    REQUIRE(messages.size() == 3);
+    REQUIRE(messages[1].role == LlmRole::Assistant);
+}
+
+TEST_CASE("LLM.MessageTransform.ApplyCachingHints.Anthropic", "[Core][LLM]") {
+    std::vector<nlohmann::json> messages = {
+        {{"role", "system"}, {"content", "System prompt"}},
+        {{"role", "user"}, {"content", "Hello"}},
+        {{"role", "assistant"}, {"content", "Hi!"}}
+    };
+    
+    message_transform::apply_caching_hints(messages, "anthropic");
+    
+    // First system message should have cache_control
+    REQUIRE(messages[0].contains("cache_control"));
+    // Last non-system message should have cache_control
+    REQUIRE(messages[2].contains("cache_control"));
+}
+
+TEST_CASE("LLM.MessageTransform.ApplyCachingHints.OpenRouter", "[Core][LLM]") {
+    std::vector<nlohmann::json> messages = {
+        {{"role", "user"}, {"content", "Hello"}},
+        {{"role", "assistant"}, {"content", "Hi!"}}
+    };
+    
+    message_transform::apply_caching_hints(messages, "openrouter");
+    
+    // All messages should have cache_control
+    for (const auto& msg : messages) {
+        REQUIRE(msg.contains("cache_control"));
+    }
+}
+
+// ==================== Interleaved Thinking Tests ====================
+
+TEST_CASE("LLM.MessageTransform.NormalizeMessages.InterleavedThinking", "[Core][LLM]") {
+    std::vector<LlmMessage> messages;
+    
+    auto msg = LlmMessage::create_assistant_parts({
+        content_parts::reasoning("Let me think..."),
+        content_parts::text("Here's my answer.")
+    });
+    messages.push_back(msg);
+    
+    ProviderCapabilities caps;
+    caps.supports_interleaved_thinking = true;
+    caps.thinking_field = "thinking";
+    
+    message_transform::normalize_messages(messages, "openai", caps);
+    
+    // Reasoning should be extracted to provider_options
+    REQUIRE(messages[0].provider_options.has_value());
+    REQUIRE(messages[0].content_parts->size() == 1); // Only text part remains
 }

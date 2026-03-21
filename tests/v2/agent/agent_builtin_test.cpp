@@ -13,6 +13,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include "../fixture/test_macros.hpp"
+#include "../mock/mock_provider.hpp"
 #include <turbot/core/agent/agent.hpp>
 #include <turbot/core/agent/builtin/build_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
@@ -20,10 +21,12 @@
 #include <turbot/core/agent/builtin/title_agent.hpp>
 #include <turbot/core/agent/builtin/summary_agent.hpp>
 #include <turbot/core/permission/permission.hpp>
+#include <turbot/core/provider/provider_manager.hpp>
 
 using namespace turbot::core::agent;
 using namespace turbot::core::permission;
 using namespace turbot::test;
+using namespace turbot::core::provider;
 
 // ==================== Test Fixtures ====================
 
@@ -705,4 +708,209 @@ TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.Registry.ListEmpty", "[Agen
     
     auto agents = registry.list();
     REQUIRE(agents.empty());
+}
+
+// ==================== Agent with MockProvider Tests ====================
+
+class AgentWithProviderFixture {
+public:
+    std::shared_ptr<MockProvider> mock_provider;
+    
+    AgentWithProviderFixture() {
+        // Ensure valid current directory
+        try {
+            std::filesystem::current_path(std::filesystem::path("/tmp"));
+        } catch (...) {}
+        
+        // Clear registry before each test
+        AgentRegistry::instance().clear();
+        
+        // Setup mock provider
+        mock_provider = std::make_shared<MockProvider>();
+        mock_provider->add_model({"mock-model-1", "Mock Model 1"});
+        mock_provider->add_model({"mock-model-2", "Mock Model 2"});
+        
+        // Register and set as default
+        auto& pm = ProviderManager::instance();
+        pm.register_provider(mock_provider);
+        pm.set_default_provider("mock");
+    }
+
+    ~AgentWithProviderFixture() {
+        // Clean up after test
+        AgentRegistry::instance().clear();
+        ProviderManager::instance().unregister_provider("mock");
+    }
+};
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.TitleAgent.WithProvider", "[Agent][Builtin][Provider]") {
+    TitleAgent agent;
+    
+    // Configure mock to return a title
+    MockProviderBuilder builder;
+    builder.with_text_response("Test Title");
+    mock_provider->set_next_response(builder.build()->last_messages().empty() ? 
+        MockProviderBuilder().with_text_response("Test Title").build()->last_messages().empty() ?
+        ChatResponse{} : ChatResponse{} : ChatResponse{});
+    
+    // Actually set the response properly
+    ChatResponse response;
+    response.id = "test-response";
+    response.model = "mock-model-1";
+    response.finish_reason = "stop";
+    response.choices.push_back(ChatMessage::assistant("Test Conversation Title"));
+    mock_provider->set_next_response(response);
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "This is a test conversation about coding";
+    
+    auto result = agent.execute(params);
+    REQUIRE(result.is_success);
+    REQUIRE_FALSE(result.output.empty());
+}
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.TitleAgent.WithModelOverride", "[Agent][Builtin][Provider]") {
+    TitleAgent agent;
+    
+    // Configure mock response
+    ChatResponse response;
+    response.id = "test-response";
+    response.model = "mock-model-2";
+    response.finish_reason = "stop";
+    response.choices.push_back(ChatMessage::assistant("Custom Title"));
+    mock_provider->set_next_response(response);
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    params.model_override = "mock-model-2";
+    
+    auto result = agent.execute(params);
+    REQUIRE(result.is_success);
+}
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.TitleAgent.LLMError", "[Agent][Builtin][Provider]") {
+    TitleAgent agent;
+    
+    // Configure mock to return error
+    mock_provider->set_error_sequence({MockError::ServerError});
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    
+    auto result = agent.execute(params);
+    REQUIRE_FALSE(result.is_success);
+}
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.SummaryAgent.WithProvider", "[Agent][Builtin][Provider]") {
+    SummaryAgent agent;
+    
+    // Configure mock response
+    ChatResponse response;
+    response.id = "test-response";
+    response.model = "mock-model-1";
+    response.finish_reason = "stop";
+    response.choices.push_back(ChatMessage::assistant("This is a summary of the conversation."));
+    mock_provider->set_next_response(response);
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Long conversation content here...";
+    
+    auto result = agent.execute(params);
+    REQUIRE(result.is_success);
+    REQUIRE_FALSE(result.output.empty());
+}
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.SummaryAgent.EmptyResponse", "[Agent][Builtin][Provider]") {
+    SummaryAgent agent;
+    
+    // Configure mock to return empty response
+    ChatResponse response;
+    response.id = "test-response";
+    response.model = "mock-model-1";
+    response.finish_reason = "stop";
+    response.choices.push_back(ChatMessage::assistant(""));
+    mock_provider->set_next_response(response);
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    
+    auto result = agent.execute(params);
+    REQUIRE(result.is_success);
+    // Should have default message when empty
+    REQUIRE(result.output == "Conversation completed.");
+}
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.SummaryAgent.LLMError", "[Agent][Builtin][Provider]") {
+    SummaryAgent agent;
+    
+    // Configure mock to return error
+    mock_provider->set_error_sequence({MockError::RateLimitExceeded});
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    
+    auto result = agent.execute(params);
+    REQUIRE_FALSE(result.is_success);
+}
+
+TEST_CASE_METHOD(AgentWithProviderFixture, "Agent.Builtin.TitleAgent.LongTitleTruncation", "[Agent][Builtin][Provider]") {
+    TitleAgent agent;
+    
+    // Configure mock to return a very long title
+    std::string long_title(150, 'A');
+    ChatResponse response;
+    response.id = "test-response";
+    response.model = "mock-model-1";
+    response.finish_reason = "stop";
+    response.choices.push_back(ChatMessage::assistant(long_title));
+    mock_provider->set_next_response(response);
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    
+    auto result = agent.execute(params);
+    REQUIRE(result.is_success);
+    // Title should be truncated to 100 chars max
+    REQUIRE(result.output.length() <= 100);
+}
+
+
+
+
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.TitleAgent.NoProvider", "[Agent][Builtin]") {
+    // Clear any existing providers
+    ProviderManager::instance().unregister_provider("mock");
+    
+    TitleAgent agent;
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    
+    auto result = agent.execute(params);
+    REQUIRE_FALSE(result.is_success);
+    REQUIRE(result.error_message.has_value());
+}
+
+TEST_CASE_METHOD(BuiltinAgentFixture, "Agent.Builtin.SummaryAgent.NoProvider", "[Agent][Builtin]") {
+    // Clear any existing providers
+    ProviderManager::instance().unregister_provider("mock");
+    
+    SummaryAgent agent;
+    
+    ExecuteParams params;
+    params.session_id = "test-session";
+    params.prompt = "Test prompt";
+    
+    auto result = agent.execute(params);
+    REQUIRE_FALSE(result.is_success);
+    REQUIRE(result.error_message.has_value());
 }

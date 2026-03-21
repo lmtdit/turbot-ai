@@ -404,6 +404,115 @@ TEST_CASE("ReadFileTool.Execute.NonExistentFile", "[Tool][Builtin][Read]") {
     REQUIRE(result.is_error);
 }
 
+TEST_CASE("ReadFileTool.Execute.WithOffset", "[Tool][Builtin][Read]") {
+    ReadFileTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create a temp file with multiple lines
+    std::string content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
+    std::string path = create_temp_file(content);
+    
+    nlohmann::json input = {
+        {"filePath", path},
+        {"offset", 2}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output.find("Line 2") != std::string::npos);
+    
+    fs::remove(path);
+}
+
+TEST_CASE("ReadFileTool.Execute.WithLimit", "[Tool][Builtin][Read]") {
+    ReadFileTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create a temp file with multiple lines
+    std::string content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
+    std::string path = create_temp_file(content);
+    
+    nlohmann::json input = {
+        {"filePath", path},
+        {"limit", 2}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    fs::remove(path);
+}
+
+TEST_CASE("ReadFileTool.Execute.WithOffsetAndLimit", "[Tool][Builtin][Read]") {
+    ReadFileTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create a temp file with multiple lines
+    std::string content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
+    std::string path = create_temp_file(content);
+    
+    nlohmann::json input = {
+        {"filePath", path},
+        {"offset", 2},
+        {"limit", 2}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    fs::remove(path);
+}
+
+TEST_CASE("ReadFileTool.Execute.Directory", "[Tool][Builtin][Read]") {
+    ReadFileTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Create a temp directory
+    std::string dir = "/tmp/turbot_test_dir_" + std::to_string(std::time(nullptr));
+    fs::create_directory(dir);
+    
+    nlohmann::json input = {
+        {"filePath", dir}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    fs::remove(dir);
+}
+
+TEST_CASE("ReadFileTool.Execute.EmptyPath", "[Tool][Builtin][Read]") {
+    ReadFileTool tool;
+    auto ctx = make_tool_ctx();
+    
+    nlohmann::json input = {
+        {"filePath", ""}
+    };
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("ReadFileTool.Params.ToJson", "[Tool][Builtin][Read]") {
+    ReadFileToolParams params;
+    params.file_path = "/tmp/test.txt";
+    params.offset = 10;
+    params.limit = 100;
+    
+    auto j = params.to_json();
+    REQUIRE(j["filePath"] == "/tmp/test.txt");
+    REQUIRE(j["offset"] == 10);
+    REQUIRE(j["limit"] == 100);
+}
+
+TEST_CASE("ReadFileTool.Params.FromJson", "[Tool][Builtin][Read]") {
+    nlohmann::json j = {
+        {"filePath", "/tmp/test.txt"},
+        {"offset", 5},
+        {"limit", 50}
+    };
+    
+    auto params = ReadFileToolParams::from_json(j);
+    REQUIRE(params.file_path == "/tmp/test.txt");
+    REQUIRE(params.offset == 5);
+    REQUIRE(params.limit == 50);
+}
+
 // ==================== WriteFileTool Tests ====================
 
 TEST_CASE("WriteFileTool.Name", "[Tool][Builtin][Write]") {
@@ -2173,4 +2282,367 @@ TEST_CASE("ExternalCommandTool.Execute.MissingCommand", "[Tool][External]") {
     
     auto result = tool.execute(input, ctx);
     REQUIRE(result.is_error);
+}
+
+// ==================== Extended PlanTool Tests ====================
+
+TEST_CASE("PlanExitTool.ValidateInput.Valid", "[Tool][Builtin][Plan]") {
+    PlanExitTool tool;
+    nlohmann::json input = {{"plan", "# My Plan\n\nThis is a test plan."}};
+    REQUIRE(tool.validate_input(input));
+}
+
+TEST_CASE("PlanExitTool.ValidateInput.MissingPlan", "[Tool][Builtin][Plan]") {
+    PlanExitTool tool;
+    nlohmann::json input = {{"other", "value"}};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("PlanExitTool.ValidateInput.NotString", "[Tool][Builtin][Plan]") {
+    PlanExitTool tool;
+    nlohmann::json input = {{"plan", 123}};
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("PlanExitTool.ValidateInput.NotObject", "[Tool][Builtin][Plan]") {
+    PlanExitTool tool;
+    nlohmann::json input = "not an object";
+    REQUIRE_FALSE(tool.validate_input(input));
+}
+
+TEST_CASE("PlanManager.GetPlanPath", "[Tool][Builtin][Plan]") {
+    std::string session_id = "test-session-123";
+    std::string working_dir = "/tmp/test-workspace";
+    
+    std::string path = PlanManager::instance().get_plan_path(session_id, working_dir);
+    REQUIRE(path.find("/tmp/test-workspace/.opencode/plans/") != std::string::npos);
+    REQUIRE(path.find("-test-ses") != std::string::npos);
+    REQUIRE(path.find(".md") != std::string::npos);
+}
+
+TEST_CASE("PlanEnterTool.ExecuteWithAbort", "[Tool][Builtin][Plan]") {
+    PlanEnterTool tool;
+    auto ctx = make_tool_ctx();
+    ctx.abort_flag = std::make_shared<std::atomic<bool>>(true);
+    
+    auto result = tool.execute(nlohmann::json::object(), ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.metadata["aborted"] == true);
+}
+
+TEST_CASE("PlanExitTool.ExecuteWithAbort", "[Tool][Builtin][Plan]") {
+    PlanExitTool tool;
+    auto ctx = make_tool_ctx();
+    ctx.abort_flag = std::make_shared<std::atomic<bool>>(true);
+    
+    nlohmann::json input = {{"plan", "# Test Plan"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.metadata["aborted"] == true);
+}
+
+// ==================== Extended TaskTool Tests ====================
+
+TEST_CASE("TaskToolParams.FromJson.NoTaskId", "[Tool][Builtin][Task]") {
+    nlohmann::json j = {
+        {"prompt", "Test prompt"},
+        {"description", "Test description"},
+        {"subagent_type", "build"}
+    };
+    
+    auto params = TaskToolParams::from_json(j);
+    REQUIRE(params.prompt == "Test prompt");
+    REQUIRE(params.description == "Test description");
+    REQUIRE(params.subagent_type == "build");
+    REQUIRE_FALSE(params.task_id.has_value());
+}
+
+TEST_CASE("TaskToolParams.ToJson.NoTaskId", "[Tool][Builtin][Task]") {
+    TaskToolParams params;
+    params.prompt = "Test prompt";
+    params.description = "Test description";
+    params.subagent_type = "explore";
+    
+    auto j = params.to_json();
+    REQUIRE(j["prompt"] == "Test prompt");
+    REQUIRE(j["description"] == "Test description");
+    REQUIRE(j["subagent_type"] == "explore");
+    REQUIRE_FALSE(j.contains("task_id"));
+}
+
+TEST_CASE("TaskTool.ValidateInput", "[Tool][Builtin][Task]") {
+    TaskTool tool;
+    nlohmann::json valid_input = {
+        {"prompt", "Test prompt"},
+        {"description", "Test description"},
+        {"subagent_type", "build"}
+    };
+    REQUIRE(tool.validate_input(valid_input));
+    
+    nlohmann::json invalid_input = {{"prompt", "Test prompt"}};
+    REQUIRE_FALSE(tool.validate_input(invalid_input));
+}
+
+// ==================== WebSearchTool Integration Tests ====================
+
+#include "mock/mock_ihttp_client.hpp"
+
+TEST_CASE("WebSearchTool.Execute.Success", "[Tool][Builtin][WebSearch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    // Set up mock response
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "data: {\"result\": {\"content\": [{\"text\": \"Search results here\"}]}}\n\n";
+    mock_http->when_post("mcp.exa.ai", response);
+    
+    WebSearchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"query", "test query"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output.find("Search results") != std::string::npos);
+    REQUIRE(mock_http->request_count() == 1);
+}
+
+TEST_CASE("WebSearchTool.Execute.HttpError", "[Tool][Builtin][WebSearch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    // Set up error response
+    turbot::network::HttpResponse response;
+    response.status_code = 500;
+    response.body = "Internal Server Error";
+    mock_http->when_post("mcp.exa.ai", response);
+    
+    WebSearchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"query", "test query"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.output.find("HTTP 500") != std::string::npos);
+}
+
+TEST_CASE("WebSearchTool.Execute.PermissionRejected", "[Tool][Builtin][WebSearch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    WebSearchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    ctx.ask_permission = [](const turbot::core::permission::PermissionRequest&) {
+        turbot::core::permission::PermissionReply reply;
+        reply.type = turbot::core::permission::PermissionReply::Type::Reject;
+        return reply;
+    };
+    
+    nlohmann::json input = {{"query", "test query"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.output.find("rejected") != std::string::npos);
+}
+
+TEST_CASE("WebSearchTool.Execute.Aborted", "[Tool][Builtin][WebSearch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    WebSearchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    ctx.abort_flag = std::make_shared<std::atomic<bool>>(true);
+    
+    nlohmann::json input = {{"query", "test query"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.output.find("aborted") != std::string::npos);
+}
+
+TEST_CASE("WebSearchTool.Execute.WithOptions", "[Tool][Builtin][WebSearch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "data: {\"result\": {\"content\": [{\"text\": \"Results\"}]}}\n\n";
+    mock_http->when_post("mcp.exa.ai", response);
+    
+    WebSearchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {
+        {"query", "test query"},
+        {"numResults", 5},
+        {"type", "deep"},
+        {"livecrawl", "preferred"}
+    };
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(mock_http->request_count() == 1);
+}
+
+TEST_CASE("WebSearchTool.ParseSSEResponse", "[Tool][Builtin][WebSearch][Integration]") {
+    WebSearchTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Test SSE parsing through execute
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "data: {\"result\": {\"content\": [{\"text\": \"Parsed content\"}]}}\n\n";
+    mock_http->when_post("mcp.exa.ai", response);
+    
+    WebSearchTool tool_with_mock(mock_http);
+    auto result = tool_with_mock.execute({{"query", "test"}}, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output.find("Parsed content") != std::string::npos);
+}
+
+TEST_CASE("WebSearchTool.BuildMCPRequest", "[Tool][Builtin][WebSearch][Integration]") {
+    // Test through execute - verify the request body
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "data: {\"result\": {\"content\": [{\"text\": \"OK\"}]}}\n\n";
+    mock_http->when_post("mcp.exa.ai", response);
+    
+    WebSearchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {
+        {"query", "search term"},
+        {"numResults", 3}
+    };
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    
+    // Verify request was made with correct body
+    REQUIRE(mock_http->last_body().find("search term") != std::string::npos);
+}
+
+// ==================== WebFetchTool Integration Tests ====================
+
+TEST_CASE("WebFetchTool.Execute.Success", "[Tool][Builtin][WebFetch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "<html><body><p>Hello World</p></body></html>";
+    response.headers.push_back({"Content-Type", "text/html"});
+    mock_http->when_get("example.com", response);
+    
+    WebFetchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"url", "https://example.com/page"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output.find("Hello World") != std::string::npos);
+    REQUIRE(mock_http->request_count() == 1);
+}
+
+TEST_CASE("WebFetchTool.Execute.HttpError", "[Tool][Builtin][WebFetch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 404;
+    response.body = "Not Found";
+    mock_http->when_get("*", response);
+    
+    WebFetchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"url", "https://example.com/notfound"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.output.find("HTTP 404") != std::string::npos);
+}
+
+TEST_CASE("WebFetchTool.Execute.InvalidUrl", "[Tool][Builtin][WebFetch][Integration]") {
+    WebFetchTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Test invalid URL scheme
+    nlohmann::json input = {{"url", "ftp://example.com/file"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("WebFetchTool.Execute.SSRFProtection", "[Tool][Builtin][WebFetch][Integration]") {
+    WebFetchTool tool;
+    auto ctx = make_tool_ctx();
+    
+    // Test SSRF protection - localhost should be rejected
+    nlohmann::json input = {{"url", "http://localhost/admin"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+}
+
+TEST_CASE("WebFetchTool.Execute.Aborted", "[Tool][Builtin][WebFetch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    WebFetchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    ctx.abort_flag = std::make_shared<std::atomic<bool>>(true);
+    
+    nlohmann::json input = {{"url", "https://example.com/page"}};
+    auto result = tool.execute(input, ctx);
+    REQUIRE(result.is_error);
+    REQUIRE(result.output.find("aborted") != std::string::npos);
+}
+
+TEST_CASE("WebFetchTool.Execute.WithCustomHeaders", "[Tool][Builtin][WebFetch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "Success";
+    mock_http->when_get("*", response);
+    
+    WebFetchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {
+        {"url", "https://example.com/api"},
+        {"headers", {{"X-Custom-Header", "custom-value"}}}
+    };
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(mock_http->request_count() == 1);
+}
+
+TEST_CASE("WebFetchTool.HtmlToMarkdown", "[Tool][Builtin][WebFetch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "<html><head><script>var x=1;</script></head><body><h1>Title</h1><p>Paragraph</p></body></html>";
+    response.headers.push_back({"Content-Type", "text/html"});
+    mock_http->when_get("*", response);
+    
+    WebFetchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"url", "https://example.com/page"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    // Script content should be stripped
+    REQUIRE(result.output.find("var x") == std::string::npos);
+    // Text content should be present
+    REQUIRE(result.output.find("Title") != std::string::npos);
+    REQUIRE(result.output.find("Paragraph") != std::string::npos);
+}
+
+TEST_CASE("WebFetchTool.PlainTextResponse", "[Tool][Builtin][WebFetch][Integration]") {
+    auto mock_http = std::make_shared<turbot::test::MockIHttpClient>();
+    
+    turbot::network::HttpResponse response;
+    response.status_code = 200;
+    response.body = "Plain text content without HTML";
+    response.headers.push_back({"Content-Type", "text/plain"});
+    mock_http->when_get("*", response);
+    
+    WebFetchTool tool(mock_http);
+    auto ctx = make_tool_ctx();
+    nlohmann::json input = {{"url", "https://example.com/text"}};
+    
+    auto result = tool.execute(input, ctx);
+    REQUIRE_FALSE(result.is_error);
+    REQUIRE(result.output == "Plain text content without HTML");
 }

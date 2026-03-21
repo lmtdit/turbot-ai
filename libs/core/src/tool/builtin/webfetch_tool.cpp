@@ -1,6 +1,7 @@
 #include <turbot/core/tool/builtin/webfetch_tool.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <turbot/network/http_client.hpp>
+#include <turbot/network/ihttp_client.hpp>
 #include <fmt/format.h>
 #include <algorithm>
 #include <sstream>
@@ -218,12 +219,18 @@ ToolResult WebFetchTool::execute(const nlohmann::json& input, ToolContext& ctx) 
 
     TURBOT_LOG_DEBUG("webfetch: GET {}", url);
 
-    turbot::network::HttpClient client;
-    client.set_timeout(30);  // 30-second timeout
-
     turbot::network::HttpResponse response;
     try {
-        response = client.get(url, headers);
+        if (http_client_) {
+            // Use injected client (for testing)
+            http_client_->set_timeout(30);
+            response = http_client_->get(url, headers);
+        } else {
+            // Create new client
+            turbot::network::HttpClientWrapper client;
+            client.set_timeout(30);  // 30-second timeout
+            response = client.get(url, headers);
+        }
     } catch (const std::exception& e) {
         return ToolResult::error(
             "WebFetch failed",

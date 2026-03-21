@@ -831,3 +831,91 @@ TEST_CASE("Message.WithSource", "[Core][Message]") {
     REQUIRE(msg.parts().size() == 1);
     REQUIRE(msg.parts()[0].is_source());
 }
+
+// ==================== Extended MessageInfo Tests ====================
+
+TEST_CASE("MessageInfo.ToJson.AllFields", "[Core][Message]") {
+    MessageInfo info;
+    info.id = "msg-123";
+    info.session_id = "sess-456";
+    info.role = Role::Assistant;
+    info.time_created = 1000;
+    info.time_updated = 2000;
+    info.agent = "test-agent";
+    info.model_id = "gpt-4";
+    info.provider_id = "openai";
+    info.cost = 0.05;
+    info.parent_id = "parent-msg";
+    info.system = "system prompt";
+    info.tools = nlohmann::json::array({"tool1", "tool2"});
+    info.variant = "variant-1";
+    info.error = nlohmann::json{{"message", "test error"}};
+    info.finish = "stop";
+    info.summary = true;
+    info.structured = nlohmann::json{{"key", "value"}};
+    
+    auto j = info.to_json();
+    REQUIRE(j["id"] == "msg-123");
+    REQUIRE(j["session_id"] == "sess-456");
+    REQUIRE(j["role"] == "assistant");
+    REQUIRE(j["time_created"] == 1000);
+    REQUIRE(j["time_updated"] == 2000);
+    REQUIRE(j["agent"] == "test-agent");
+    REQUIRE(j["model_id"] == "gpt-4");
+    REQUIRE(j["provider_id"] == "openai");
+    REQUIRE(j["cost"] == 0.05);
+    REQUIRE(j["parent_id"] == "parent-msg");
+    REQUIRE(j["system"] == "system prompt");
+    REQUIRE(j["finish"] == "stop");
+    REQUIRE(j["summary"] == true);
+}
+
+TEST_CASE("MessageInfo.FromJson.AllFields", "[Core][Message]") {
+    nlohmann::json j = {
+        {"id", "msg-789"},
+        {"session_id", "sess-012"},
+        {"role", "user"},
+        {"time_created", 3000},
+        {"time_updated", 4000},
+        {"agent", "user-agent"},
+        {"model_id", "claude-3"},
+        {"provider_id", "anthropic"},
+        {"cost", 0.10},
+        {"tokens", {{"input", 100}, {"output", 50}, {"cache_read", 0}, {"cache_write", 0}}},
+        {"parent_id", "parent-123"},
+        {"system", "system prompt"},
+        {"tools", nlohmann::json::array({"tool_a", "tool_b"})},
+        {"variant", "v2"},
+        {"error", {{"code", "rate_limit"}}},
+        {"finish", "tool_calls"},
+        {"summary", false},
+        {"structured", {{"data", "test"}}}
+    };
+    
+    auto info = MessageInfo::from_json(j);
+    REQUIRE(info.id == "msg-789");
+    REQUIRE(info.session_id == "sess-012");
+    REQUIRE(info.role == Role::User);
+    REQUIRE(info.time_created == 3000);
+    REQUIRE(info.time_updated == 4000);
+    REQUIRE(info.agent == "user-agent");
+    REQUIRE(info.model_id == "claude-3");
+    REQUIRE(info.provider_id == "anthropic");
+    REQUIRE(info.cost == 0.10);
+    REQUIRE(info.parent_id == "parent-123");
+    REQUIRE(info.system == "system prompt");
+    REQUIRE(info.finish == "tool_calls");
+    REQUIRE(info.summary == false);
+}
+
+TEST_CASE("MessageInfo.FromJson.Minimal", "[Core][Message]") {
+    nlohmann::json j = {{"id", "simple-msg"}};
+    
+    auto info = MessageInfo::from_json(j);
+    REQUIRE(info.id == "simple-msg");
+    REQUIRE(info.role == Role::User);  // Default
+    REQUIRE(info.time_created == 0);
+    REQUIRE(info.cost == 0.0);
+    REQUIRE_FALSE(info.parent_id.has_value());
+    REQUIRE_FALSE(info.system.has_value());
+}

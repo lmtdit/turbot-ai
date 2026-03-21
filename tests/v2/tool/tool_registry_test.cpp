@@ -17,6 +17,8 @@
 #include "../fixture/test_macros.hpp"
 #include <turbot/core/tool/tool_registry.hpp>
 #include <turbot/core/tool/tool.hpp>
+#include <thread>
+#include <atomic>
 
 using namespace turbot::core::tool;
 using namespace turbot::test;
@@ -266,7 +268,136 @@ TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.Size.AfterOperations", "[To
     
     ToolRegistry::instance().remove("size_tool_1");
     REQUIRE(ToolRegistry::instance().size() == 1);
+}
+
+// ==================== Builtin Tools Tests ====================
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.RegisterBuiltinTools", "[Tool][Registry][Builtin]") {
+    ToolRegistry::instance().register_builtin_tools();
     
+    // Check core file tools
+    REQUIRE(ToolRegistry::instance().has("read_file"));
+    REQUIRE(ToolRegistry::instance().has("write_file"));
+    REQUIRE(ToolRegistry::instance().has("edit_file"));
+    REQUIRE(ToolRegistry::instance().has("bash"));
+    
+    // Check search tools
+    REQUIRE(ToolRegistry::instance().has("glob"));
+    REQUIRE(ToolRegistry::instance().has("grep"));
+    REQUIRE(ToolRegistry::instance().has("list"));
+    
+    // Check web tools
+    REQUIRE(ToolRegistry::instance().has("webfetch"));
+    REQUIRE(ToolRegistry::instance().has("websearch"));
+    
+    // Check task tools
+    REQUIRE(ToolRegistry::instance().has("task"));
+    REQUIRE(ToolRegistry::instance().has("todo_read"));
+    REQUIRE(ToolRegistry::instance().has("todo_write"));
+    REQUIRE(ToolRegistry::instance().has("plan_enter"));
+    REQUIRE(ToolRegistry::instance().has("plan_exit"));
+    REQUIRE(ToolRegistry::instance().has("skill"));
+}
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.EnableQuestionTool", "[Tool][Registry][Builtin]") {
+    // By default, question tool should not be registered
+    ToolRegistry::instance().register_builtin_tools();
+    REQUIRE_FALSE(ToolRegistry::instance().has("question"));
+    
+    // Clear and enable question tool
     ToolRegistry::instance().clear();
-    REQUIRE(ToolRegistry::instance().size() == 0);
+    ToolRegistry::instance().enable_question_tool(true);
+    ToolRegistry::instance().register_builtin_tools();
+    
+    REQUIRE(ToolRegistry::instance().has("question"));
+    
+    // Reset for other tests
+    ToolRegistry::instance().enable_question_tool(false);
+}
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.BuiltinToolDefinitions", "[Tool][Registry][Builtin]") {
+    ToolRegistry::instance().register_builtin_tools();
+    
+    auto defs = ToolRegistry::instance().to_tool_definitions();
+    REQUIRE(defs.is_array());
+    REQUIRE(defs.size() > 10);  // Should have many builtin tools
+    
+    // Verify each definition has proper structure
+    for (const auto& def : defs) {
+        REQUIRE(def.contains("type"));
+        REQUIRE(def["type"] == "function");
+        REQUIRE(def.contains("function"));
+        REQUIRE(def["function"].contains("name"));
+        REQUIRE(def["function"].contains("description"));
+        REQUIRE(def["function"].contains("parameters"));
+    }
+}
+
+// ==================== Custom Tool Names Tests ====================
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.CustomToolNames.Empty", "[Tool][Registry]") {
+    auto names = ToolRegistry::instance().custom_tool_names();
+    REQUIRE(names.empty());
+}
+
+// ==================== Thread Safety Tests ====================
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.ThreadSafety.RegisterAndRead", "[Tool][Registry][Thread]") {
+    // Register from main thread
+    ToolRegistry::instance().register_tool(std::make_unique<MockTool>("thread_tool_1"));
+    
+    // Read from another thread
+    std::thread reader([]() {
+        auto tool = ToolRegistry::instance().get("thread_tool_1");
+        REQUIRE(tool);
+        REQUIRE(tool->name() == "thread_tool_1");
+    });
+    reader.join();
+    
+    REQUIRE(ToolRegistry::instance().has("thread_tool_1"));
+}
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.ThreadSafety.ConcurrentReads", "[Tool][Registry][Thread]") {
+    ToolRegistry::instance().register_tool(std::make_unique<MockTool>("concurrent_tool"));
+    
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count{0};
+    
+    for (int i = 0; i < 10; ++i) {
+        threads.emplace_back([&success_count]() {
+            if (ToolRegistry::instance().has("concurrent_tool")) {
+                success_count++;
+            }
+        });
+    }
+    
+    for (auto& t : threads) {
+        t.join();
+    }
+    
+    REQUIRE(success_count == 10);
+}
+
+// ==================== Null Tool Tests ====================
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.RegisterNullTool", "[Tool][Registry]") {
+    REQUIRE_THROWS_AS(
+        ToolRegistry::instance().register_tool(nullptr),
+        std::invalid_argument
+    );
+}
+
+// ==================== Tool Replacement Tests ====================
+
+TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.ReplaceTool", "[Tool][Registry]") {
+    // Register initial tool
+    ToolRegistry::instance().register_tool(std::make_unique<MockTool>("replaceable", "Version 1"));
+    auto tool = ToolRegistry::instance().get("replaceable");
+    REQUIRE(tool->description() == "Version 1");
+    
+    // Replace with new version
+    ToolRegistry::instance().register_tool(std::make_unique<MockTool>("replaceable", "Version 2"));
+    tool = ToolRegistry::instance().get("replaceable");
+    REQUIRE(tool->description() == "Version 2");
+    REQUIRE(ToolRegistry::instance().size() == 1);  // Size should not increase
 }

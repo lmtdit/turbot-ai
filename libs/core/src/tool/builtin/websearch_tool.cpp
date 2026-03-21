@@ -1,6 +1,7 @@
 #include <turbot/core/tool/builtin/websearch_tool.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <turbot/network/http_client.hpp>
+#include <turbot/network/ihttp_client.hpp>
 #include <fmt/format.h>
 #include <chrono>
 
@@ -206,12 +207,18 @@ ToolResult WebSearchTool::execute(const nlohmann::json& input, ToolContext& ctx)
     TURBOT_LOG_DEBUG("websearch: POST {} with query: {}", url, query);
     
     // Execute HTTP request
-    turbot::network::HttpClient client;
-    client.set_timeout(REQUEST_TIMEOUT_SECONDS);
-    
     turbot::network::HttpResponse response;
     try {
-        response = client.post(url, mcp_request.dump(), headers);
+        if (http_client_) {
+            // Use injected client (for testing)
+            http_client_->set_timeout(REQUEST_TIMEOUT_SECONDS);
+            response = http_client_->post(url, mcp_request.dump(), headers);
+        } else {
+            // Create new client
+            turbot::network::HttpClientWrapper client;
+            client.set_timeout(REQUEST_TIMEOUT_SECONDS);
+            response = client.post(url, mcp_request.dump(), headers);
+        }
     } catch (const std::exception& e) {
         return ToolResult::error("websearch",
             fmt::format("Search request failed: {}", e.what()));

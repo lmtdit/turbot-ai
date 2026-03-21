@@ -318,3 +318,220 @@ TEST_CASE("Config.Exception.AllErrors", "[Config]") {
         REQUIRE(ex.error() == error);
     }
 }
+
+// ==================== Config Class Tests ====================
+
+#include <turbot/core/config/config.hpp>
+#include <fstream>
+
+TEST_CASE("Config.Class.Instance", "[Config][Class]") {
+    // Config is a singleton
+    auto& config1 = Config::instance();
+    auto& config2 = Config::instance();
+    REQUIRE(&config1 == &config2);
+}
+
+TEST_CASE("Config.Class.LoadFromString", "[Config][Class]") {
+    auto& config = Config::instance();
+    
+    // Load valid JSON
+    config.load_from_string(R"({"test_key": "test_value", "nested": {"key": 123}})");
+    
+    REQUIRE(config.has("test_key"));
+    REQUIRE(config.get<std::string>("test_key") == "test_value");
+    REQUIRE(config.get<int>("nested.key") == 123);
+}
+
+TEST_CASE("Config.Class.LoadFromStringInvalid", "[Config][Class]") {
+    auto& config = Config::instance();
+    
+    // Invalid JSON should throw
+    REQUIRE_THROWS_AS(
+        config.load_from_string("not valid json"),
+        std::runtime_error
+    );
+}
+
+TEST_CASE("Config.Class.Has", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"existing_key": "value"})");
+    
+    REQUIRE(config.has("existing_key"));
+    REQUIRE_FALSE(config.has("nonexistent_key"));
+}
+
+TEST_CASE("Config.Class.Get", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({
+        "string_key": "hello",
+        "int_key": 42,
+        "bool_key": true,
+        "double_key": 3.14,
+        "array_key": [1, 2, 3],
+        "object_key": {"nested": "value"}
+    })");
+    
+    REQUIRE(config.get<std::string>("string_key") == "hello");
+    REQUIRE(config.get<int>("int_key") == 42);
+    REQUIRE(config.get<bool>("bool_key") == true);
+    REQUIRE(config.get<double>("double_key") > 3.13);
+    auto arr = config.get<nlohmann::json>("array_key");
+    REQUIRE(arr.has_value());
+    REQUIRE(arr->is_array());
+    REQUIRE(config.get<std::string>("object_key.nested") == "value");
+}
+
+TEST_CASE("Config.Class.GetMissing", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string("{}");
+    
+    REQUIRE_FALSE(config.get<std::string>("missing_key").has_value());
+    REQUIRE_FALSE(config.get<int>("missing.int").has_value());
+}
+
+TEST_CASE("Config.Class.Set", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string("{}");
+    
+    config.set("new_key", "new_value");
+    REQUIRE(config.get<std::string>("new_key") == "new_value");
+    
+    config.set("nested.key", 123);
+    REQUIRE(config.get<int>("nested.key") == 123);
+}
+
+TEST_CASE("Config.Class.GetOr", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"existing": "value"})");
+    
+    REQUIRE(config.get_or<std::string>("existing", "default") == "value");
+    REQUIRE(config.get_or<std::string>("missing", "default") == "default");
+    REQUIRE(config.get_or<int>("missing_int", 999) == 999);
+}
+
+TEST_CASE("Config.Class.GetAll", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"key1": "val1", "key2": "val2"})");
+    
+    auto all = config.get_all();
+    REQUIRE(all.is_object());
+    REQUIRE(all["key1"] == "val1");
+    REQUIRE(all["key2"] == "val2");
+}
+
+TEST_CASE("Config.Class.Merge", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"key1": "original", "key2": "original"})");
+    
+    // Load more config - should merge
+    config.load_from_string(R"({"key2": "updated", "key3": "new"})");
+    
+    REQUIRE(config.get<std::string>("key1") == "original");
+    REQUIRE(config.get<std::string>("key2") == "updated");
+    REQUIRE(config.get<std::string>("key3") == "new");
+}
+
+TEST_CASE("Config.Class.Remove", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"key_to_remove": "value", "keep_this": "kept"})");
+    
+    REQUIRE(config.has("key_to_remove"));
+    REQUIRE(config.remove("key_to_remove"));
+    REQUIRE_FALSE(config.has("key_to_remove"));
+    REQUIRE(config.has("keep_this"));
+}
+
+TEST_CASE("Config.Class.Clear", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"key1": "val1", "key2": "val2"})");
+    
+    config.clear();
+    
+    REQUIRE_FALSE(config.has("key1"));
+    REQUIRE_FALSE(config.has("key2"));
+}
+
+TEST_CASE("Config.Class.Watch", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string("{}");
+    
+    std::string received_key;
+    nlohmann::json received_value;
+    
+    auto watch_id = config.watch("watched_key", [&](const std::string& key, const nlohmann::json& value) {
+        received_key = key;
+        received_value = value;
+    });
+    
+    config.set("watched_key", "new_value");
+    
+    REQUIRE(received_key == "watched_key");
+    REQUIRE(received_value == "new_value");
+    
+    config.unwatch("watched_key", watch_id);
+}
+
+TEST_CASE("Config.Class.Unwatch", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string("{}");
+    
+    int call_count = 0;
+    
+    auto watch_id = config.watch("unwatch_test", [&](const std::string&, const nlohmann::json&) {
+        call_count++;
+    });
+    
+    config.set("unwatch_test", "first");
+    REQUIRE(call_count == 1);
+    
+    config.unwatch("unwatch_test", watch_id);
+    
+    config.set("unwatch_test", "second");
+    REQUIRE(call_count == 1);  // Should not increase after unwatch
+}
+
+TEST_CASE("Config.Class.SaveAndLoad", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string(R"({"saved_key": "saved_value", "number": 42})");
+    
+    // Save to temp file
+    std::string temp_path = "/tmp/turbot_config_test.json";
+    config.save(temp_path);
+    
+    // Clear and reload
+    config.clear();
+    REQUIRE_FALSE(config.has("saved_key"));
+    
+    // Load from file
+    config.load(temp_path);
+    REQUIRE(config.get<std::string>("saved_key") == "saved_value");
+    REQUIRE(config.get<int>("number") == 42);
+    
+    // Cleanup
+    std::remove(temp_path.c_str());
+}
+
+TEST_CASE("Config.Class.LoadFromEnv", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.clear();
+    
+    // Set an environment variable
+    setenv("TURBOT_TEST_ENV_KEY", "env_value", 1);
+    
+    config.load_from_env("TURBOT_");
+    
+    // The env variable should be loaded as test.env_key
+    auto value = config.get<std::string>("test.env_key");
+    REQUIRE(value.has_value());
+    REQUIRE(*value == "env_value");
+    
+    // Cleanup
+    unsetenv("TURBOT_TEST_ENV_KEY");
+}
+
+TEST_CASE("Config.Class.NonexistentRemove", "[Config][Class]") {
+    auto& config = Config::instance();
+    config.load_from_string("{}");
+    
+    REQUIRE_FALSE(config.remove("nonexistent_key"));
+}
