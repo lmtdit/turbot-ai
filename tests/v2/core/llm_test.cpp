@@ -2505,7 +2505,7 @@ TEST_CASE("LLM.StreamingState.MarkDoneExtended", "[Core][LLM]") {
     REQUIRE(state.usage().total() == 150);
 }
 
-TEST_CASE("LLM.StreamingState.MarkError", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.MarkErrorExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     state.mark_error("Connection failed", "network_error");
@@ -2516,7 +2516,7 @@ TEST_CASE("LLM.StreamingState.MarkError", "[Core][LLM]") {
     REQUIRE(*state.error() == "Connection failed");
 }
 
-TEST_CASE("LLM.StreamingState.GetText", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.GetTextExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     state.add_event(StreamEvent::create_text_delta("text-0", "Hello"));
@@ -2526,7 +2526,7 @@ TEST_CASE("LLM.StreamingState.GetText", "[Core][LLM]") {
     REQUIRE(state.get_text() == "Hello World");
 }
 
-TEST_CASE("LLM.StreamingState.GetReasoning", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.GetReasoningExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     state.add_event(StreamEvent::create_reasoning_delta("reasoning-0", "Let me think..."));
@@ -2535,7 +2535,7 @@ TEST_CASE("LLM.StreamingState.GetReasoning", "[Core][LLM]") {
     REQUIRE(state.get_reasoning() == "Let me think... about this.");
 }
 
-TEST_CASE("LLM.StreamingState.GetToolCalls", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.GetToolCallsExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     ToolCallChunk chunk1;
@@ -2552,7 +2552,7 @@ TEST_CASE("LLM.StreamingState.GetToolCalls", "[Core][LLM]") {
     REQUIRE(tool_calls[0].name == "read_file");
 }
 
-TEST_CASE("LLM.StreamingState.GetToolCallsStreaming", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.GetToolCallsStreamingExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     // Simulate streaming tool call
@@ -2569,7 +2569,7 @@ TEST_CASE("LLM.StreamingState.GetToolCallsStreaming", "[Core][LLM]") {
     REQUIRE(tool_calls[0].is_complete);
 }
 
-TEST_CASE("LLM.StreamingState.ToResult", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.ToResultExtended", "[Core][LLM]") {
     llm::StreamingState state;
     state.set_response_id("resp_123");
     state.set_model("gpt-4");
@@ -2589,9 +2589,9 @@ TEST_CASE("LLM.StreamingState.ToResult", "[Core][LLM]") {
     REQUIRE(result.finish_reason == FinishReason::Stop);
 }
 
-// ==================== LLMStreamResult Tests ====================
+// ==================== LLMStreamResult Extended Tests ====================
 
-TEST_CASE("LLM.LLMStreamResult.DefaultConstructor", "[Core][LLM]") {
+TEST_CASE("LLM.LLMStreamResult.DefaultConstructorExtended", "[Core][LLM]") {
     llm::LLMStreamResult result;
     
     REQUIRE(result.is_done());
@@ -2601,7 +2601,7 @@ TEST_CASE("LLM.LLMStreamResult.DefaultConstructor", "[Core][LLM]") {
     REQUIRE_FALSE(result.has_error());
 }
 
-TEST_CASE("LLM.LLMStreamResult.WithState", "[Core][LLM]") {
+TEST_CASE("LLM.LLMStreamResult.WithStateExtended", "[Core][LLM]") {
     auto state = std::make_shared<llm::StreamingState>();
     state->add_event(StreamEvent::create_text_delta("text-0", "Test"));
     
@@ -2618,7 +2618,7 @@ TEST_CASE("LLM.LLMStreamResult.WithState", "[Core][LLM]") {
     REQUIRE(result.finish_reason() == FinishReason::Stop);
 }
 
-TEST_CASE("LLM.LLMStreamResult.Collect", "[Core][LLM]") {
+TEST_CASE("LLM.LLMStreamResult.CollectExtended", "[Core][LLM]") {
     auto state = std::make_shared<llm::StreamingState>();
     state->add_event(StreamEvent::create_text_delta("text-0", "Hello"));
     state->add_event(StreamEvent::create_text_delta("text-0", " World"));
@@ -2630,7 +2630,7 @@ TEST_CASE("LLM.LLMStreamResult.Collect", "[Core][LLM]") {
     REQUIRE(events.size() == 3); // 2 text deltas + finish
 }
 
-TEST_CASE("LLM.LLMStreamResult.Error", "[Core][LLM]") {
+TEST_CASE("LLM.LLMStreamResult.ErrorExtended", "[Core][LLM]") {
     auto state = std::make_shared<llm::StreamingState>();
     state->mark_error("Test error", "test_code");
     
@@ -2641,9 +2641,9 @@ TEST_CASE("LLM.LLMStreamResult.Error", "[Core][LLM]") {
     REQUIRE(*result.error() == "Test error");
 }
 
-// ==================== LLM Static Methods Tests ====================
+// ==================== LLM Static Methods Extended Tests ====================
 
-TEST_CASE("LLM.ToProviderMessage", "[Core][LLM]") {
+TEST_CASE("LLM.ToProviderMessageExtended", "[Core][LLM]") {
     auto msg = llm::LLMMessage::user("Hello");
     auto pmsg = llm::LLM::to_provider_message(msg);
     
