@@ -2382,9 +2382,9 @@ TEST_CASE("LLM.LLMMessage.FactoryMethods", "[Core][LLM]") {
     REQUIRE(*tool_error_msg.name == "error");
 }
 
-// ==================== StreamParams Tests ====================
+// ==================== StreamParams Extended Tests ====================
 
-TEST_CASE("LLM.StreamParams.ToJson", "[Core][LLM]") {
+TEST_CASE("LLM.StreamParams.ToJsonExtended", "[Core][LLM]") {
     llm::StreamParams params;
     params.session_id = "session_123";
     params.temperature = 0.7;
@@ -2397,7 +2397,7 @@ TEST_CASE("LLM.StreamParams.ToJson", "[Core][LLM]") {
     REQUIRE(j["messages"].size() == 1);
 }
 
-TEST_CASE("LLM.StreamParams.ToJsonWithTools", "[Core][LLM]") {
+TEST_CASE("LLM.StreamParams.ToJsonWithToolsExtended", "[Core][LLM]") {
     llm::StreamParams params;
     params.temperature = 1.0;
     
@@ -2414,7 +2414,7 @@ TEST_CASE("LLM.StreamParams.ToJsonWithTools", "[Core][LLM]") {
     REQUIRE(j["tool_choice"] == "auto");
 }
 
-TEST_CASE("LLM.StreamParams.ToJsonWithOptions", "[Core][LLM]") {
+TEST_CASE("LLM.StreamParams.ToJsonWithOptionsExtended", "[Core][LLM]") {
     llm::StreamParams params;
     params.temperature = 0.5;
     params.top_p = 0.9;
@@ -2429,7 +2429,7 @@ TEST_CASE("LLM.StreamParams.ToJsonWithOptions", "[Core][LLM]") {
     REQUIRE(j["stop"].size() == 2);
 }
 
-TEST_CASE("LLM.StreamParams.FromJson", "[Core][LLM]") {
+TEST_CASE("LLM.StreamParams.FromJsonExtended", "[Core][LLM]") {
     nlohmann::json j = {
         {"session_id", "session_456"},
         {"temperature", 0.8},
@@ -2460,9 +2460,9 @@ TEST_CASE("LLM.StreamParams.FromJson", "[Core][LLM]") {
     REQUIRE(params.stop.size() == 1);
 }
 
-// ==================== StreamingState Tests ====================
+// ==================== StreamingState Extended Tests ====================
 
-TEST_CASE("LLM.StreamingState.AddEvent", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.AddEventExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     auto event = StreamEvent::create_text_delta("text-0", "Hello");
@@ -2472,7 +2472,7 @@ TEST_CASE("LLM.StreamingState.AddEvent", "[Core][LLM]") {
     REQUIRE(state.events().size() == 1);
 }
 
-TEST_CASE("LLM.StreamingState.PopEvent", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.PopEventExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     state.add_event(StreamEvent::create_text_delta("text-0", "Hello"));
@@ -2490,7 +2490,7 @@ TEST_CASE("LLM.StreamingState.PopEvent", "[Core][LLM]") {
     REQUIRE_FALSE(event3.has_value());
 }
 
-TEST_CASE("LLM.StreamingState.MarkDone", "[Core][LLM]") {
+TEST_CASE("LLM.StreamingState.MarkDoneExtended", "[Core][LLM]") {
     llm::StreamingState state;
     
     TokenUsage usage;
