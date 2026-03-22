@@ -75,3 +75,5 @@ docs/latex/
 *.log
 .cache
 turbot.json
+
+/test_output

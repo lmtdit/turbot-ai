@@ -22,6 +22,12 @@ bool SessionStore::is_initialized() const noexcept {
     return db_ != nullptr;
 }
 
+void SessionStore::reset() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    db_.reset();
+    schema_ready_ = false;
+}
+
 void SessionStore::ensure_schema() {
     // Called with mutex_ held and db_ valid.
     if (schema_ready_) return;

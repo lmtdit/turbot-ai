@@ -32,6 +32,10 @@ public:
     /// @return true if the store has been initialised with a database.
     [[nodiscard]] bool is_initialized() const noexcept;
 
+    /// Reset the store (for testing purposes).
+    /// Closes the database connection and resets schema state.
+    void reset();
+
     /// Persist a new or updated Session row.
     /// @param info   SessionInfo to upsert.
     /// @return true on success.

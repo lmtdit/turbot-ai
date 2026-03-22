@@ -6,8 +6,23 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <atomic>
 
 namespace turbot::storage::sqlite {
+
+// Safe logging that checks if spdlog is still available
+// During static destruction, spdlog may already be destroyed, so we need to be careful
+template<typename... Args>
+void safe_log(spdlog::level::level_enum level, fmt::v12::format_string<Args...> fmt, Args&&... args) {
+    try {
+        // Check if default logger exists (if not, spdlog is likely destroyed)
+        if (spdlog::default_logger_raw() != nullptr) {
+            spdlog::log(level, fmt, std::forward<Args>(args)...);
+        }
+    } catch (...) {
+        // Ignore logging errors during shutdown
+    }
+}
 
 // ============================================================================
 // RAII Wrapper for sqlite3_stmt
@@ -138,7 +153,7 @@ SQLiteDatabase::SQLiteDatabase(const DatabaseConfig& config)
     setup_pragmas();
     ensure_migrations_table();
 
-    spdlog::info("Opened SQLite database: {}", config.path);
+    safe_log(spdlog::level::info, "Opened SQLite database: {}", config.path);
 }
 
 SQLiteDatabase::~SQLiteDatabase() {
@@ -308,7 +323,7 @@ void SQLiteDatabase::migrate(const std::string& name, const std::string& sql, in
             {nlohmann::json(name)});
 
         if (existing.has_value()) {
-            spdlog::debug("Migration '{}' already applied", name);
+            safe_log(spdlog::level::debug, "Migration '{}' already applied", name);
             tx->rollback();  // Release transaction
             return;
         }
@@ -354,7 +369,7 @@ void SQLiteDatabase::migrate(const std::string& name, const std::string& sql, in
 
         // Commit transaction - atomic commit of both operations
         tx->commit();
-        spdlog::info("Applied migration: {} (v{})", name, version);
+        safe_log(spdlog::level::info, "Applied migration: {} (v{})", name, version);
     } catch (...) {
         // Transaction will auto-rollback in destructor if not committed
         throw;
@@ -379,7 +394,8 @@ void SQLiteDatabase::close() {
         if (alive_flag_) alive_flag_->store(false);
         sqlite3_close_v2(db_);
         db_ = nullptr;
-        spdlog::info("Closed SQLite database: {}", config_.path);
+        // Note: Intentionally not logging here to avoid spdlog destruction order issues
+        // during static destruction. The database path can be logged at open time.
     }
 }
 
@@ -412,10 +428,10 @@ SQLiteTransaction::~SQLiteTransaction() {
             rollback();
         } catch (const std::exception& e) {
             // Log rollback failure for diagnostics; force-deactivate to keep state consistent.
-            spdlog::warn("SQLiteTransaction::~SQLiteTransaction: rollback failed: {}", e.what());
+            safe_log(spdlog::level::warn, "SQLiteTransaction::~SQLiteTransaction: rollback failed: {}", e.what());
             active_.store(false);
         } catch (...) {
-            spdlog::warn("SQLiteTransaction::~SQLiteTransaction: rollback failed with unknown exception");
+            safe_log(spdlog::level::warn, "SQLiteTransaction::~SQLiteTransaction: rollback failed with unknown exception");
             active_.store(false);
         }
     }
@@ -444,7 +460,7 @@ void SQLiteTransaction::commit() {
     }
 
     active_.store(false);
-    spdlog::debug("Transaction committed");
+    safe_log(spdlog::level::debug, "Transaction committed");
 }
 
 void SQLiteTransaction::rollback() {
@@ -470,7 +486,7 @@ void SQLiteTransaction::rollback() {
     }
 
     active_.store(false);
-    spdlog::debug("Transaction rolled back");
+    safe_log(spdlog::level::debug, "Transaction rolled back");
 }
 
 void SQLiteTransaction::bind_param(sqlite3_stmt* stmt, int index, const nlohmann::json& value) {
