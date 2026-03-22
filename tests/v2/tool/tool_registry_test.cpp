@@ -275,10 +275,10 @@ TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.Size.AfterOperations", "[To
 TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.RegisterBuiltinTools", "[Tool][Registry][Builtin]") {
     ToolRegistry::instance().register_builtin_tools();
     
-    // Check core file tools
-    REQUIRE(ToolRegistry::instance().has("read_file"));
-    REQUIRE(ToolRegistry::instance().has("write_file"));
-    REQUIRE(ToolRegistry::instance().has("edit_file"));
+    // Check core file tools (note: tool names are "read", "write", "edit", not "read_file", "write_file")
+    REQUIRE(ToolRegistry::instance().has("read"));
+    REQUIRE(ToolRegistry::instance().has("write"));
+    REQUIRE(ToolRegistry::instance().has("edit"));
     REQUIRE(ToolRegistry::instance().has("bash"));
     
     // Check search tools
@@ -290,10 +290,10 @@ TEST_CASE_METHOD(ToolRegistryFixture, "Tool.Registry.RegisterBuiltinTools", "[To
     REQUIRE(ToolRegistry::instance().has("webfetch"));
     REQUIRE(ToolRegistry::instance().has("websearch"));
     
-    // Check task tools
+    // Check task tools (note: tool names are "todoread"/"todowrite", not "todo_read"/"todo_write")
     REQUIRE(ToolRegistry::instance().has("task"));
-    REQUIRE(ToolRegistry::instance().has("todo_read"));
-    REQUIRE(ToolRegistry::instance().has("todo_write"));
+    REQUIRE(ToolRegistry::instance().has("todoread"));
+    REQUIRE(ToolRegistry::instance().has("todowrite"));
     REQUIRE(ToolRegistry::instance().has("plan_enter"));
     REQUIRE(ToolRegistry::instance().has("plan_exit"));
     REQUIRE(ToolRegistry::instance().has("skill"));

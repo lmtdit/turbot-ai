@@ -798,7 +798,8 @@ TEST_CASE("LSP.NearestRoot.FindGitRoot", "[LSP][Server]") {
     // Find root from subdir
     auto result = nearest_root(temp_dir + "/subdir", {".git"});
     REQUIRE(result.has_value());
-    REQUIRE(result.value() == temp_dir);
+    // Use canonical path for comparison (macOS /tmp -> /private/tmp)
+    REQUIRE(std::filesystem::canonical(result.value()) == std::filesystem::canonical(temp_dir));
     
     // Cleanup
     std::filesystem::remove_all(temp_dir);
@@ -814,7 +815,8 @@ TEST_CASE("LSP.NearestRoot.IncludePattern", "[LSP][Server]") {
     // Find root from deep subdir
     auto result = nearest_root(temp_dir + "/subdir/deep", {"CMakeLists.txt"});
     REQUIRE(result.has_value());
-    REQUIRE(result.value() == temp_dir);
+    // Use canonical path for comparison (macOS /tmp -> /private/tmp)
+    REQUIRE(std::filesystem::canonical(result.value()) == std::filesystem::canonical(temp_dir));
     
     // Cleanup
     std::filesystem::remove_all(temp_dir);
@@ -846,7 +848,8 @@ TEST_CASE("LSP.NearestRoot.StopDir", "[LSP][Server]") {
     // Find root with stop_dir
     auto result = nearest_root(temp_dir + "/subdir/deep", {".git"}, {}, temp_dir + "/subdir");
     REQUIRE(result.has_value());
-    REQUIRE(result.value() == temp_dir + "/subdir");
+    // Use canonical path for comparison (macOS /tmp -> /private/tmp)
+    REQUIRE(std::filesystem::canonical(result.value()) == std::filesystem::canonical(temp_dir + "/subdir"));
     
     // Cleanup
     std::filesystem::remove_all(temp_dir);
@@ -872,7 +875,8 @@ TEST_CASE("LSP.NearestRoot.FallbackToStartDir", "[LSP][Server]") {
     // No include pattern found, no stop_dir, should fallback to start_dir
     auto result = nearest_root(temp_dir + "/subdir", {".git"});
     REQUIRE(result.has_value());
-    REQUIRE(result.value() == temp_dir + "/subdir");
+    // Use canonical path for comparison (macOS /tmp -> /private/tmp)
+    REQUIRE(std::filesystem::canonical(result.value()) == std::filesystem::canonical(temp_dir + "/subdir"));
     
     // Cleanup
     std::filesystem::remove_all(temp_dir);
@@ -888,7 +892,8 @@ TEST_CASE("LSP.NearestRoot.MultipleIncludePatterns", "[LSP][Server]") {
     // Find root with multiple patterns
     auto result = nearest_root(temp_dir + "/subdir", {".git", "package.json", "Cargo.toml"});
     REQUIRE(result.has_value());
-    REQUIRE(result.value() == temp_dir);
+    // Use canonical path for comparison (macOS /tmp -> /private/tmp)
+    REQUIRE(std::filesystem::canonical(result.value()) == std::filesystem::canonical(temp_dir));
     
     // Cleanup
     std::filesystem::remove_all(temp_dir);

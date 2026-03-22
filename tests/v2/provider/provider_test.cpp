@@ -639,7 +639,8 @@ TEST_CASE("Provider.Zhipu.ListModels", "[Provider][Zhipu]") {
 
 TEST_CASE("Provider.Zhipu.SupportsModel", "[Provider][Zhipu]") {
     ZhipuProvider provider("test-api-key");
-    REQUIRE(provider.supports_model("glm-4"));
+    // Check actual model IDs from ZhipuProvider
+    REQUIRE(provider.supports_model("glm-4-plus"));
     REQUIRE(provider.supports_model("glm-4-flash"));
     REQUIRE_FALSE(provider.supports_model("gpt-4"));
 }

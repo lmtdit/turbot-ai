@@ -301,12 +301,12 @@ TEST_CASE("SessionCompaction.Prune.ExemptTool", "[Session][Compaction]") {
     
     PruneConfig config;
     config.protect_tokens = 0;
-    config.minimum_prune = 0;
+    config.minimum_prune = 1;  // Need at least 1 token freed to prune (0 freed < 1 minimum)
     config.exempt_tools = {"exempt_tool"};
     
     auto result = SessionCompaction::prune(messages, config);
     
-    // Exempt tool should not be pruned
+    // Exempt tool should not be pruned - freed_tokens will be 0, which is < minimum_prune
     REQUIRE_FALSE(result.did_prune);
 }
 
@@ -324,11 +324,11 @@ TEST_CASE("SessionCompaction.Prune.AlreadyCompacted", "[Session][Compaction]") {
     
     PruneConfig config;
     config.protect_tokens = 0;
-    config.minimum_prune = 0;
+    config.minimum_prune = 1;  // Need at least 1 token freed to prune
     
     auto result = SessionCompaction::prune(messages, config);
     
-    // Already compacted part should be skipped
+    // Already compacted part should be skipped - freed_tokens will be 0
     REQUIRE_FALSE(result.did_prune);
 }
 

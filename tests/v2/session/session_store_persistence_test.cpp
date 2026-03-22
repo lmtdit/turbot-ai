@@ -36,6 +36,9 @@ struct SessionStoreFixture {
         unique_id = generate_unique_id();
         test_dir = std::filesystem::path("/tmp") / ("turbot-store-" + unique_id);
         
+        // Reset SessionStore to ensure clean state
+        turbot::core::session::SessionStore::instance().reset();
+        
         // 使用内存数据库避免文件系统问题
         DatabaseConfig config;
         config.path = ":memory:";

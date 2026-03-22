@@ -24,8 +24,9 @@ static std::shared_ptr<turbot::storage::Database> create_test_db(const std::file
 TEST_CASE("Session.Create.ValidParams", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
     
-    // 初始化 SessionStore
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    // 重置并初始化 SessionStore
+    SessionStore::instance().reset();
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "test-project";
@@ -46,7 +47,8 @@ TEST_CASE("Session.Create.ValidParams", "[Session]") {
 
 TEST_CASE("Session.Create.WithPermission", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset();
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "perm-project";
@@ -63,7 +65,7 @@ TEST_CASE("Session.Create.WithPermission", "[Session]") {
 
 TEST_CASE("Session.Create.GeneratesUniqueId", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "project-1";
@@ -84,7 +86,7 @@ TEST_CASE("Session.Create.GeneratesUniqueId", "[Session]") {
 
 TEST_CASE("Session.Get.ExistingSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "get-project";
@@ -103,7 +105,7 @@ TEST_CASE("Session.Get.ExistingSession", "[Session]") {
 
 TEST_CASE("Session.Get.NonExistentSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     auto session = Session::get("nonexistent-session-id");
     REQUIRE_FALSE(session.has_value());
@@ -113,7 +115,7 @@ TEST_CASE("Session.Get.NonExistentSession", "[Session]") {
 
 TEST_CASE("Session.Update.Title", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "update-project";
@@ -135,7 +137,7 @@ TEST_CASE("Session.Update.Title", "[Session]") {
 
 TEST_CASE("Session.Update.Permission", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "perm-update-project";
@@ -154,7 +156,7 @@ TEST_CASE("Session.Update.Permission", "[Session]") {
 
 TEST_CASE("Session.Update.State", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "state-project";
@@ -175,7 +177,7 @@ TEST_CASE("Session.Update.State", "[Session]") {
 
 TEST_CASE("Session.Update.AllFields", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "all-update-project";
@@ -201,7 +203,7 @@ TEST_CASE("Session.Update.AllFields", "[Session]") {
 
 TEST_CASE("Session.Remove.ExistingSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "remove-project";
@@ -221,7 +223,7 @@ TEST_CASE("Session.Remove.ExistingSession", "[Session]") {
 
 TEST_CASE("Session.Remove.NonExistentSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     REQUIRE_FALSE(Session::remove("nonexistent-id"));
 }
@@ -230,7 +232,7 @@ TEST_CASE("Session.Remove.NonExistentSession", "[Session]") {
 
 TEST_CASE("Session.List.ByProject", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     // Create multiple sessions for same project
     CreateParams params;
@@ -255,7 +257,7 @@ TEST_CASE("Session.List.ByProject", "[Session]") {
 
 TEST_CASE("Session.List.EmptyProject", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     auto sessions = Session::list("empty-project");
     REQUIRE(sessions.empty());
@@ -265,7 +267,7 @@ TEST_CASE("Session.List.EmptyProject", "[Session]") {
 
 TEST_CASE("Session.Fork.FromExisting", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "fork-project";
@@ -294,7 +296,7 @@ TEST_CASE("Session.Fork.FromExisting", "[Session]") {
 
 TEST_CASE("Session.Fork.NonExistentParent", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     ForkParams params;
     params.parent_id = "nonexistent-parent";
@@ -309,7 +311,7 @@ TEST_CASE("Session.Fork.NonExistentParent", "[Session]") {
 
 TEST_CASE("Session.Archive.ActiveSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "archive-project";
@@ -331,7 +333,7 @@ TEST_CASE("Session.Archive.ActiveSession", "[Session]") {
 
 TEST_CASE("Session.Archive.AlreadyArchived", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "double-archive-project";
@@ -347,7 +349,7 @@ TEST_CASE("Session.Archive.AlreadyArchived", "[Session]") {
 
 TEST_CASE("Session.Restore.ArchivedSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "restore-project";
@@ -367,7 +369,7 @@ TEST_CASE("Session.Restore.ArchivedSession", "[Session]") {
 
 TEST_CASE("Session.Restore.NonArchivedSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "restore-fail-project";
@@ -384,7 +386,7 @@ TEST_CASE("Session.Restore.NonArchivedSession", "[Session]") {
 
 TEST_CASE("Session.Compact.ActiveSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "compact-project";
@@ -403,7 +405,7 @@ TEST_CASE("Session.Compact.ActiveSession", "[Session]") {
 
 TEST_CASE("Session.Compact.ArchivedSession", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "compact-archived-project";
@@ -421,7 +423,7 @@ TEST_CASE("Session.Compact.ArchivedSession", "[Session]") {
 
 TEST_CASE("Session.Revert.Basic", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "revert-project";
@@ -445,7 +447,7 @@ TEST_CASE("Session.Revert.Basic", "[Session]") {
 
 TEST_CASE("Session.Unrevert.AfterRevert", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "unrevert-project";
@@ -467,7 +469,7 @@ TEST_CASE("Session.Unrevert.AfterRevert", "[Session]") {
 
 TEST_CASE("Session.Unrevert.NoRevert", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "no-revert-project";
@@ -482,7 +484,7 @@ TEST_CASE("Session.Unrevert.NoRevert", "[Session]") {
 
 TEST_CASE("Session.CleanupRevert", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "cleanup-revert-project";
@@ -506,7 +508,7 @@ TEST_CASE("Session.CleanupRevert", "[Session]") {
 
 TEST_CASE("Session.IsActive.Check", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "active-check-project";
@@ -535,7 +537,7 @@ TEST_CASE("Session.IsValid.Check", "[Session]") {
 
 TEST_CASE("Session.Messages.Pagination", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "messages-project";
@@ -557,7 +559,7 @@ TEST_CASE("Session.Messages.Pagination", "[Session]") {
 
 TEST_CASE("Session.Messages.NegativeParams", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "neg-params-project";
@@ -578,7 +580,7 @@ TEST_CASE("SessionStore.IsInitialized", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
     
     // After init, should be initialized
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     REQUIRE(SessionStore::instance().is_initialized());
 }
 
@@ -586,7 +588,7 @@ TEST_CASE("SessionStore.ReInit", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
     
     // First init
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     REQUIRE(SessionStore::instance().is_initialized());
     
     // Create a session
@@ -599,7 +601,7 @@ TEST_CASE("SessionStore.ReInit", "[Session]") {
     
     // Re-init should work
     TURBOT_TEST_TMPDIR(tmp2, true);
-    SessionStore::instance().init(create_test_db(tmp2.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp2.path()));
     REQUIRE(SessionStore::instance().is_initialized());
 }
 
@@ -607,7 +609,7 @@ TEST_CASE("SessionStore.ReInit", "[Session]") {
 
 TEST_CASE("Session.Equality", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "equality-project";
@@ -625,7 +627,7 @@ TEST_CASE("Session.Equality", "[Session]") {
 
 TEST_CASE("Session.Timestamp.UpdatedOnModify", "[Session]") {
     TURBOT_TEST_TMPDIR(tmp, true);
-    SessionStore::instance().init(create_test_db(tmp.path()));
+    SessionStore::instance().reset(); SessionStore::instance().init(create_test_db(tmp.path()));
     
     CreateParams params;
     params.project_id = "timestamp-project";

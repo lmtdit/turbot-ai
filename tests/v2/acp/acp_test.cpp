@@ -2,9 +2,19 @@
 #include "../fixture/test_macros.hpp"
 #include <turbot/core/acp/acp.hpp>
 #include <turbot/core/acp/agent.hpp>
+#include <turbot/core/session/session_store.hpp>
+#include <turbot/storage/sqlite_database.hpp>
 
 using namespace turbot::core::acp;
 using namespace turbot::test;
+
+// Helper to create a test database for SessionStore
+static std::shared_ptr<turbot::storage::Database> create_test_db(const std::filesystem::path& dir) {
+    turbot::storage::DatabaseConfig config;
+    config.path = (dir / "sessions.db").string();
+    auto sqlite_db = std::make_shared<turbot::storage::sqlite::SQLiteDatabase>(config);
+    return std::static_pointer_cast<turbot::storage::Database>(sqlite_db);
+}
 
 // ==================== to_tool_kind 测试 ====================
 
@@ -957,6 +967,9 @@ TEST_CASE("ACP.TurbotAgent.Initialize", "[ACP][Agent]") {
 
 TEST_CASE("ACP.TurbotAgent.NewSession", "[ACP][Agent]") {
     using namespace turbot::core::acp;
+    TURBOT_TEST_TMPDIR(tmp, true);
+    turbot::core::session::SessionStore::instance().reset();
+    turbot::core::session::SessionStore::instance().init(create_test_db(tmp.path()));
     
     TurbotACPAgent agent("/tmp");
     
@@ -986,6 +999,9 @@ TEST_CASE("ACP.TurbotAgent.ListSessions", "[ACP][Agent]") {
 
 TEST_CASE("ACP.TurbotAgent.SetMode", "[ACP][Agent]") {
     using namespace turbot::core::acp;
+    TURBOT_TEST_TMPDIR(tmp, true);
+    turbot::core::session::SessionStore::instance().reset();
+    turbot::core::session::SessionStore::instance().init(create_test_db(tmp.path()));
     
     TurbotACPAgent agent("/tmp");
     
@@ -1044,6 +1060,10 @@ TEST_CASE("ACP.TurbotAgent.InitializeWithAuth", "[ACP][Agent]") {
 }
 
 TEST_CASE("ACP.TurbotAgent.NewSessionWithMcpServers", "[ACP][Agent]") {
+    TURBOT_TEST_TMPDIR(tmp, true);
+    turbot::core::session::SessionStore::instance().reset();
+    turbot::core::session::SessionStore::instance().init(create_test_db(tmp.path()));
+    
     TurbotACPAgent agent("/tmp");
     
     NewSessionRequest req;
@@ -1059,6 +1079,10 @@ TEST_CASE("ACP.TurbotAgent.NewSessionWithMcpServers", "[ACP][Agent]") {
 }
 
 TEST_CASE("ACP.TurbotAgent.LoadSession", "[ACP][Agent]") {
+    TURBOT_TEST_TMPDIR(tmp, true);
+    turbot::core::session::SessionStore::instance().reset();
+    turbot::core::session::SessionStore::instance().init(create_test_db(tmp.path()));
+    
     TurbotACPAgent agent("/tmp");
     
     // First create a session
@@ -1087,6 +1111,10 @@ TEST_CASE("ACP.TurbotAgent.LoadSessionNonExistent", "[ACP][Agent]") {
 }
 
 TEST_CASE("ACP.TurbotAgent.ResumeSession", "[ACP][Agent]") {
+    TURBOT_TEST_TMPDIR(tmp, true);
+    turbot::core::session::SessionStore::instance().reset();
+    turbot::core::session::SessionStore::instance().init(create_test_db(tmp.path()));
+    
     TurbotACPAgent agent("/tmp");
     
     // First create a session
@@ -1104,6 +1132,10 @@ TEST_CASE("ACP.TurbotAgent.ResumeSession", "[ACP][Agent]") {
 }
 
 TEST_CASE("ACP.TurbotAgent.ForkSession", "[ACP][Agent]") {
+    TURBOT_TEST_TMPDIR(tmp, true);
+    turbot::core::session::SessionStore::instance().reset();
+    turbot::core::session::SessionStore::instance().init(create_test_db(tmp.path()));
+    
     TurbotACPAgent agent("/tmp");
     
     // First create a session

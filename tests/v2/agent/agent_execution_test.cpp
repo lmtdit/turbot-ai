@@ -59,7 +59,8 @@ TEST_CASE("Agent.ExecuteParams.Defaults", "[Agent][Execution]") {
     
     REQUIRE(params.session_id.empty());
     REQUIRE(params.prompt.empty());
-    REQUIRE(params.context.is_object());
+    // Default constructed nlohmann::json is null, not an object
+    REQUIRE(params.context.is_null());
     REQUIRE_FALSE(params.model_override.has_value());
 }
 
@@ -294,7 +295,8 @@ TEST_CASE_METHOD(AgentExecutionFixture, "Agent.MockProvider.Chat", "[Agent][Exec
     response.model = "mock-model";
     response.finish_reason = "stop";
     response.choices.push_back(ChatMessage::assistant("I have completed the task."));
-    response.usage = turbot::core::TokenUsage(100, 50, 150);
+    // TokenUsage: input=100, output=50, reasoning=0, cache={0,0}
+    response.usage = turbot::core::TokenUsage{100, 50, 0, {0, 0}};
     
     mock_provider_->set_next_response(response);
     
@@ -440,7 +442,8 @@ TEST_CASE_METHOD(AgentExecutionFixture, "Agent.MockProvider.Error", "[Agent][Exe
     auto result = mock_provider_->chat(messages, "mock-model");
     
     REQUIRE(result.is_error());
-    REQUIRE(result.error->contains("server_error"));
+    // MockProvider::ServerError sets type to "server_error"
+    REQUIRE((*result.error)["type"].get<std::string>() == "server_error");
 }
 
 // ==================== Agent Permission Tests ====================

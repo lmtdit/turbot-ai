@@ -30,7 +30,8 @@ TEST_CASE("PluginManager.RegisterHook", "[Core][Plugin]") {
         called = true;
     });
     
-    REQUIRE(id > 0);
+    // ID starts from 0 and increments; >= 0 is valid
+    REQUIRE(id >= 0);
     REQUIRE(manager.handler_count("test_hook") == 1);
     
     manager.clear_all();

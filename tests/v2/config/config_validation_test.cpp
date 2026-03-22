@@ -209,7 +209,9 @@ TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.InvalidConfig.Malfo
 }
 
 TEST_CASE_METHOD(ConfigValidationFixture, "Config.Validation.InvalidConfig.DeepNesting", "[Config][Validation]") {
+    // Reset config to avoid conflicts with previous tests
     auto& manager = ConfigManager::instance();
+    manager.reload();
 
     // Create deeply nested config
     manager.set("level1.level2.level3.level4.level5.value", "deep");

@@ -1,10 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include "../fixture/test_macros.hpp"
 #include <turbot/core/config/config_manager.hpp>
+#include <turbot/utils/env_utils.hpp>
 #include <fstream>
 
 using namespace turbot::core;
 using namespace turbot::test;
+using namespace turbot::utils;
 
 // ==================== ConfigManager 验证测试 ====================
 
@@ -32,7 +34,6 @@ TEST_CASE("Config.Validation.ValidProvider", "[Config]") {
 
 TEST_CASE("Config.Validation.InvalidProviderType", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
-    WorkingDirGuard cwd_guard(tmp.path());
     
     auto config_file = tmp.path() / ".turbot" / "turbot.json";
     std::filesystem::create_directories(config_file.parent_path());
@@ -45,9 +46,16 @@ TEST_CASE("Config.Validation.InvalidProviderType", "[Config]") {
     })";
     file.close();
     
+    // Set environment variable to override project config path
+    set_env("TURBOT_PROJECT_CONFIG_PATH", tmp.path().string());
+    
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    manager.reload();  // Reset config state
     auto result = manager.load_config(ConfigLevel::Project);
+    
+    // Clean up environment
+    unset_env("TURBOT_PROJECT_CONFIG_PATH");
+    
     // Unknown type should still load (just warning)
     REQUIRE(result.success);
 }
@@ -64,9 +72,16 @@ TEST_CASE("Config.Validation.InvalidVersion", "[Config]") {
     })";
     file.close();
     
+    // Set environment variable to override project config path
+    set_env("TURBOT_PROJECT_CONFIG_PATH", tmp.path().string());
+    
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    manager.reload();  // Reset config state
     auto result = manager.load_config(ConfigLevel::Project);
+    
+    // Clean up environment
+    unset_env("TURBOT_PROJECT_CONFIG_PATH");
+    
     // Version should be string
     REQUIRE_FALSE(result.success);
 }
