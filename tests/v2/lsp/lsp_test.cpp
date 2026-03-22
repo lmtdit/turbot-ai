@@ -5,6 +5,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <turbot/core/lsp/lsp.hpp>
+#include <turbot/core/lsp/server.hpp>
+#include <fstream>
+#include <ctime>
 
 using namespace turbot::core::lsp;
 
@@ -775,4 +778,118 @@ TEST_CASE("LSP.ServerInfo.RootFunction", "[LSP][Builtin]") {
     std::optional<std::string> root = info.root("/workspace/test.cpp");
     // root 可能返回 nullopt 或一个路径
     REQUIRE((root.has_value() || !root.has_value()));
+}
+
+// ==================== NearestRoot Tests ====================
+
+TEST_CASE("LSP.NearestRoot.EmptyStartDir", "[LSP][Server]") {
+    auto result = nearest_root("", {".git"});
+    REQUIRE_FALSE(result.has_value());
+}
+
+TEST_CASE("LSP.NearestRoot.FindGitRoot", "[LSP][Server]") {
+    // Create a temp directory structure
+    std::string temp_dir = "/tmp/turbot-lsp-test-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir");
+    
+    // Create .git file/directory
+    std::ofstream(temp_dir + "/.git").close();
+    
+    // Find root from subdir
+    auto result = nearest_root(temp_dir + "/subdir", {".git"});
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == temp_dir);
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("LSP.NearestRoot.IncludePattern", "[LSP][Server]") {
+    std::string temp_dir = "/tmp/turbot-lsp-test-include-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir/deep");
+    
+    // Create include pattern file
+    std::ofstream(temp_dir + "/CMakeLists.txt").close();
+    
+    // Find root from deep subdir
+    auto result = nearest_root(temp_dir + "/subdir/deep", {"CMakeLists.txt"});
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == temp_dir);
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("LSP.NearestRoot.ExcludePattern", "[LSP][Server]") {
+    std::string temp_dir = "/tmp/turbot-lsp-test-exclude-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir");
+    
+    // Create include and exclude pattern files
+    std::ofstream(temp_dir + "/.git").close();
+    std::ofstream(temp_dir + "/.turbotignore").close();
+    
+    // Exclude pattern should cause nullopt
+    auto result = nearest_root(temp_dir + "/subdir", {".git"}, {".turbotignore"});
+    REQUIRE_FALSE(result.has_value());
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("LSP.NearestRoot.StopDir", "[LSP][Server]") {
+    std::string temp_dir = "/tmp/turbot-lsp-test-stop-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir/deep");
+    
+    // Create stop directory marker
+    std::ofstream(temp_dir + "/subdir/.git").close();
+    
+    // Find root with stop_dir
+    auto result = nearest_root(temp_dir + "/subdir/deep", {".git"}, {}, temp_dir + "/subdir");
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == temp_dir + "/subdir");
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("LSP.NearestRoot.FallbackToStopDir", "[LSP][Server]") {
+    std::string temp_dir = "/tmp/turbot-lsp-test-fallback-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir");
+    
+    // No include pattern found, should fallback to stop_dir
+    auto result = nearest_root(temp_dir + "/subdir", {".git"}, {}, temp_dir);
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == temp_dir);
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("LSP.NearestRoot.FallbackToStartDir", "[LSP][Server]") {
+    std::string temp_dir = "/tmp/turbot-lsp-test-start-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir");
+    
+    // No include pattern found, no stop_dir, should fallback to start_dir
+    auto result = nearest_root(temp_dir + "/subdir", {".git"});
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == temp_dir + "/subdir");
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
+}
+
+TEST_CASE("LSP.NearestRoot.MultipleIncludePatterns", "[LSP][Server]") {
+    std::string temp_dir = "/tmp/turbot-lsp-test-multi-" + std::to_string(std::time(nullptr));
+    std::filesystem::create_directories(temp_dir + "/subdir");
+    
+    // Create package.json
+    std::ofstream(temp_dir + "/package.json").close();
+    
+    // Find root with multiple patterns
+    auto result = nearest_root(temp_dir + "/subdir", {".git", "package.json", "Cargo.toml"});
+    REQUIRE(result.has_value());
+    REQUIRE(result.value() == temp_dir);
+    
+    // Cleanup
+    std::filesystem::remove_all(temp_dir);
 }

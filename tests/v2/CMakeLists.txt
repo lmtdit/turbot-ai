@@ -42,10 +42,12 @@ set(V2_TEST_SOURCES
     agent/agent_loader_test.cpp
     agent/agent_builtin_test.cpp
     agent/agent_generator_test.cpp
+    agent/agent_execution_test.cpp
     # file
     file/filesystem_test.cpp
     # provider
     provider/provider_test.cpp
+    provider/provider_execution_test.cpp
     # mcp
     mcp/mcp_test.cpp
     # skill
@@ -60,6 +62,7 @@ set(V2_TEST_SOURCES
     snapshot/snapshot_test.cpp
     # lsp
     lsp/lsp_test.cpp
+    lsp/lsp_client_test.cpp
     # acp
     # core
     core/event_bus_test.cpp

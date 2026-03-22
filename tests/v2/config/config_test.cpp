@@ -535,3 +535,161 @@ TEST_CASE("Config.Class.NonexistentRemove", "[Config][Class]") {
     
     REQUIRE_FALSE(config.remove("nonexistent_key"));
 }
+
+// ==================== Extended ConfigManager Tests ====================
+
+TEST_CASE("Config.Manager.InitializeExtended", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    // Initialize config system
+    auto results = manager.initialize();
+    REQUIRE(results.size() >= 1);  // At least default config
+}
+
+TEST_CASE("Config.Manager.GetConfigPathExtended", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    auto user_path = manager.get_config_path(ConfigLevel::User);
+    REQUIRE_FALSE(user_path.empty());
+    
+    auto project_path = manager.get_config_path(ConfigLevel::Project);
+    REQUIRE_FALSE(project_path.empty());
+}
+
+TEST_CASE("Config.Manager.SetLogLevel", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("log.level", "debug");
+    auto level = manager.get<std::string>("log.level");
+    REQUIRE(level.has_value());
+    REQUIRE(*level == "debug");
+}
+
+TEST_CASE("Config.Manager.SetProvider", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    nlohmann::json provider = {
+        {"name", "test-provider"},
+        {"type", "openai"},
+        {"api_key", "test-key"}
+    };
+    
+    manager.set("providers.default", provider);
+    auto loaded = manager.get<nlohmann::json>("providers.default");
+    REQUIRE(loaded.has_value());
+    REQUIRE((*loaded)["name"] == "test-provider");
+}
+
+TEST_CASE("Config.Manager.LoadConfig", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    // Load user level config
+    auto result = manager.load_config(ConfigLevel::User);
+    REQUIRE(result.level == ConfigLevel::User);
+}
+
+TEST_CASE("Config.Manager.GetAllExtended", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("getall_test.key", "value");
+    
+    auto all = manager.get_all();
+    REQUIRE(all.is_object());
+    REQUIRE(all.contains("getall_test"));
+}
+
+TEST_CASE("Config.Manager.HasNested", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("nested.test.key", "value");
+    REQUIRE(manager.has("nested.test.key"));
+    REQUIRE(manager.has("nested.test"));
+    REQUIRE(manager.has("nested"));
+}
+
+TEST_CASE("Config.Manager.ValidateConfigExtended", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    nlohmann::json valid_config = {
+        {"version", "1.0"},
+        {"providers", nlohmann::json::array()}
+    };
+    
+    REQUIRE(manager.validate_config(valid_config));
+}
+
+TEST_CASE("Config.Manager.ParseYaml", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    std::string yaml = R"(
+name: test
+value: 123
+enabled: true
+)";
+    
+    auto json = manager.parse_yaml(yaml);
+    REQUIRE(json.is_object());
+    REQUIRE(json["name"] == "test");
+    REQUIRE(json["value"] == 123);
+    REQUIRE(json["enabled"] == true);
+}
+
+TEST_CASE("Config.Manager.ResolveEnvVars", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    setenv("TEST_CONFIG_VAR", "resolved_value", 1);
+    
+    std::string value = "${TEST_CONFIG_VAR}";
+    auto resolved = manager.resolve_env_vars(value);
+    REQUIRE(resolved == "resolved_value");
+    
+    unsetenv("TEST_CONFIG_VAR");
+}
+
+TEST_CASE("Config.Manager.SaveConfig", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    manager.set("save_test.key", "value");
+    
+    // Note: This may fail if no write permission, but should not throw
+    bool result = manager.save_config(ConfigLevel::User);
+    // Just verify it doesn't crash
+    (void)result;
+}
+
+TEST_CASE("Config.Manager.Reload", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    // Should not throw
+    manager.reload();
+}
+
+TEST_CASE("Config.Manager.GetExtensionPathExtended", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    auto agent_path = manager.get_extension_path(ConfigLevel::User, ExtensionType::Agent);
+    REQUIRE_FALSE(agent_path.empty());
+    
+    auto skill_path = manager.get_extension_path(ConfigLevel::Project, ExtensionType::Skill);
+    REQUIRE_FALSE(skill_path.empty());
+}
+
+TEST_CASE("Config.Manager.GetLogPath", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    auto log_path = manager.get_log_path();
+    REQUIRE_FALSE(log_path.empty());
+}
+
+TEST_CASE("Config.Manager.OnConfigChangeExtended", "[Config]") {
+    auto& manager = ConfigManager::instance();
+    
+    int call_count = 0;
+    manager.on_config_change([&call_count](ConfigLevel, const std::string&, const nlohmann::json&) {
+        call_count++;
+    });
+    
+    // The callback is registered
+    // Note: May not be triggered immediately
+    (void)call_count;
+}

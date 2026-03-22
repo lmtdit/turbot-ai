@@ -825,7 +825,7 @@ TEST_CASE("Message.WithCompaction", "[Core][Message]") {
 TEST_CASE("Message.WithSource", "[Core][Message]") {
     Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
     
-    Part source = Part::create_source("source-1", "read_file", {{"path", "/test"}});
+    Part source = Part::create_source("source-1", "read_file", "Test Title", "file:///test");
     msg.add_part(source);
     
     REQUIRE(msg.parts().size() == 1);
@@ -918,4 +918,173 @@ TEST_CASE("MessageInfo.FromJson.Minimal", "[Core][Message]") {
     REQUIRE(info.cost == 0.0);
     REQUIRE_FALSE(info.parent_id.has_value());
     REQUIRE_FALSE(info.system.has_value());
+}
+
+// ==================== Extended Message Tests ====================
+
+TEST_CASE("Message.AddMultipleParts", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    msg.add_text("First text");
+    msg.add_reasoning("Thinking...");
+    msg.add_text("Second text");
+    
+    REQUIRE(msg.parts().size() == 3);
+    REQUIRE(msg.get_text() == "First textSecond text");
+}
+
+TEST_CASE("Message.GetPartsByType", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    msg.add_text("Text content");
+    msg.add_reasoning("Reasoning content");
+    msg.add_tool("tool-1", "test_tool", {{"arg", "value"}}, std::nullopt);
+    
+    auto text_parts = msg.get_parts(PartType::Text);
+    REQUIRE(text_parts.size() == 1);
+    
+    auto reasoning_parts = msg.get_parts(PartType::Reasoning);
+    REQUIRE(reasoning_parts.size() == 1);
+    
+    auto tool_parts = msg.get_parts(PartType::Tool);
+    REQUIRE(tool_parts.size() == 1);
+}
+
+TEST_CASE("Message.HasToolCalls", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    REQUIRE_FALSE(msg.has_tool_calls());
+    
+    msg.add_tool("tool-1", "test_tool", {{"arg", "value"}}, std::nullopt);
+    REQUIRE(msg.has_tool_calls());
+}
+
+TEST_CASE("Message.GetToolCalls", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    msg.add_tool("tool-1", "read_file", {{"path", "/tmp"}}, std::nullopt);
+    msg.add_tool("tool-2", "write_file", {{"path", "/tmp/out"}}, {{"result", "success"}});
+    
+    auto calls = msg.get_tool_calls();
+    REQUIRE(calls.size() == 2);
+}
+
+TEST_CASE("Message.GetFullTextExtended", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    msg.add_text("Hello ");
+    msg.add_reasoning("thinking...");
+    msg.add_text("World");
+    
+    auto full_text = msg.get_full_text();
+    REQUIRE(full_text.find("Hello") != std::string::npos);
+    REQUIRE(full_text.find("thinking") != std::string::npos);
+    REQUIRE(full_text.find("World") != std::string::npos);
+}
+
+TEST_CASE("Message.InfoAccess", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    auto& info = msg.info();
+    REQUIRE(info.session_id == "test-session");
+    REQUIRE(info.role == Role::Assistant);
+    REQUIRE(info.agent == "test-agent");
+    REQUIRE(info.model_id == "test-model");
+    REQUIRE(info.provider_id == "test-provider");
+}
+
+TEST_CASE("Message.ConstInfoAccess", "[Core][Message]") {
+    const Message msg("test-session", Role::User, "user-agent", "user-model", "user-provider");
+    
+    const auto& info = msg.info();
+    REQUIRE(info.session_id == "test-session");
+    REQUIRE(info.role == Role::User);
+}
+
+TEST_CASE("Message.PartsConstAccess", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    msg.add_text("Test");
+    
+    const Message& const_msg = msg;
+    const auto& parts = const_msg.parts();
+    REQUIRE(parts.size() == 1);
+}
+
+TEST_CASE("Message.GenerateUuid", "[Core][Message]") {
+    auto uuid1 = generate_uuid();
+    auto uuid2 = generate_uuid();
+    
+    REQUIRE_FALSE(uuid1.empty());
+    REQUIRE_FALSE(uuid2.empty());
+    REQUIRE(uuid1 != uuid2);  // Should be unique
+}
+
+TEST_CASE("Message.CurrentTimestampExtended", "[Core][Message]") {
+    auto ts1 = current_timestamp_ms();
+    auto ts2 = current_timestamp_ms();
+    
+    REQUIRE(ts1 > 0);
+    REQUIRE(ts2 >= ts1);
+}
+
+TEST_CASE("MessageInfo.TokensField", "[Core][Message]") {
+    MessageInfo info;
+    info.id = "msg-token-test";
+    info.tokens.input = 100;
+    info.tokens.output = 50;
+    info.tokens.reasoning = 25;
+    
+    auto j = info.to_json();
+    REQUIRE(j.contains("tokens"));
+    REQUIRE(j["tokens"]["input"] == 100);
+    REQUIRE(j["tokens"]["output"] == 50);
+    REQUIRE(j["tokens"]["reasoning"] == 25);
+}
+
+TEST_CASE("MessageInfo.ErrorField", "[Core][Message]") {
+    MessageInfo info;
+    info.id = "msg-error-test";
+    info.error = nlohmann::json{
+        {"code", "rate_limit"},
+        {"message", "Too many requests"}
+    };
+    
+    auto j = info.to_json();
+    REQUIRE(j.contains("error"));
+    REQUIRE(j["error"]["code"] == "rate_limit");
+}
+
+TEST_CASE("MessageInfo.ToolsField", "[Core][Message]") {
+    MessageInfo info;
+    info.id = "msg-tools-test";
+    info.tools = nlohmann::json::array({"read_file", "write_file", "bash"});
+    
+    auto j = info.to_json();
+    REQUIRE(j.contains("tools"));
+    REQUIRE(j["tools"].size() == 3);
+}
+
+TEST_CASE("Message.AddPartWithId", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    Part part = Part::create_text("Test content");
+    std::string part_id = part.id;
+    
+    msg.add_part(part);
+    
+    REQUIRE(msg.parts().size() == 1);
+    REQUIRE(msg.parts()[0].id == part_id);
+    REQUIRE(msg.parts()[0].message_id == msg.info().id);
+    REQUIRE(msg.parts()[0].session_id == "test-session");
+}
+
+TEST_CASE("Message.TimestampUpdate", "[Core][Message]") {
+    Message msg("test-session", Role::Assistant, "test-agent", "test-model", "test-provider");
+    
+    int64_t initial_time = msg.info().time_created;
+    REQUIRE(initial_time > 0);
+    
+    // Add part should update timestamp
+    msg.add_text("New content");
+    REQUIRE(msg.info().time_updated >= initial_time);
 }
