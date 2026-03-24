@@ -1266,3 +1266,309 @@ _100% 复刻原则重新评估: 2026-03-15_
 _深度功能对齐审查: 2026-03-15_
 _100% 复刻原则重新评估: 2026-03-15_
 _libs 目录深度审查修正: 2026-03-15_
+
+---
+
+## 17. 基于"100% 复刻"原则的源码级再评估 (2026-03-15)
+
+**评估原则**: Turbot 是用 C++ 对 OpenCode 核心的 **100% 行为复刻**，不允许架构创新，要求接口一致、数据结构一致、行为逻辑一致。本节以 OpenCode TypeScript 源码为唯一基准，逐模块对比 Turbot C++ 实现，识别所有偏差并分级。
+
+---
+
+### 17.1 SQLite 数据库 Schema 偏差 (P0 级)
+
+这是"100% 复刻"最根本的基础，DB Schema 决定了所有读写行为的正确性。
+
+#### 17.1.1 `sessions` 表对比
+
+| 列名                | OpenCode (`session.sql.ts`) | Turbot (`session_store.cpp`) | 差距                                                       |
+| ------------------- | --------------------------- | ---------------------------- | ---------------------------------------------------------- |
+| `id`                | TEXT PK (SessionID 字符串)  | TEXT PK                      | ✅ 对齐                                                    |
+| `project_id`        | TEXT FK→project.id          | TEXT                         | ✅ 对齐（无 FK 约束）                                      |
+| `workspace_id`      | TEXT nullable               | **❌ 缺失**                  | P0                                                         |
+| `parent_id`         | TEXT nullable               | TEXT nullable                | ✅ 对齐                                                    |
+| `slug`              | TEXT NOT NULL               | TEXT NOT NULL                | ✅ 对齐                                                    |
+| `directory`         | TEXT NOT NULL               | TEXT NOT NULL                | ✅ 对齐                                                    |
+| `title`             | TEXT NOT NULL               | TEXT NOT NULL                | ✅ 对齐                                                    |
+| `version`           | TEXT NOT NULL               | TEXT NOT NULL                | ✅ 对齐                                                    |
+| `share_url`         | TEXT nullable               | **❌ 缺失**                  | P0                                                         |
+| `summary_additions` | INTEGER nullable            | **❌ 缺失**                  | P0                                                         |
+| `summary_deletions` | INTEGER nullable            | **❌ 缺失**                  | P0                                                         |
+| `summary_files`     | INTEGER nullable            | **❌ 缺失**                  | P0                                                         |
+| `summary_diffs`     | TEXT(JSON) nullable         | **❌ 缺失**                  | P0                                                         |
+| `revert`            | TEXT(JSON) nullable         | TEXT nullable                | ✅ 对齐                                                    |
+| `permission`        | TEXT(JSON) nullable         | TEXT nullable                | ✅ 对齐                                                    |
+| `time_created`      | INTEGER (via Timestamps)    | INTEGER                      | ✅ 对齐                                                    |
+| `time_updated`      | INTEGER (via Timestamps)    | INTEGER                      | ✅ 对齐                                                    |
+| `time_compacting`   | INTEGER nullable            | INTEGER nullable             | ✅ 对齐                                                    |
+| `time_archived`     | INTEGER nullable            | INTEGER nullable             | ✅ 对齐                                                    |
+| `state`             | **不存在**                  | TEXT (内部字段)              | ⚠️ Turbot 多出此列，需保持 DB 内部专用，不影响 wire format |
+
+**缺失列**: `workspace_id`, `share_url`, `summary_additions`, `summary_deletions`, `summary_files`, `summary_diffs` — **6列全部 P0**
+
+#### 17.1.2 `message` 表对比
+
+| 方面   | OpenCode (`message` 表)                            | Turbot (`session_messages` 表) | 差距                     |
+| ------ | -------------------------------------------------- | ------------------------------ | ------------------------ |
+| PK     | `id TEXT` (MessageID 字符串)                       | `id INTEGER AUTOINCREMENT`     | ❌ **P0 — 完全不同**     |
+| 外键   | `session_id TEXT FK→session.id`                    | `session_id TEXT`              | ⚠️ 无 FK 约束            |
+| 索引   | `(session_id, time_created, id)`                   | `(session_id, seq)`            | ❌ **P0 — 排序语义不同** |
+| 数据列 | `data TEXT(JSON)` (MessageV2.Info 去 id/sessionID) | `data TEXT`, `seq INTEGER`     | ❌ 结构不同              |
+| 时间列 | `time_created INTEGER`                             | `created_at INTEGER`           | ⚠️ 列名不同              |
+
+**影响**: MessageID 是 Turbot 生成 ID (`mes_` 前缀) 的前提，整个 message 存取体系需重构。
+
+#### 17.1.3 `part` 表 — Turbot 完全缺失
+
+OpenCode 有独立的 `part` 表 (`PartID TEXT PK`, `message_id FK`, `session_id`, `time_created`, `data JSON`)，用于存储 assistant 消息的结构化 part（文本、工具调用、工具结果等）。Turbot 无此表，也无此概念。**P1 级差距**（当前 agent 运行时有自己的 part 处理，但与 OpenCode wire format 不兼容）。
+
+#### 17.1.4 `project` 表 — Turbot 缺失 SQLite 持久化
+
+OpenCode (`project.sql.ts`) 定义了 `project` 表: `id TEXT PK`, `worktree`, `vcs`, `name`, `icon_url`, `icon_color`, `time_created`, `time_updated`, `time_initialized`, `sandboxes TEXT(JSON)`, `commands TEXT(JSON)`。
+
+Turbot 当前: **无 `project` 表，`from_directory()` 将项目数据写入 `.turbot/turbot.json` 文件**。这是一个 **P0 级** 根本性差异，导致：
+
+- `Project::list()` 返回空向量（无法从 SQLite 读取）
+- `Project::get()` 通过扫描 `list()` 查找（无效）
+- `fromDirectory()` 无法执行 session 迁移（将 global sessions 迁移到具体 project）
+
+#### 17.1.5 `account` 表 — Turbot 缺失 SQLite 持久化
+
+OpenCode 通过 `AccountRepo` + `AccountTable` + `AccountStateTable` (两张 SQLite 表) 持久化账户数据。  
+Turbot 当前: **使用 `~/.turbot/accounts.json` 文件存储**。这是 **P0 级** 差异，影响：
+
+- Token 过期时间无法持久化
+- 多进程并发访问会出现竞态
+- 缺乏事务性保证
+
+---
+
+### 17.2 Session 模块 API 偏差
+
+#### 17.2.1 `Session::list()` — 缺失过滤参数
+
+**OpenCode**:
+
+```typescript
+function* list(input?: {
+  directory?: string
+  workspaceID?: WorkspaceID
+  roots?: boolean       // isNull(parent_id)
+  start?: number        // time_updated >= start
+  search?: string       // title LIKE %search%
+  limit?: number        // default 100
+})
+```
+
+**Turbot**:
+
+```cpp
+std::vector<Session> Session::list(const std::string& project_id);
+// 仅有 project_id，缺少所有 5 个可选过滤参数
+```
+
+**差距级别**: P0 — 这直接影响 ACP/Server 的会话列表 API 行为。
+
+#### 17.2.2 `Session::fork()` — 完全缺失
+
+OpenCode `fork(sessionID, messageID?)` 的完整语义:
+
+1. 获取原始会话
+2. 创建新会话 (title 追加 `" (fork #N)"`)
+3. 复制原始会话的所有 messages (到 `messageID` 截止)，重新分配 MessageID
+4. 复制每条 message 的所有 parts，重新分配 PartID
+5. 维护 parentID 映射（assistant 消息的 parentID 指向对应 user 消息的新 ID）
+
+Turbot 完全没有 `fork()` 方法。**P0 级差距**。
+
+#### 17.2.3 其他缺失的 Session 方法
+
+| OpenCode 方法                           | 功能                       | Turbot 状态              | 差距级别 |
+| --------------------------------------- | -------------------------- | ------------------------ | -------- |
+| `touch(sessionID)`                      | 仅更新 time_updated        | 通过 `update()` 近似实现 | P2       |
+| `setSummary(sessionID, summary)`        | 写 summary\_\* 列          | **缺失** (DB 列都没有)   | P0       |
+| `setRevert(sessionID, revert, summary)` | 写 revert + summary 列     | **缺失**                 | P1       |
+| `clearRevert(sessionID)`                | 清除 revert 列             | **缺失**                 | P1       |
+| `share(sessionID)`                      | 写 share_url 列            | **缺失** (DB 列没有)     | P1       |
+| `unshare(sessionID)`                    | 清除 share_url             | **缺失**                 | P1       |
+| `diff(sessionID)`                       | 读取 session_diff 文件     | **缺失**                 | P2       |
+| `children(parentID)`                    | 查询子会话                 | **缺失**                 | P1       |
+| `setArchived(sessionID, time)`          | 写 time_archived           | 通过 `update()` 近似     | P2       |
+| `initialize(...)`                       | 触发 SessionPrompt.command | **缺失**                 | P1       |
+| `plan(slug, time)`                      | 计算 plan 文件路径         | **缺失**                 | P2       |
+| `updatePart(part)`                      | 写 part 表                 | **缺失** (part 表不存在) | P1       |
+| `removePart(...)`                       | 删除 part 记录             | **缺失**                 | P1       |
+| `updatePartDelta(...)`                  | 发布 part delta 事件       | **缺失**                 | P1       |
+
+---
+
+### 17.3 Project 模块 API 偏差
+
+#### 17.3.1 `from_directory()` 行为差异
+
+| 步骤                   | OpenCode                                                                          | Turbot                                           | 差距 |
+| ---------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------ | ---- |
+| 1. 生成 project ID     | `git rev-list --max-parents=0 HEAD` + cache                                       | ✅ 已对齐 (sub-02-1)                             | -    |
+| 2. worktree 解析       | `git rev-parse --git-common-dir` + `--show-toplevel`                              | ⚠️ 仅有 `--git-common-dir`，无 `--show-toplevel` | P1   |
+| 3. SQLite upsert       | `INSERT ... ON CONFLICT DO UPDATE SET ...`                                        | **❌ 写 `.turbot/turbot.json`**                  | P0   |
+| 4. session 迁移        | `UPDATE sessions SET project_id=? WHERE project_id=global AND directory=worktree` | **❌ 缺失**                                      | P0   |
+| 5. 发布 GlobalBus 事件 | `GlobalBus.emit("event", { type: "project.updated", ... })`                       | **❌ 缺失**                                      | P1   |
+
+#### 17.3.2 其他缺失的 Project 方法
+
+| OpenCode 方法              | Turbot 状态                                      | 差距级别 |
+| -------------------------- | ------------------------------------------------ | -------- |
+| `Project.list()`           | 返回空向量                                       | P0       |
+| `Project.get(id)`          | 通过空 `list()` 扫描（无效）                     | P0       |
+| `Project.update()`         | 写 JSON 文件，无 SQLite，无事件                  | P1       |
+| `Project.setInitialized()` | 写 JSON 文件                                     | P1       |
+| `Project.initGit()`        | 仅记录日志，不调用 `git init`                    | P1       |
+| `Project.addSandbox()`     | 无实现                                           | P2       |
+| `Project.removeSandbox()`  | 无实现                                           | P2       |
+| `Project.sandboxes()`      | 无 SQLite 查询                                   | P2       |
+| `Project.discover()`       | 仅扫描顶层目录，OpenCode 递归扫描 `**/favicon.*` | P3       |
+
+---
+
+### 17.4 Account 模块 API 偏差
+
+#### 17.4.1 `login()` / `poll()` — 无 HTTP 调用
+
+| 行为                       | OpenCode                          | Turbot                   | 差距                   |
+| -------------------------- | --------------------------------- | ------------------------ | ---------------------- |
+| `login(server)`            | POST `{server}/auth/device/code`  | 返回生成的假 device_code | **P0 — 行为一致性 0%** |
+| `poll(input)`              | POST `{server}/auth/device/token` | 永远返回 Pending         | **P0**                 |
+| `resolveToken()`           | 检查 token_expiry，过期则自动刷新 | 直接返回内存中的 token   | **P0**                 |
+| `fetchUser()`              | GET `{server}/api/user`           | 不存在                   | P0                     |
+| `fetchOrgs()`              | GET `{server}/api/orgs`           | 不存在                   | P0                     |
+| `config(accountID, orgID)` | GET `{server}/api/config`         | 不存在                   | P1                     |
+
+#### 17.4.2 Account 存储偏差
+
+| 方面       | OpenCode                                 | Turbot         | 差距    |
+| ---------- | ---------------------------------------- | -------------- | ------- |
+| 存储后端   | SQLite (`account` + `account_state` 表)  | JSON 文件      | P0      |
+| Token 加密 | 明文存 SQLite (OS 文件权限保护)          | 明文存 JSON    | ⚠️ 等价 |
+| Token 过期 | `token_expiry INTEGER` 列，自动检查+刷新 | **无过期字段** | P0      |
+| 多进程安全 | SQLite 事务保证                          | 文件级锁不足   | P1      |
+
+---
+
+### 17.5 事件系统偏差
+
+OpenCode 在关键操作后通过 `Bus.publish()` 发布事件：
+
+| 事件                                              | 触发位置                                      | Turbot 状态 |
+| ------------------------------------------------- | --------------------------------------------- | ----------- |
+| `session.created`                                 | `Session.createNext()`                        | **缺失**    |
+| `session.updated`                                 | 几乎每个 Session 写操作                       | **缺失**    |
+| `session.deleted`                                 | `Session.remove()`                            | **缺失**    |
+| `project.updated`                                 | `Project.fromDirectory()`, `Project.update()` | **缺失**    |
+| `message.updated` / `part.updated` / `part.delta` | Session 消息处理                              | **缺失**    |
+
+事件系统是 ACP 实时推送的基础，Turbot 已有 `event/` 模块，但未与 Session/Project 集成。**P1 级缺口**。
+
+---
+
+### 17.6 修订后的复刻率统计
+
+| 模块                        | 上次评估 (§16.5) | 本次重评 | 变化   | 说明                           |
+| --------------------------- | ---------------- | -------- | ------ | ------------------------------ |
+| **DB Schema — sessions 表** | 假设对齐         | **50%**  | ↓      | 6 列缺失                       |
+| **DB Schema — messages 表** | 未评估           | **20%**  | 新     | 完全不同的结构                 |
+| **DB Schema — parts 表**    | 未评估           | **0%**   | 新     | 不存在                         |
+| **DB Schema — project 表**  | 未评估           | **0%**   | 新     | 使用 JSON 文件替代             |
+| **DB Schema — account 表**  | 未评估           | **0%**   | 新     | 使用 JSON 文件替代             |
+| **Session API**             | 60%              | **45%**  | ↓      | fork/setSummary/etc. 缺失      |
+| **Project API**             | 假设 75%         | **40%**  | ↓      | SQLite 持久化缺失，list() 失效 |
+| **Account API**             | 框架级           | **15%**  | ↓      | HTTP 调用全部是 stub           |
+| **Tool 工具**               | 91%              | **91%**  | =      | 不变                           |
+| **基础设施 (HTTP/SQLite)**  | 100%             | **100%** | =      | 不变                           |
+| **综合复刻率**              | **~78%**         | **~55%** | ↓ -23% | DB schema 是最大拖累           |
+
+---
+
+### 17.7 P0 级差距修复清单 (必须修复)
+
+以下问题每一条都会导致 Turbot 与 OpenCode 在相同输入下产生不同输出或崩溃：
+
+| 编号    | 差距描述                                                                                               | 修复工作量 | 关联当前计划 |
+| ------- | ------------------------------------------------------------------------------------------------------ | ---------- | ------------ |
+| **G01** | `sessions` 表补充 `workspace_id`, `share_url`, `summary_*` 6 列                                        | 0.5 天     | s11          |
+| **G02** | `session_messages` 表重构为 OpenCode `message` 表结构 (string MessageID PK + time_created + data JSON) | 1 天       | 新增         |
+| **G03** | 新增 `part` 表，实现 `updatePart()`/`removePart()`                                                     | 1 天       | 新增         |
+| **G04** | 新增 `project` SQLite 表，`from_directory()` 改为 SQLite upsert                                        | 1.5 天     | 新增         |
+| **G05** | `from_directory()` 添加 session 迁移逻辑                                                               | 0.5 天     | 新增         |
+| **G06** | 新增 `account` + `account_state` SQLite 表，AccountService 改为 SQLite 存储                            | 1 天       | s13          |
+| **G07** | `Account::login()` 实现真实 HTTP POST 调用                                                             | 1 天       | s12          |
+| **G08** | `Account::poll()` 实现真实 HTTP POST + token 持久化                                                    | 1 天       | s12          |
+| **G09** | `Account::resolveToken()` 实现 token 过期检查 + 自动刷新                                               | 0.5 天     | s12          |
+| **G10** | `Session::list()` 扩展 5 个过滤参数                                                                    | 0.5 天     | s07          |
+| **G11** | `Session::fork()` 实现消息历史克隆                                                                     | 1 天       | s08          |
+| **G12** | `Session::setSummary()` 实现                                                                           | 0.5 天     | s11          |
+
+**P0 总工作量: ~10 天**
+
+---
+
+### 17.8 P1 级差距修复清单 (强烈推荐)
+
+| 编号    | 差距描述                                                     | 工作量 |
+| ------- | ------------------------------------------------------------ | ------ |
+| **G13** | `Session::setRevert()` + `clearRevert()`                     | 0.5 天 |
+| **G14** | `Session::share()` + `unshare()` (需 G01 share_url 列)       | 1 天   |
+| **G15** | `Session::children()`                                        | 0.5 天 |
+| **G16** | Session Bus 事件发布 (created/updated/deleted)               | 1 天   |
+| **G17** | Project Bus 事件发布 (project.updated)                       | 0.5 天 |
+| **G18** | `Project::list()`/`get()` 改为 SQLite 查询 (需 G04)          | 0.5 天 |
+| **G19** | `Project::update()` 改为 SQLite (需 G04)                     | 0.5 天 |
+| **G20** | `Project::initGit()` 实现真实 `git init` 调用                | 0.5 天 |
+| **G21** | `from_directory()` 添加 `git rev-parse --show-toplevel` 步骤 | 0.5 天 |
+| **G22** | Account `fetchUser()` + `fetchOrgs()` HTTP 调用              | 0.5 天 |
+| **G23** | `Session::initialize()` 触发 SessionPrompt 命令              | 1 天   |
+
+**P1 总工作量: ~8 天**
+
+---
+
+### 17.9 P2/P3 级差距 (可选)
+
+| 编号 | 差距描述                                    | 优先级 |
+| ---- | ------------------------------------------- | ------ |
+| G24  | `Session::diff()` 读取 session_diff 文件    | P2     |
+| G25  | `Session::plan()` 计算 plan 文件路径        | P2     |
+| G26  | `Session::setArchived()` 专用方法           | P2     |
+| G27  | `Session::touch()` 专用方法                 | P2     |
+| G28  | `Project::addSandbox()` / `removeSandbox()` | P2     |
+| G29  | Account `config()` 远程配置获取             | P2     |
+| G30  | `Project::discover()` 递归 favicon 扫描     | P3     |
+| G31  | `todo` 表新增                               | P3     |
+| G32  | `permission` 表新增                         | P3     |
+
+---
+
+### 17.10 对当前执行计划的影响
+
+当前计划 (sub-02, sub-03) 需要重新调整优先级：
+
+| 原计划任务                       | 重评后状态                | 原因                                                                                        |
+| -------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------- |
+| s07: Session::list() 过滤扩展    | **维持 P0**               | G10，直接影响 API 行为                                                                      |
+| s08: Session::fork()             | **维持 P0**               | G11，核心功能缺失                                                                           |
+| s11: session_store summary DB 列 | **升级至 P0，范围扩大**   | 需同时补 workspace*id + share_url + summary*\* (G01) + message 表重构 (G02) + part 表 (G03) |
+| s12: Account OAuth               | **维持 P0**               | G07+G08+G09                                                                                 |
+| s13: Account/Auth SQLite         | **维持 P0，范围扩大**     | G06 — 2 张表                                                                                |
+| **新增**                         | **Project SQLite 持久化** | G04+G05+G18+G19 — 这是 project 模块最根本的差距                                             |
+| **新增**                         | **事件系统集成**          | G16+G17 — Bus 事件是实时推送基础                                                            |
+
+**建议 sub-03 重新拆分为**:
+
+- **sub-03-1**: DB Schema 修复 (G01+G02+G03 — session/message/part 表)
+- **sub-03-2**: Project SQLite 持久化 (G04+G05+G18+G19)
+- **sub-03-3**: Account OAuth + SQLite (G06+G07+G08+G09+G22)
+- **sub-03-4**: 事件系统集成 + 剩余 API (G13~G17, G23)
+
+---
+
+_100% 复刻原则源码级再评估: 2026-03-15_
+_基准: OpenCode packages/opencode/src/ TypeScript 源码_
