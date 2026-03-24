@@ -101,6 +101,10 @@ set(CORE_SOURCES
     src/acp/server.cpp
     src/acp/session.cpp
     src/acp/agent.cpp
+    # Project module
+    src/project/project.cpp
+    # Account module
+    src/account/account.cpp
 )
 
 # Header files - organized by module

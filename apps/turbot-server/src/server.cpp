@@ -6,6 +6,7 @@
 #include <turbot/core/agent/builtin/plan_agent.hpp>
 #include <turbot/core/agent/builtin/explore_agent.hpp>
 #include <turbot/core/tool/tool_registry.hpp>
+#include <turbot/core/provider/provider_manager.hpp>
 #include "server.hpp"
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -15,6 +16,8 @@
 #include <unistd.h>
 #include <csignal>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <string>
@@ -246,6 +249,88 @@ std::string handle_api_request(const HttpRequest& req) {
             }
             response = {{"agents", agents}};
             return build_response(200, response.dump(2));
+        }
+        
+        // GET /api/v1/models - List available models
+        if (req.method == "GET" && req.path == "/api/v1/models") {
+            auto& pm = core::provider::ProviderManager::instance();
+            auto models = pm.list_all_models();
+            
+            json models_json = json::array();
+            for (const auto& model : models) {
+                models_json.push_back({
+                    {"id", model.id},
+                    {"provider_id", model.provider_id},
+                    {"name", model.name},
+                    {"context_window", model.context_window},
+                    {"capabilities", {
+                        {"tool_call", model.capabilities.tool_call},
+                        {"streaming", model.capabilities.streaming},
+                        {"vision", model.capabilities.vision},
+                        {"reasoning", model.capabilities.reasoning}
+                    }}
+                });
+            }
+            
+            auto default_provider = pm.get_default_provider();
+            response = {
+                {"models", models_json},
+                {"default_provider", default_provider ? (*default_provider)->id() : ""}
+            };
+            return build_response(200, response.dump(2));
+        }
+        
+        // GET /api/v1/providers - List providers
+        if (req.method == "GET" && req.path == "/api/v1/providers") {
+            auto& pm = core::provider::ProviderManager::instance();
+            auto providers = pm.list_providers();
+            
+            auto default_provider = pm.get_default_provider();
+            std::string default_id;
+            if (default_provider) {
+                default_id = (*default_provider)->id();
+            }
+            
+            json providers_json = json::array();
+            for (const auto& provider : providers) {
+                auto models = provider->list_models();
+                providers_json.push_back({
+                    {"id", provider->id()},
+                    {"name", provider->name()},
+                    {"model_count", models.size()},
+                    {"is_default", provider->id() == default_id}
+                });
+            }
+            
+            response = {
+                {"providers", providers_json},
+                {"default_provider", default_id}
+            };
+            return build_response(200, response.dump(2));
+        }
+        
+        // GET /api/v1/config - Get config
+        if (req.method == "GET" && req.path == "/api/v1/config") {
+            std::string config_path = ".turbot/turbot.json";
+            if (!std::filesystem::exists(config_path)) {
+                response = {{"config", json::object()}, {"exists", false}};
+                return build_response(200, response.dump(2));
+            }
+            
+            std::ifstream f(config_path);
+            if (!f.is_open()) {
+                response = {{"error", "Failed to open config file"}};
+                return build_response(500, response.dump(2));
+            }
+            
+            try {
+                json config = json::parse(f);
+                response = {{"config", config}, {"exists", true}};
+                return build_response(200, response.dump(2));
+            } catch (const std::exception& e) {
+                response = {{"error", std::string("Failed to parse config: ") + e.what()}};
+                return build_response(500, response.dump(2));
+            }
         }
         
         // GET /health - Health check

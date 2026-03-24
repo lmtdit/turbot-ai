@@ -34,6 +34,7 @@ TEST_CASE("Config.Validation.ValidProvider", "[Config]") {
 
 TEST_CASE("Config.Validation.InvalidProviderType", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto config_file = tmp.path() / ".turbot" / "turbot.json";
     std::filesystem::create_directories(config_file.parent_path());
@@ -46,15 +47,9 @@ TEST_CASE("Config.Validation.InvalidProviderType", "[Config]") {
     })";
     file.close();
     
-    // Set environment variable to override project config path
-    set_env("TURBOT_PROJECT_CONFIG_PATH", tmp.path().string());
-    
     auto& manager = ConfigManager::instance();
     manager.reload();  // Reset config state
     auto result = manager.load_config(ConfigLevel::Project);
-    
-    // Clean up environment
-    unset_env("TURBOT_PROJECT_CONFIG_PATH");
     
     // Unknown type should still load (just warning)
     REQUIRE(result.success);
@@ -62,6 +57,7 @@ TEST_CASE("Config.Validation.InvalidProviderType", "[Config]") {
 
 TEST_CASE("Config.Validation.InvalidVersion", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto config_file = tmp.path() / ".turbot" / "turbot.json";
     std::filesystem::create_directories(config_file.parent_path());
@@ -72,15 +68,9 @@ TEST_CASE("Config.Validation.InvalidVersion", "[Config]") {
     })";
     file.close();
     
-    // Set environment variable to override project config path
-    set_env("TURBOT_PROJECT_CONFIG_PATH", tmp.path().string());
-    
     auto& manager = ConfigManager::instance();
     manager.reload();  // Reset config state
     auto result = manager.load_config(ConfigLevel::Project);
-    
-    // Clean up environment
-    unset_env("TURBOT_PROJECT_CONFIG_PATH");
     
     // Version should be string
     REQUIRE_FALSE(result.success);
@@ -99,13 +89,14 @@ TEST_CASE("Config.Validation.ProvidersNotArray", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE_FALSE(result.success);
 }
 
 TEST_CASE("Config.Validation.ProviderMissingFields", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto config_file = tmp.path() / ".turbot" / "turbot.json";
     std::filesystem::create_directories(config_file.parent_path());
@@ -119,7 +110,6 @@ TEST_CASE("Config.Validation.ProviderMissingFields", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE_FALSE(result.success);
 }
@@ -142,7 +132,7 @@ TEST_CASE("Config.Validation.ValidPermissionMode", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE(result.success);
 }
@@ -162,7 +152,7 @@ TEST_CASE("Config.Validation.InvalidPermissionMode", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE_FALSE(result.success);
 }
@@ -182,7 +172,7 @@ TEST_CASE("Config.Validation.PermissionRulesNotArray", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE_FALSE(result.success);
 }
@@ -204,7 +194,7 @@ TEST_CASE("Config.Validation.PermissionRuleMissingFields", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     REQUIRE_FALSE(result.success);
 }
@@ -225,7 +215,7 @@ TEST_CASE("Config.Yaml.ParseBoolean", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     manager.initialize();  // Use initialize() instead of load_config()
     
     auto v1 = manager.get<bool>("bool_true");
@@ -251,7 +241,7 @@ TEST_CASE("Config.Yaml.ParseNumbers", "[Config]") {
     file.close();
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     manager.initialize();  // Use initialize() instead of load_config()
     
     auto v1 = manager.get<int>("int_val");
@@ -361,7 +351,7 @@ TEST_CASE("Config.Save.ProjectConfig", "[Config]") {
     }
     
     auto& manager = ConfigManager::instance();
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     
     // Load and modify
     manager.load_config(ConfigLevel::Project);
@@ -398,7 +388,7 @@ TEST_CASE("Config.ExtensionPath.User", "[Config]") {
 
 TEST_CASE("Config.ExtensionPath.Project", "[Config]") {
     TURBOT_TEST_TMPDIR(tmp, false);
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto& manager = ConfigManager::instance();
     

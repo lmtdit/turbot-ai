@@ -286,9 +286,12 @@ std::vector<nlohmann::json> SessionStore::list_messages(
             if (row.contains("data") && row["data"].is_string()) {
                 try {
                     messages.push_back(nlohmann::json::parse(row["data"].get<std::string>()));
+                } catch (const nlohmann::json::parse_error& e) {
+                    TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: parse error: {}", session_id, e.what());
+                } catch (const std::exception& e) {
+                    TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: {}", session_id, e.what());
                 } catch (...) {
-                    // Corrupt row: skip
-                    TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}", session_id);
+                    TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: unknown error", session_id);
                 }
             }
         }
@@ -329,8 +332,12 @@ SessionStore::list_messages_paginated(
                     try {
                         messages.push_back(nlohmann::json::parse(row["data"].get<std::string>()));
                         last_seq = row["seq"].get<int64_t>();
+                    } catch (const nlohmann::json::parse_error& e) {
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: parse error: {}", session_id, e.what());
+                    } catch (const std::exception& e) {
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: {}", session_id, e.what());
                     } catch (...) {
-                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}", session_id);
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: unknown error", session_id);
                     }
                 }
             }
@@ -349,8 +356,12 @@ SessionStore::list_messages_paginated(
                     try {
                         messages.push_back(nlohmann::json::parse(row["data"].get<std::string>()));
                         last_seq = row["seq"].get<int64_t>();
+                    } catch (const nlohmann::json::parse_error& e) {
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: parse error: {}", session_id, e.what());
+                    } catch (const std::exception& e) {
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: {}", session_id, e.what());
                     } catch (...) {
-                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}", session_id);
+                        TURBOT_LOG_WARN("SessionStore: skipping corrupt message row for session {}: unknown error", session_id);
                     }
                 }
             }

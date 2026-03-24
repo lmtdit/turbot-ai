@@ -58,30 +58,60 @@ struct TURBOT_CORE_API RevertInfo {
 /// Convert string to SessionState
 [[nodiscard]] TURBOT_CORE_API SessionState string_to_session_state(const std::string& str);
 
+/// Git-diff summary for a session (aligned with OpenCode Session.Info.summary)
+struct TURBOT_CORE_API SessionSummary {
+    int additions = 0;                       ///< Lines added
+    int deletions = 0;                       ///< Lines deleted
+    int files     = 0;                       ///< Files changed
+    std::optional<nlohmann::json> diffs;     ///< Snapshot.FileDiff array (optional)
+
+    bool operator==(const SessionSummary& o) const noexcept {
+        return additions == o.additions && deletions == o.deletions &&
+               files == o.files && diffs == o.diffs;
+    }
+};
+
+/// Share info (enterprise — URL to public session share link)
+struct TURBOT_CORE_API SessionShare {
+    std::string url;
+    bool operator==(const SessionShare& o) const noexcept { return url == o.url; }
+};
+
 /// Session information structure
 struct TURBOT_CORE_API SessionInfo {
-    std::string id;                          ///< Unique session identifier
-    std::string project_id;                  ///< Project this session belongs to
-    std::optional<std::string> parent_id;    ///< Parent session ID (for forks)
-    std::string slug;                        ///< Human-readable slug
-    std::string directory;                   ///< Working directory
-    std::string title;                       ///< Session title
-    std::string version;                     ///< Session version
-    std::optional<nlohmann::json> permission; ///< Permission configuration
-    int64_t time_created = 0;                ///< Creation timestamp (epoch seconds)
-    int64_t time_updated = 0;                ///< Last update timestamp
-    std::optional<int64_t> time_compacting;  ///< Last compacting timestamp
-    std::optional<int64_t> time_archived;    ///< Archival timestamp
-    SessionState state = SessionState::Created; ///< Current state
-    std::optional<RevertInfo> revert;        ///< Pending revert operation (nullopt when not reverting)
+    std::string id;                              ///< Unique session identifier (ses_ prefix)
+    std::string project_id;                      ///< Project this session belongs to
+    std::optional<std::string> workspace_id;     ///< Workspace ID (enterprise control plane)
+    std::optional<std::string> parent_id;        ///< Parent session ID (for forks)
+    std::string slug;                            ///< Human-readable slug
+    std::string directory;                       ///< Working directory
+    std::string title;                           ///< Session title
+    std::string version;                         ///< Session version
+    std::optional<nlohmann::json> permission;    ///< Permission configuration
+    int64_t time_created = 0;                    ///< Creation timestamp (epoch ms)
+    int64_t time_updated = 0;                    ///< Last update timestamp (epoch ms)
+    std::optional<int64_t> time_compacting;      ///< Last compacting timestamp
+    std::optional<int64_t> time_archived;        ///< Archival timestamp
 
-    /// Serialize to JSON
+    /// Internal lifecycle state — NOT serialized to JSON wire format.
+    /// OpenCode manages this in-memory via SessionStatus; Turbot keeps it for
+    /// internal use only (e.g. guard checks in compact()/archive()/restore()).
+    SessionState state = SessionState::Created;
+
+    std::optional<RevertInfo> revert;            ///< Pending revert operation
+    std::optional<SessionSummary> summary;       ///< Git-diff stats (set after session ends)
+    std::optional<SessionShare> share;           ///< Share URL (enterprise)
+
+    /// Serialize to OpenCode-compatible JSON (camelCase keys, nested time object).
+    /// NOTE: `state` is intentionally omitted from the output.
     [[nodiscard]] nlohmann::json to_json() const;
 
-    /// Deserialize from JSON
+    /// Deserialize from JSON.
+    /// Accepts both camelCase (API/wire) and snake_case (DB column) key variants.
+    /// `state` is reconstructed from time_archived/time_compacting if not explicit.
     static SessionInfo from_json(const nlohmann::json& j);
 
-    /// Equality comparison (includes revert field)
+    /// Equality comparison
     bool operator==(const SessionInfo& other) const noexcept;
 };
 

@@ -1,4 +1,5 @@
 #include <turbot/core/tool/builtin/invalid_tool.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <fmt/format.h>
 
 namespace turbot::core::tool::builtin {
@@ -55,7 +56,12 @@ ToolResult InvalidTool::execute(const nlohmann::json& input, ToolContext& ctx) {
     InvalidToolParams params;
     try {
         params = InvalidToolParams::from_json(input);
+    } catch (const std::exception& e) {
+        TURBOT_LOG_DEBUG("InvalidTool: failed to parse parameters: {}", e.what());
+        params.tool = "unknown";
+        params.error = "Failed to parse parameters";
     } catch (...) {
+        TURBOT_LOG_DEBUG("InvalidTool: failed to parse parameters: unknown error");
         params.tool = "unknown";
         params.error = "Failed to parse parameters";
     }

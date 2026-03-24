@@ -3,6 +3,7 @@
 #include <turbot/core/snapshot/snapshot.hpp>
 #include <fmt/format.h>
 #include <chrono>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <iomanip>
@@ -83,107 +84,236 @@ SessionState string_to_session_state(const std::string& str) {
 
 // SessionInfo implementation
 nlohmann::json SessionInfo::to_json() const {
+    // Produce OpenCode-compatible wire format:
+    //   - camelCase field names
+    //   - timestamps nested under "time": { created, updated, compacting?, archived? }
+    //   - "state" intentionally omitted (managed in-memory by SessionStatus)
     nlohmann::json j;
-    j["id"] = id;
-    j["project_id"] = project_id;
-    if (parent_id) {
-        j["parent_id"] = *parent_id;
-    }
-    j["slug"] = slug;
+    j["id"]        = id;
+    j["slug"]      = slug;
+    j["projectID"] = project_id;
+    if (workspace_id) j["workspaceID"] = *workspace_id;
     j["directory"] = directory;
-    j["title"] = title;
+    if (parent_id)  j["parentID"]  = *parent_id;
+    j["title"]   = title;
     j["version"] = version;
-    if (permission) {
-        j["permission"] = *permission;
-    }
-    j["time_created"] = time_created;
-    j["time_updated"] = time_updated;
-    if (time_compacting) {
-        j["time_compacting"] = *time_compacting;
-    }
-    if (time_archived) {
-        j["time_archived"] = *time_archived;
-    }
-    j["state"] = session_state_to_string(state);
+
+    // Nested time object.
+    nlohmann::json time_obj;
+    time_obj["created"] = time_created;
+    time_obj["updated"] = time_updated;
+    if (time_compacting) time_obj["compacting"] = *time_compacting;
+    if (time_archived)   time_obj["archived"]   = *time_archived;
+    j["time"] = std::move(time_obj);
+
+    if (permission) j["permission"] = *permission;
+
+    // Revert: delegate to RevertInfo::to_json() and strip the Turbot-internal
+    // prePatch field — that binary payload is not part of the OpenCode wire format.
     if (revert) {
-        j["revert"] = revert->to_json();
+        auto rev = revert->to_json();
+        rev.erase("prePatch");  // prePatch is Turbot-internal; omit from wire format
+        j["revert"] = std::move(rev);
     }
+
+    // Summary (git-diff stats, populated after session completes).
+    if (summary) {
+        nlohmann::json sum;
+        sum["additions"] = summary->additions;
+        sum["deletions"] = summary->deletions;
+        sum["files"]     = summary->files;
+        if (summary->diffs) sum["diffs"] = *summary->diffs;
+        j["summary"] = std::move(sum);
+    }
+
+    // Share URL (enterprise).
+    if (share) {
+        j["share"] = {{"url", share->url}};
+    }
+
     return j;
 }
 
 SessionInfo SessionInfo::from_json(const nlohmann::json& j) {
+    // Accept both camelCase (API/wire) and snake_case (SQLite DB column) key variants.
+    // Helper lambdas pick the first key that exists.
+    auto get_str = [&](const char* camel, const char* snake,
+                       const std::string& def = {}) -> std::string {
+        if (j.contains(camel) && !j[camel].is_null())
+            return j[camel].get<std::string>();
+        if (j.contains(snake) && !j[snake].is_null())
+            return j[snake].get<std::string>();
+        return def;
+    };
+    auto get_opt_str = [&](const char* camel, const char* snake)
+            -> std::optional<std::string> {
+        if (j.contains(camel) && !j[camel].is_null())
+            return j[camel].get<std::string>();
+        if (j.contains(snake) && !j[snake].is_null())
+            return j[snake].get<std::string>();
+        return std::nullopt;
+    };
+    auto get_opt_i64 = [&](const char* camel, const char* snake)
+            -> std::optional<int64_t> {
+        if (j.contains(camel) && !j[camel].is_null())
+            return j[camel].get<int64_t>();
+        if (j.contains(snake) && !j[snake].is_null())
+            return j[snake].get<int64_t>();
+        return std::nullopt;
+    };
+
     SessionInfo info;
-    info.id = j.at("id").get<std::string>();
-    info.project_id = j.at("project_id").get<std::string>();
-    
-    if (j.contains("parent_id") && !j["parent_id"].is_null()) {
-        info.parent_id = j["parent_id"].get<std::string>();
+    info.id           = j.at("id").get<std::string>();
+    info.slug         = j.value("slug", std::string{});
+    info.project_id   = get_str("projectID",   "project_id");
+    info.workspace_id = get_opt_str("workspaceID", "workspace_id");
+    info.parent_id    = get_opt_str("parentID",    "parent_id");
+    info.directory    = j.value("directory", std::string{});
+    info.title        = j.value("title", std::string{});
+    info.version      = j.value("version", std::string{"1.0.0"});
+
+    // Time: nested "time" object (wire format) OR flat columns (DB format).
+    if (j.contains("time") && j["time"].is_object()) {
+        const auto& t   = j["time"];
+        info.time_created   = t.value("created",   int64_t{0});
+        info.time_updated   = t.value("updated",   int64_t{0});
+        if (t.contains("compacting") && !t["compacting"].is_null())
+            info.time_compacting = t["compacting"].get<int64_t>();
+        if (t.contains("archived") && !t["archived"].is_null())
+            info.time_archived = t["archived"].get<int64_t>();
+    } else {
+        info.time_created = j.value("time_created", int64_t{0});
+        info.time_updated = j.value("time_updated", int64_t{0});
+        // DB flat columns only have snake_case; these time fields have no camelCase
+        // variant in the flat-column path (they live inside nested "time" in wire format).
+        info.time_compacting = get_opt_i64("time_compacting", "time_compacting");
+        info.time_archived   = get_opt_i64("time_archived",   "time_archived");
     }
-    
-    info.slug = j.at("slug").get<std::string>();
-    info.directory = j.at("directory").get<std::string>();
-    info.title = j.at("title").get<std::string>();
-    
-    if (j.contains("version")) {
-        info.version = j["version"].get<std::string>();
+
+    // Reconstruct internal state from time fields (state is not in the wire format).
+    if (info.time_archived)    info.state = SessionState::Archived;
+    else if (info.time_compacting) info.state = SessionState::Compacting;
+    else                       info.state = SessionState::Active;
+    // DB rows may carry an explicit "state" column — honour it for backward compat.
+    if (j.contains("state") && j["state"].is_string()) {
+        try { info.state = string_to_session_state(j["state"].get<std::string>()); }
+        catch (...) { /* ignore invalid state strings from old rows */ }
     }
-    
-    if (j.contains("permission") && !j["permission"].is_null()) {
+
+    if (j.contains("permission") && !j["permission"].is_null())
         info.permission = j["permission"];
-    }
-    
-    info.time_created = j.at("time_created").get<int64_t>();
-    info.time_updated = j.at("time_updated").get<int64_t>();
-    
-    if (j.contains("time_compacting") && !j["time_compacting"].is_null()) {
-        info.time_compacting = j["time_compacting"].get<int64_t>();
-    }
-    if (j.contains("time_archived") && !j["time_archived"].is_null()) {
-        info.time_archived = j["time_archived"].get<int64_t>();
-    }
-    
-    if (j.contains("state")) {
-        info.state = string_to_session_state(j["state"].get<std::string>());
-    }
-    
+
+    // Revert: accept both camelCase and existing snake_case variants.
     if (j.contains("revert") && !j["revert"].is_null()) {
         info.revert = RevertInfo::from_json(j["revert"]);
     }
-    
+
+    // Summary (git-diff stats).
+    if (j.contains("summary") && !j["summary"].is_null()) {
+        const auto& s = j["summary"];
+        SessionSummary sum;
+        sum.additions = s.value("additions", 0);
+        sum.deletions = s.value("deletions", 0);
+        sum.files     = s.value("files",     0);
+        if (s.contains("diffs") && !s["diffs"].is_null())
+            sum.diffs = s["diffs"];
+        info.summary = std::move(sum);
+    }
+
+    // Share URL.
+    if (j.contains("share") && !j["share"].is_null()) {
+        const auto& sh = j["share"];
+        if (sh.contains("url") && sh["url"].is_string()) {
+            SessionShare share;
+            share.url = sh["url"].get<std::string>();
+            if (!share.url.empty())
+                info.share = std::move(share);
+        }
+    }
+
     return info;
 }
 
 bool SessionInfo::operator==(const SessionInfo& other) const noexcept {
     return id == other.id &&
-           project_id == other.project_id &&
-           parent_id == other.parent_id &&
-           slug == other.slug &&
-           directory == other.directory &&
-           title == other.title &&
-           version == other.version &&
-           state == other.state &&
-           time_created == other.time_created &&
-           time_updated == other.time_updated &&
-           revert == other.revert;
+           project_id    == other.project_id    &&
+           workspace_id  == other.workspace_id  &&
+           parent_id     == other.parent_id     &&
+           slug          == other.slug          &&
+           directory     == other.directory     &&
+           title         == other.title         &&
+           version       == other.version       &&
+           state         == other.state         &&
+           time_created  == other.time_created  &&
+           time_updated  == other.time_updated  &&
+           revert        == other.revert        &&
+           summary       == other.summary       &&
+           share         == other.share;
 }
 
 // Session implementation
+
 std::string Session::generate_id() {
-    // Generate a unique ID using timestamp and random number
-    const auto now = std::chrono::system_clock::now();
-    const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now.time_since_epoch()
-    ).count();
-    
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 999999);
-    
-    return fmt::format("sess_{:x}_{:06d}", timestamp, dis(gen));
+    // Generate an OpenCode-compatible session ID.
+    //
+    // Format: "ses_" + 12 hex chars (6 bytes big-endian timestamp) + 14 base62 chars
+    //
+    // The timestamp portion is  ~(ms_timestamp * 0x1000 + per-ms counter) which
+    // gives descending sort order (newest sessions sort first), matching OpenCode's
+    // Identifier.descending("session") scheme.
+    using namespace std::chrono;
+
+    // Monotonic counter per millisecond — prevents identical IDs within the same ms.
+    static std::mutex id_mutex_;
+    static int64_t   last_ts_{0};
+    static int32_t   counter_{0};
+
+    int64_t ts;
+    int32_t cnt;
+    {
+        std::lock_guard<std::mutex> lock(id_mutex_);
+        ts = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        if (ts != last_ts_) {
+            last_ts_ = ts;
+            counter_ = 0;
+        }
+        cnt = ++counter_;
+    }
+
+    // Combine timestamp + counter, then bitwise-NOT for descending order.
+    uint64_t val = static_cast<uint64_t>(ts) * 0x1000ULL + static_cast<uint64_t>(cnt);
+    val = ~val;
+
+    // Extract 6 bytes big-endian → 12 hex chars.
+    uint8_t bytes[6];
+    for (int i = 0; i < 6; ++i) {
+        bytes[i] = static_cast<uint8_t>((val >> (40 - 8 * i)) & 0xFF);
+    }
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (int i = 0; i < 6; ++i) {
+        oss << std::setw(2) << static_cast<int>(bytes[i]);
+    }
+
+    // 14 base62 random chars — use std::random_device directly (closer to
+    // OpenCode's crypto.randomBytes) rather than seeding a deterministic PRNG.
+    static constexpr const char kBase62[] =
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    static thread_local std::random_device s_rd;  // reuse across calls
+    std::uniform_int_distribution<int> dis(0, 61);
+
+    std::string rand_part;
+    rand_part.reserve(14);
+    for (int i = 0; i < 14; ++i) {
+        rand_part += kBase62[dis(s_rd)];
+    }
+
+    return "ses_" + oss.str() + rand_part;
 }
 
 int64_t Session::current_timestamp() {
-    return std::chrono::duration_cast<std::chrono::seconds>(
+    // Return milliseconds since epoch — aligns with OpenCode's Date.now() convention.
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::system_clock::now().time_since_epoch()
     ).count();
 }
@@ -328,11 +458,11 @@ bool Session::compact() {
     info_.time_compacting = now;
     info_.time_updated = now;
     
-    // Perform compaction logic here
-    // For now, just restore to previous state
-    info_.state = prev_state;
-    
-    return true;
+    // Perform compaction logic here.
+    // TODO(sub-03): Implement actual context-window compaction. Until then return
+    // false so callers know compaction did not occur, rather than silently succeeding.
+    info_.state = prev_state;  // restore — compaction not yet implemented
+    return false;
 }
 
 bool Session::archive() {

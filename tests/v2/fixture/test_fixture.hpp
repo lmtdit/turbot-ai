@@ -119,16 +119,33 @@ namespace fs_utils {
 /// 在构造时保存当前工作目录，在析构时恢复
 class WorkingDirGuard {
 public:
-    WorkingDirGuard() : saved_cwd_(std::filesystem::current_path()) {}
+    WorkingDirGuard() {
+        try {
+            saved_cwd_ = std::filesystem::current_path();
+        } catch (...) {
+            // If current directory doesn't exist, use a fallback
+            saved_cwd_ = "/tmp";
+        }
+    }
     
-    explicit WorkingDirGuard(const std::filesystem::path& new_dir) 
-        : saved_cwd_(std::filesystem::current_path()) {
+    explicit WorkingDirGuard(const std::filesystem::path& new_dir) {
+        try {
+            saved_cwd_ = std::filesystem::current_path();
+        } catch (...) {
+            // If current directory doesn't exist, use a fallback
+            saved_cwd_ = "/tmp";
+        }
         std::filesystem::current_path(new_dir);
     }
     
     ~WorkingDirGuard() {
         try {
-            std::filesystem::current_path(saved_cwd_);
+            if (std::filesystem::exists(saved_cwd_)) {
+                std::filesystem::current_path(saved_cwd_);
+            } else {
+                // Fallback to /tmp if saved directory no longer exists
+                std::filesystem::current_path("/tmp");
+            }
         } catch (...) {
             // Ignore errors during cleanup
         }
@@ -145,7 +162,11 @@ public:
     WorkingDirGuard& operator=(WorkingDirGuard&& other) noexcept {
         if (this != &other) {
             try {
-                std::filesystem::current_path(saved_cwd_);
+                if (std::filesystem::exists(saved_cwd_)) {
+                    std::filesystem::current_path(saved_cwd_);
+                } else {
+                    std::filesystem::current_path("/tmp");
+                }
             } catch (...) {}
             saved_cwd_ = std::move(other.saved_cwd_);
         }

@@ -473,7 +473,11 @@ void LSPClient::shutdown() {
         try {
             auto fut = impl_->send_request("shutdown", nullptr);
             fut.wait_for(std::chrono::milliseconds(2000));
-        } catch (...) {}
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: shutdown request failed: {}", impl_->server_id, e.what());
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: shutdown request failed with unknown error", impl_->server_id);
+        }
         impl_->send_notification("exit", nullptr);
     }
 
@@ -655,7 +659,13 @@ std::future<std::optional<Hover>> LSPClient::hover(const std::string& uri, Posit
             const auto result = fut.get();
             if (result.is_null()) return std::nullopt;
             return Hover::from_json(result);
-        } catch (...) { return std::nullopt; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: hover request failed: {}", impl_->server_id, e.what());
+            return std::nullopt;
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: hover request failed with unknown error", impl_->server_id);
+            return std::nullopt;
+        }
     });
 }
 
@@ -674,7 +684,13 @@ std::future<std::vector<Location>> LSPClient::definition(const std::string& uri,
                 out.push_back(Location::from_json(result));
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: definition request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: definition request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -692,7 +708,13 @@ std::future<std::vector<Location>> LSPClient::references(const std::string& uri,
                 for (const auto& item : result) out.push_back(Location::from_json(item));
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: references request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: references request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -711,7 +733,13 @@ std::future<std::vector<Location>> LSPClient::implementation(const std::string& 
                 out.push_back(Location::from_json(result));
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: implementation request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: implementation request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -725,7 +753,13 @@ std::future<std::vector<Symbol>> LSPClient::workspace_symbol(const std::string& 
                 for (const auto& item : result) out.push_back(Symbol::from_json(item));
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: workspace_symbol request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: workspace_symbol request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -741,7 +775,13 @@ std::future<std::vector<DocumentSymbol>> LSPClient::document_symbol(const std::s
                 for (const auto& item : result) out.push_back(DocumentSymbol::from_json(item));
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: document_symbol request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: document_symbol request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -762,7 +802,13 @@ std::future<std::vector<nlohmann::json>> LSPClient::prepare_call_hierarchy(
                 for (const auto& item : result) out.push_back(item);
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: prepare_call_hierarchy request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: prepare_call_hierarchy request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -776,7 +822,13 @@ std::future<std::vector<nlohmann::json>> LSPClient::incoming_calls(const nlohman
                 for (const auto& r : result) out.push_back(r);
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: incoming_calls request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: incoming_calls request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 
@@ -790,7 +842,13 @@ std::future<std::vector<nlohmann::json>> LSPClient::outgoing_calls(const nlohman
                 for (const auto& r : result) out.push_back(r);
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("lsp[{}]: outgoing_calls request failed: {}", impl_->server_id, e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("lsp[{}]: outgoing_calls request failed with unknown error", impl_->server_id);
+            return {};
+        }
     });
 }
 

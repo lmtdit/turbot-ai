@@ -1,4 +1,5 @@
 #include "turbot/core/acp/server.hpp"
+#include "turbot/core/common/logger.hpp"
 
 #include <iostream>
 #include <mutex>
@@ -67,8 +68,10 @@ void ACPServer::dispatch(
             CancelNotification notif;
             from_json(params, notif);
             agent->cancel(notif);
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("cancel notification failed: {}", e.what());
         } catch (...) {
-            // Notifications never send responses; silently ignore errors
+            TURBOT_LOG_DEBUG("cancel notification failed with unknown error");
         }
         return;
     }

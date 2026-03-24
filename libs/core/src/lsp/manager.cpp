@@ -202,7 +202,11 @@ std::future<std::vector<LSPClient*>> LSPManager::get_clients(const std::string& 
             // Wait for in-flight spawn (outside lock)
             {
                 LSPClient* ptr = nullptr;
-                try { ptr = fut.get(); } catch (...) {}
+                try { ptr = fut.get(); } catch (const std::exception& e) {
+                    TURBOT_LOG_DEBUG("LSP spawn failed: {}", e.what());
+                } catch (...) {
+                    TURBOT_LOG_DEBUG("LSP spawn failed with unknown error");
+                }
                 if (ptr) result.push_back(ptr);
             }
 
@@ -249,7 +253,11 @@ void LSPManager::touch_file(const std::string& file, bool wait_for_diagnostics) 
                 // Aligned with OpenCode touchFile: register wait BEFORE notify_open
                 auto wait_fut = client->wait_for_diagnostics(file);
                 client->notify_open(file);
-                try { wait_fut.get(); } catch (...) {}
+                try { wait_fut.get(); } catch (const std::exception& e) {
+                    TURBOT_LOG_DEBUG("LSP wait_for_diagnostics failed: {}", e.what());
+                } catch (...) {
+                    TURBOT_LOG_DEBUG("LSP wait_for_diagnostics failed with unknown error");
+                }
             } else {
                 client->notify_open(file);
             }
@@ -286,7 +294,11 @@ std::future<std::optional<Hover>> LSPManager::hover(const std::string& file, Pos
                 auto result = c->hover(uri, pos).get();
                 if (result) return result;
             }
-        } catch (...) {}
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("LSP hover failed: {}", e.what());
+        } catch (...) {
+            TURBOT_LOG_DEBUG("LSP hover failed with unknown error");
+        }
         return std::nullopt;
     });
 }
@@ -302,7 +314,13 @@ std::future<std::vector<Location>> LSPManager::definition(const std::string& fil
                 out.insert(out.end(), locs.begin(), locs.end());
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("LSP definition failed: {}", e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("LSP definition failed with unknown error");
+            return {};
+        }
     });
 }
 
@@ -317,7 +335,13 @@ std::future<std::vector<Location>> LSPManager::references(const std::string& fil
                 out.insert(out.end(), locs.begin(), locs.end());
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("LSP references failed: {}", e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("LSP references failed with unknown error");
+            return {};
+        }
     });
 }
 
@@ -332,7 +356,13 @@ std::future<std::vector<Location>> LSPManager::implementation(const std::string&
                 out.insert(out.end(), locs.begin(), locs.end());
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("LSP implementation failed: {}", e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("LSP implementation failed with unknown error");
+            return {};
+        }
     });
 }
 
@@ -353,7 +383,13 @@ std::future<std::vector<Symbol>> LSPManager::workspace_symbol(const std::string&
                 out.insert(out.end(), syms.begin(), syms.end());
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("LSP workspace_symbol failed: {}", e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("LSP workspace_symbol failed with unknown error");
+            return {};
+        }
     });
 }
 
@@ -369,7 +405,13 @@ std::future<std::vector<nlohmann::json>> LSPManager::document_symbol(const std::
                 for (const auto& s : syms) out.push_back(s.to_json());
             }
             return out;
-        } catch (...) { return {}; }
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("LSP document_symbol failed: {}", e.what());
+            return {};
+        } catch (...) {
+            TURBOT_LOG_DEBUG("LSP document_symbol failed with unknown error");
+            return {};
+        }
     });
 }
 
@@ -410,7 +452,11 @@ void LSPManager::shutdown() {
     }
     for (auto& client : to_shutdown) {
         if (client) {
-            try { client->shutdown(); } catch (...) {}
+            try { client->shutdown(); } catch (const std::exception& e) {
+                TURBOT_LOG_DEBUG("LSP client shutdown failed: {}", e.what());
+            } catch (...) {
+                TURBOT_LOG_DEBUG("LSP client shutdown failed with unknown error");
+            }
         }
     }
 }

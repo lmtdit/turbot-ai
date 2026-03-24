@@ -60,6 +60,8 @@ set(V2_TEST_SOURCES
     storage/storage_test.cpp
     # snapshot
     snapshot/snapshot_test.cpp
+    # project
+    project/project_id_test.cpp
     # lsp
     lsp/lsp_test.cpp
     lsp/lsp_client_test.cpp

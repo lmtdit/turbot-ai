@@ -6,6 +6,11 @@ set(APP_NAME turbot-cli)
 set(CLI_SOURCES
     src/main.cpp
     src/commands.cpp
+    src/cmd/models.cpp
+    src/cmd/providers.cpp
+    src/cmd/config.cpp
+    src/cmd/session_cmd.cpp
+    src/cmd/mcp_cmd.cpp
 )
 
 # Create executable

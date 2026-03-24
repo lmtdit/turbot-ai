@@ -23,11 +23,11 @@ TEST_CASE("Session.Info.JsonSerialization", "[Session]") {
     
     nlohmann::json j = info.to_json();
     REQUIRE(j["id"] == "session-123");
-    REQUIRE(j["project_id"] == "project-456");
+    REQUIRE(j["projectID"] == "project-456");
     REQUIRE(j["slug"] == "my-session");
     REQUIRE(j["directory"] == "/home/user/project");
     REQUIRE(j["title"] == "Test Session");
-    REQUIRE(j["state"] == "active");
+    REQUIRE_FALSE(j.contains("state"));
     
     SessionInfo restored = SessionInfo::from_json(j);
     REQUIRE(restored.id == info.id);
@@ -57,7 +57,7 @@ TEST_CASE("Session.Info.WithParent", "[Session]") {
     info.slug = "forked-session";
     
     nlohmann::json j = info.to_json();
-    REQUIRE(j["parent_id"] == "parent-session");
+    REQUIRE(j["parentID"] == "parent-session");
     
     SessionInfo restored = SessionInfo::from_json(j);
     REQUIRE(restored.parent_id.has_value());
@@ -169,10 +169,10 @@ TEST_CASE("Session.Info.Timestamps", "[Session]") {
     info.time_archived = 1700000300;
     
     nlohmann::json j = info.to_json();
-    REQUIRE(j["time_created"] == 1700000000);
-    REQUIRE(j["time_updated"] == 1700000100);
-    REQUIRE(j["time_compacting"] == 1700000200);
-    REQUIRE(j["time_archived"] == 1700000300);
+    REQUIRE(j["time"]["created"] == 1700000000);
+    REQUIRE(j["time"]["updated"] == 1700000100);
+    REQUIRE(j["time"]["compacting"] == 1700000200);
+    REQUIRE(j["time"]["archived"] == 1700000300);
     
     SessionInfo restored = SessionInfo::from_json(j);
     REQUIRE(restored.time_created == info.time_created);

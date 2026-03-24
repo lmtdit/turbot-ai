@@ -31,7 +31,7 @@ TEST_CASE("Config.Manager.Initialize", "[Config]") {
     file.close();
     
     // Set working directory
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     
     auto results = manager.initialize();
     // Should load config successfully
@@ -147,7 +147,7 @@ TEST_CASE("Config.Manager.LoadProjectConfig", "[Config]") {
     
     auto& manager = ConfigManager::instance();
     // Set working directory to project root
-    std::filesystem::current_path(tmp.path());
+    WorkingDirGuard cwd_guard(tmp.path());
     auto result = manager.load_config(ConfigLevel::Project);
     
     // Result depends on whether config file is found at expected location

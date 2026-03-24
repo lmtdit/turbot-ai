@@ -198,8 +198,10 @@ nlohmann::json TurbotACPAgent::list_sessions(
     if (req.cursor) {
         try {
             cursor_ts = std::stoll(*req.cursor);
+        } catch (const std::exception& e) {
+            TURBOT_LOG_DEBUG("malformed cursor '{}': {}", *req.cursor, e.what());
         } catch (...) {
-            // Ignore malformed cursor
+            TURBOT_LOG_DEBUG("malformed cursor '{}': unknown error", *req.cursor);
         }
     }
 
@@ -404,8 +406,12 @@ nlohmann::json TurbotACPAgent::prompt(
                                {"sessionId",    req.session_id},
                                {"entries",      entries}});
                 }
+            } catch (const nlohmann::json::parse_error& e) {
+                TURBOT_LOG_DEBUG("todowrite parse error: {}", e.what());
+            } catch (const std::exception& e) {
+                TURBOT_LOG_DEBUG("todowrite processing error: {}", e.what());
             } catch (...) {
-                // Ignore parse errors (best-effort)
+                TURBOT_LOG_DEBUG("todowrite unknown error");
             }
         }
     
