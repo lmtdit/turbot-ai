@@ -110,6 +110,14 @@ set(UNIT_TEST_SOURCES
     unit/mcp/test_http_transport_fallback.cpp
     # v4.0 P2-1 tools unit tests
     unit/p2_tools_test.cpp
+    # Sub-01: T14 ID module, T6 Global module, T7 Instance module
+    unit/id_test.cpp
+    unit/global_test.cpp
+    unit/instance_test.cpp
+    # Sub-02: T3 message table, T4 part table, T5 instruction
+    unit/session_instruction_test.cpp
+    # Sub-03: T1 EventBus integration, T15 initGit
+    unit/sub03_events_test.cpp
 )
 
 add_executable(turbot-unit-tests ${UNIT_TEST_SOURCES})
