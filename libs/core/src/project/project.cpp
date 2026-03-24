@@ -209,7 +209,8 @@ int64_t Project::current_timestamp() {
 static std::string run_git(const std::string& args, const std::string& cwd) {
     // Build command: git <args> run from cwd, stderr discarded.
     // popen is used for portability (no external library dependency).
-    std::string cmd = "git -C " + cwd + " " + args + " 2>/dev/null";
+    // The cwd is double-quoted to handle paths that contain spaces.
+    std::string cmd = "git -C \"" + cwd + "\" " + args + " 2>/dev/null";
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) return {};
     std::string output;
@@ -678,16 +679,53 @@ bool Project::init_git() {
     if (info_.vcs == VcsType::Git) {
         return false; // Already has git
     }
-    
-    // In production, this would call git init
-    TURBOT_LOG_INFO("Initializing git for project: {}", info_.id);
-    
+
+    const fs::path worktree_path(info_.worktree);
+    const fs::path dot_git = worktree_path / ".git";
+
+    // If .git was created externally since we last checked, just update the record.
+    if (fs::exists(dot_git)) {
+        TURBOT_LOG_INFO("Project::init_git: .git already exists at {}", info_.worktree);
+        info_.vcs = VcsType::Git;
+        info_.time.updated = current_timestamp();
+        info_.id = generate_id(info_.worktree);  // pick up actual root-commit ID
+
+        auto& store = ProjectStore::instance();
+        if (store.is_initialized()) {
+            store.save(info_);
+        }
+        auto config_opt = load_config(info_.worktree);
+        nlohmann::json config;
+        if (config_opt) config = *config_opt;
+        config["project"] = info_.to_json();
+        save_config(info_.worktree, config);
+        return true;
+    }
+
+    // Run `git init` in the project worktree.
+    TURBOT_LOG_INFO("Project::init_git: running git init for project {}", info_.id);
+    run_git("init", info_.worktree);
+
+    // Verify the repository was actually created.
+    if (!fs::exists(dot_git)) {
+        TURBOT_LOG_WARN(
+            "Project::init_git: git init did not create .git directory at {}; "
+            "check that git is installed and the directory is writable.",
+            info_.worktree);
+        return false;
+    }
+
+    TURBOT_LOG_INFO("Project::init_git: git repository initialised at {}",
+                    info_.worktree);
+
     info_.vcs = VcsType::Git;
     info_.time.updated = current_timestamp();
-    
-    // Regenerate ID based on git remote
+
+    // Regenerate the project ID now that a git repository exists.
+    // generate_id() will return GLOBAL_ID until the first commit is made, which
+    // is expected — the ID stabilises to the root-commit hash on first `git commit`.
     info_.id = generate_id(info_.worktree);
-    
+
     // Persist to SQLite
     auto& store = ProjectStore::instance();
     if (store.is_initialized()) {
@@ -699,7 +737,7 @@ bool Project::init_git() {
     if (config_opt) config = *config_opt;
     config["project"] = info_.to_json();
     save_config(info_.worktree, config);
-    
+
     return true;
 }
 
