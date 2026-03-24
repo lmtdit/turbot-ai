@@ -1,6 +1,8 @@
 #include <turbot/core/session/session.hpp>
 #include <turbot/core/session/session_store.hpp>
+#include <turbot/core/session/session_compaction.hpp>
 #include <turbot/core/snapshot/snapshot.hpp>
+#include <turbot/core/message/message.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <fmt/format.h>
 #include <chrono>
@@ -500,18 +502,123 @@ bool Session::compact() {
     if (info_.state == SessionState::Archived) {
         return false; // Cannot compact archived session
     }
-    
+
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) {
+        TURBOT_LOG_WARN("Session::compact: store not initialised, skipping");
+        return false;
+    }
+
+    // ── Step 1: load all messages from DB as JSON ──────────────────────────
+    // Use a large limit to ensure we get all messages; 0 offset = from the start.
+    auto msg_jsons = store.list_messages(info_.id, 10'000, 0);
+    if (msg_jsons.empty()) {
+        TURBOT_LOG_DEBUG("Session::compact: no messages to compact for session {}",
+                         info_.id);
+        return false;
+    }
+
+    // ── Step 2: deserialise JSON → Message objects ─────────────────────────
+    // db=nullptr is fine here: we only read data, no persistence needed.
+    std::vector<turbot::core::Message> messages;
+    messages.reserve(msg_jsons.size());
+    for (const auto& j : msg_jsons) {
+        try {
+            messages.push_back(turbot::core::Message::from_json(j, nullptr));
+        } catch (const std::exception& e) {
+            TURBOT_LOG_WARN("Session::compact: skipping malformed message JSON: {}",
+                            e.what());
+        }
+    }
+    if (messages.empty()) return false;
+
+    // ── Step 3: mark session as Compacting ────────────────────────────────
     const int64_t now = current_timestamp();
-    SessionState prev_state = info_.state;
+    const SessionState prev_state = info_.state;
     info_.state = SessionState::Compacting;
     info_.time_compacting = now;
-    info_.time_updated = now;
-    
-    // Perform compaction logic here.
-    // TODO(sub-03): Implement actual context-window compaction. Until then return
-    // false so callers know compaction did not occur, rather than silently succeeding.
-    info_.state = prev_state;  // restore — compaction not yet implemented
-    return false;
+    info_.time_updated    = now;
+
+    // ── Step 4: run the compaction algorithm ──────────────────────────────
+    // Guard: if compact() throws, restore prev_state so the session is not
+    // permanently stuck in Compacting.
+    SessionCompaction sc;
+    CompactionConfig cfg;  // defaults: overflow_threshold=0.9, target_ratio=0.5
+    CompactionResult result;
+    try {
+        result = sc.compact(messages, cfg);
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR(
+            "Session::compact: compaction algorithm threw an exception for session {}: {}; "
+            "aborting compaction", info_.id, e.what());
+        info_.state        = prev_state;
+        info_.time_updated = current_timestamp();
+        return false;
+    }
+
+    if (result.removed_ids.empty()) {
+        // Nothing was compacted (too few messages or already compact).
+        TURBOT_LOG_DEBUG("Session::compact: nothing to remove for session {}",
+                         info_.id);
+        info_.state         = prev_state;
+        info_.time_updated  = current_timestamp();
+        return false;
+    }
+
+    TURBOT_LOG_INFO(
+        "Session::compact: removing {} messages, retaining {} "
+        "(original_tokens={}, compressed_tokens={}, ratio={:.2f}) for session {}",
+        result.removed_ids.size(), result.retained_ids.size(),
+        result.original_tokens, result.compressed_tokens,
+        result.compression_ratio, info_.id);
+
+    // ── Step 5: delete removed messages from the DB ───────────────────────
+    if (!store.delete_messages_by_ids(info_.id, result.removed_ids)) {
+        TURBOT_LOG_ERROR(
+            "Session::compact: failed to delete messages for session {}; "
+            "aborting compaction", info_.id);
+        info_.state        = prev_state;
+        info_.time_updated = current_timestamp();
+        return false;
+    }
+
+    // ── Step 6: insert summary message ────────────────────────────────────
+    if (!result.summary.empty()) {
+        nlohmann::json summary_msg = {
+            {"id",          fmt::format("cmp_{}", now)},
+            {"session_id",  info_.id},
+            {"role",        "user"},
+            {"time_created", now},
+            {"time_updated", now},
+            {"agent",       "compaction"},
+            {"model_id",    ""},
+            {"provider_id", ""},
+            {"cost",        0.0},
+            {"tokens",      {{"input",0},{"output",0},
+                             {"cache_read",0},{"cache_create",0}}},
+            {"summary",     true},
+            {"parts", nlohmann::json::array({
+                {{"type", "text"}, {"content", result.summary}}
+            })}
+        };
+        if (!store.save_message(info_.id, summary_msg)) {
+            TURBOT_LOG_WARN(
+                "Session::compact: failed to persist summary message "
+                "for session {}; compaction still counts as successful",
+                info_.id);
+        }
+    }
+
+    // ── Step 7: persist updated session state ─────────────────────────────
+    info_.state        = SessionState::Active;   // compaction complete
+    info_.time_updated = current_timestamp();
+    if (!store.save(info_)) {
+        TURBOT_LOG_WARN(
+            "Session::compact: failed to persist session state for {}",
+            info_.id);
+    }
+
+    return true;
 }
 
 bool Session::archive() {

@@ -205,59 +205,79 @@ std::string SessionCompaction::generate_summary(
         return "";
     }
 
-    // If a custom summary generator is set, use it
+    // If a custom summary generator is set (e.g. LLM callback), use it.
     if (summary_generator_) {
         return summary_generator_(messages);
     }
 
-    // Default: create a simple summary
-    std::ostringstream oss;
-    oss << "[Session Compaction Summary]\n";
-    oss << "Removed " << messages.size() << " messages.\n\n";
-
-    // Summarize key points
-    int user_count = 0;
+    // ── Default: structured summary with actual content ───────────────────
+    // Counts per role
+    int user_count      = 0;
     int assistant_count = 0;
-    int tool_calls = 0;
+    int tool_calls      = 0;
 
+    // Helper: extract first `limit` chars of text content from a message.
+    auto get_text = [](const Message& m, size_t limit = 200) -> std::string {
+        for (const auto& part : m.parts()) {
+            if (part.is_text()) {
+                std::string text = part.get_text();
+                // Strip leading/trailing whitespace.
+                auto start = text.find_first_not_of(" \t\r\n");
+                if (start == std::string::npos) return "";
+                auto end = text.find_last_not_of(" \t\r\n");
+                text = text.substr(start, end - start + 1);
+                if (text.size() > limit) {
+                    return text.substr(0, limit) + "…";
+                }
+                return text;
+            }
+        }
+        return "";
+    };
+
+    // First pass: collect stats and user message snippets.
+    std::vector<std::string> user_snippets;
     for (const auto& msg : messages) {
         if (msg.role() == Role::User) {
-            user_count++;
-        } else if (msg.role() == Role::Assistant) {
-            assistant_count++;
-            // Count tool calls
-            for (const auto& part : msg.parts()) {
-                if (part.is_tool()) {
-                    tool_calls++;
+            ++user_count;
+            if (user_snippets.size() < 5) {
+                std::string snippet = get_text(msg, 200);
+                if (!snippet.empty()) {
+                    user_snippets.push_back(std::move(snippet));
                 }
+            }
+        } else if (msg.role() == Role::Assistant) {
+            ++assistant_count;
+            for (const auto& part : msg.parts()) {
+                if (part.is_tool()) ++tool_calls;
             }
         }
     }
 
-    oss << "Summary:\n";
-    oss << "- User messages: " << user_count << "\n";
-    oss << "- Assistant messages: " << assistant_count << "\n";
-    oss << "- Tool calls: " << tool_calls << "\n";
+    // Build summary text.
+    std::ostringstream oss;
+    oss << "[Context Summary — " << messages.size() << " messages compacted]\n\n";
 
-    // Add first and last message snippets
-    if (!messages.empty()) {
-        auto get_text = [](const Message& m) -> std::string {
-            for (const auto& part : m.parts()) {
-                if (part.is_text()) {
-                    std::string text = part.get_text();
-                    return text.substr(0, 100);
-                }
-            }
-            return "";
-        };
-
-        oss << "\nFirst message: " << get_text(messages.front()) << "...\n";
-        oss << "Last message: " << get_text(messages.back()) << "...\n";
+    // User requests section
+    if (!user_snippets.empty()) {
+        oss << "User requests:\n";
+        for (const auto& snippet : user_snippets) {
+            oss << "  - " << snippet << "\n";
+        }
+        oss << "\n";
     }
+
+    // Actions section
+    oss << "Actions performed:\n";
+    if (tool_calls > 0) {
+        oss << "  - " << tool_calls << " tool call(s)\n";
+    }
+    oss << "  - " << assistant_count << " assistant response(s)\n";
+    oss << "  - " << user_count     << " user message(s)\n";
 
     std::string summary = oss.str();
     if (static_cast<int>(summary.length()) > max_length) {
-        summary = summary.substr(0, static_cast<size_t>(max_length - 3)) + "...";
+        summary = summary.substr(0, static_cast<size_t>(max_length - 1)) + "…";
     }
 
     return summary;
