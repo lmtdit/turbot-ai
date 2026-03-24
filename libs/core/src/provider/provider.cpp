@@ -1,6 +1,11 @@
 #include <turbot/core/provider/provider.hpp>
 #include <turbot/core/provider/provider_manager.hpp>
+#include <turbot/core/common/logger.hpp>
+#include <turbot/core/global/global.hpp>
+#include <turbot/network/http_client.hpp>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 namespace turbot::core::provider {
 
@@ -571,3 +576,176 @@ std::optional<ProviderPtr> ProviderManager::create_provider(
 }
 
 } // namespace turbot::core::provider
+
+// ============================================================================
+// T10: ModelsDev implementation
+// Mirrors OpenCode provider/models.ts ModelsDev namespace.
+// Priority chain: in-memory cache → local file cache → network → built-in fallback.
+// ============================================================================
+
+namespace turbot::core::provider {
+
+namespace fs = std::filesystem;
+
+ModelsDev& ModelsDev::instance() noexcept {
+    static ModelsDev inst;
+    return inst;
+}
+
+std::string ModelsDev::cache_file_path() {
+    // Mirror OpenCode: Global.Path.cache / "models.json"
+    try {
+        const auto& p = turbot::core::global::Global::path();
+        return (fs::path(p.cache) / "models.json").string();
+    } catch (...) {
+        // Fallback if Global is not initialised (tests)
+        const char* home = std::getenv("HOME");
+        if (home) return std::string(home) + "/.turbot/cache/models.json";
+        return "/tmp/turbot_models_cache.json";
+    }
+}
+
+nlohmann::json ModelsDev::load_from_cache() {
+    const std::string path = cache_file_path();
+    std::ifstream f(path);
+    if (!f.is_open()) return {};
+    try {
+        nlohmann::json j;
+        f >> j;
+        TURBOT_LOG_DEBUG("ModelsDev: loaded snapshot from cache file {}", path);
+        return j;
+    } catch (const std::exception& ex) {
+        TURBOT_LOG_WARN("ModelsDev: failed to parse cache file {}: {}", path, ex.what());
+        return {};
+    }
+}
+
+nlohmann::json ModelsDev::fetch_from_network() {
+    // Check for env-var override (mirrors OpenCode Flag.OPENCODE_MODELS_URL)
+    const char* url_override = std::getenv("OPENCODE_MODELS_URL");
+    const std::string base_url = url_override ? url_override : kDefaultModelsUrl;
+    const std::string endpoint = base_url + "/api.json";
+
+    TURBOT_LOG_INFO("ModelsDev: fetching snapshot from {}", endpoint);
+    try {
+        turbot::network::HttpClient http;
+        const turbot::network::HttpHeaders headers = {
+            {"Accept", "application/json"},
+            {"User-Agent", "turbot-ai/1.0"}
+        };
+        auto resp = http.get(endpoint, headers);
+        if (!resp.is_success()) {
+            TURBOT_LOG_WARN("ModelsDev: GET {} returned status {}", endpoint, resp.status_code);
+            return {};
+        }
+        auto j = nlohmann::json::parse(resp.body);
+        TURBOT_LOG_INFO("ModelsDev: fetched {} provider(s) from models.dev", j.size());
+
+        // Persist to local cache for next session
+        const std::string cache_path = cache_file_path();
+        try {
+            fs::path p(cache_path);
+            if (p.has_parent_path()) {
+                std::error_code ec;
+                fs::create_directories(p.parent_path(), ec);
+            }
+            std::ofstream cf(cache_path);
+            if (cf.is_open()) {
+                cf << j.dump();
+                TURBOT_LOG_DEBUG("ModelsDev: persisted snapshot to {}", cache_path);
+            }
+        } catch (const std::exception& ex) {
+            TURBOT_LOG_WARN("ModelsDev: failed to write cache: {}", ex.what());
+        }
+
+        return j;
+    } catch (const std::exception& ex) {
+        TURBOT_LOG_ERROR("ModelsDev: fetch_from_network exception: {}", ex.what());
+        return {};
+    }
+}
+
+nlohmann::json ModelsDev::build_fallback_snapshot() {
+    // Build a minimal snapshot from the models registered with ProviderManager.
+    // This ensures TUI model lists work offline even without a models.dev fetch.
+    nlohmann::json snapshot = nlohmann::json::object();
+    const auto providers = ProviderManager::instance().list_providers();
+    for (const auto& prov : providers) {
+        nlohmann::json models_obj = nlohmann::json::object();
+        for (const auto& m : prov->list_models()) {
+            models_obj[m.id] = {
+                {"id",      m.id},
+                {"name",    m.name},
+                {"limit",   {{"context", m.context_window}, {"output", m.limits.value("max_tokens", 4096)}}},
+                {"temperature", m.capabilities.temperature},
+                {"reasoning",   m.capabilities.reasoning},
+                {"tool_call",   m.capabilities.tool_call},
+                {"attachment",  m.capabilities.vision},
+                {"release_date", "2024-01-01"}  // placeholder
+            };
+        }
+        snapshot[prov->id()] = {
+            {"id",     prov->id()},
+            {"name",   prov->name()},
+            {"env",    nlohmann::json::array()},
+            {"models", models_obj}
+        };
+    }
+    TURBOT_LOG_DEBUG("ModelsDev: built fallback snapshot with {} provider(s)", providers.size());
+    return snapshot;
+}
+
+nlohmann::json ModelsDev::get(bool force_refresh) {
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        if (!force_refresh && cache_loaded_ && !cached_.empty()) {
+            return cached_;
+        }
+    }
+    // NOTE: Two concurrent callers may both reach this point and each trigger
+    // load_from_cache()/fetch_from_network() once.  This is intentionally
+    // tolerated: the operations are idempotent and the worst-case overhead is a
+    // single duplicate network request.  Using a secondary "loading" flag and a
+    // condition-variable would be overkill for this low-frequency cold-start path.
+
+    // Check for env-var override to skip network fetch
+    const bool disable_fetch = std::getenv("OPENCODE_DISABLE_MODELS_FETCH") != nullptr;
+
+    // Priority chain (mirrors OpenCode models.ts Data lazy):
+    // 1. Local cache file
+    auto snapshot = load_from_cache();
+
+    // 2. Network fetch (unless disabled)
+    if (snapshot.empty() && !disable_fetch) {
+        snapshot = fetch_from_network();
+    }
+
+    // 3. Built-in fallback from ProviderManager
+    if (snapshot.empty()) {
+        TURBOT_LOG_WARN("ModelsDev: no snapshot available; using built-in fallback");
+        snapshot = build_fallback_snapshot();
+    }
+
+    std::lock_guard<std::mutex> wlock(cache_mutex_);
+    cached_ = snapshot;
+    cache_loaded_ = true;
+    return cached_;
+}
+
+bool ModelsDev::refresh() {
+    auto snapshot = fetch_from_network();
+    if (snapshot.empty()) return false;
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    cached_ = snapshot;
+    cache_loaded_ = true;
+    return true;
+}
+
+void ModelsDev::clear_cache() noexcept {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+    cached_ = {};
+    cache_loaded_ = false;
+}
+
+} // namespace turbot::core::provider
+

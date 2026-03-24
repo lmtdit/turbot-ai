@@ -575,6 +575,114 @@ LSPServerInfo make_zig_server(const std::string& workspace_root) {
         workspace_root);
 }
 
+/// Oxlint — oxc_language_server / oxlint --lsp (P2 feature alignment, T17)
+///
+/// Resolution order (mirrors OpenCode lsp/server.ts):
+///   1. node_modules/.bin/oxlint --lsp   (supports --lsp flag)
+///   2. node_modules/.bin/oxc_language_server
+///   3. oxlint in PATH  (--lsp variant)
+///   4. oxc_language_server in PATH
+LSPServerInfo make_oxlint_server(const std::string& workspace_root) {
+    LSPServerInfo info;
+    info.id         = "oxlint";
+    info.extensions = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+                       ".mts", ".cts", ".vue", ".astro", ".svelte"};
+
+    const std::string root = workspace_root;
+    const std::vector<std::string> root_files = {
+        ".oxlintrc.json", "package-lock.json", "bun.lockb", "bun.lock",
+        "pnpm-lock.yaml", "yarn.lock", "package.json"
+    };
+    info.root = [root, root_files](const std::string& file) -> std::optional<std::string> {
+        const std::string dir = fs::path(file).parent_path().string();
+        return nearest_root(dir, root_files, {}, root);
+    };
+
+    info.spawn = [workspace_root](const std::string& root_dir) -> std::optional<ServerHandle> {
+        namespace fs = std::filesystem;
+
+        // Helper: check PATH for a binary
+        auto in_path = [](const std::string& cmd) -> bool {
+            return command_exists(cmd);
+        };
+
+        // 1. Try node_modules/.bin/oxlint --lsp in project or ancestors
+        for (fs::path p = root_dir; !p.empty() && p != p.parent_path(); p = p.parent_path()) {
+            const fs::path candidate = p / "node_modules" / ".bin" / "oxlint";
+            std::error_code ec;
+            if (fs::exists(candidate, ec)) {
+                // Check whether this oxlint supports --lsp by running --help
+                // Use single-quote escaping to prevent shell injection
+                const std::string cmd = "'" + candidate.string() + "' --help 2>&1";
+                FILE* pipe = popen(cmd.c_str(), "r");
+                bool supports_lsp = false;
+                if (pipe) {
+                    char buf[512];
+                    while (fgets(buf, sizeof(buf), pipe)) {
+                        if (std::string(buf).find("--lsp") != std::string::npos) {
+                            supports_lsp = true;
+                            break;
+                        }
+                    }
+                    pclose(pipe);
+                }
+                if (supports_lsp) {
+                    TURBOT_LOG_INFO("oxlint LSP: using {} --lsp", candidate.string());
+                    return spawn_process({candidate.string(), "--lsp"}, root_dir);
+                }
+            }
+            // 2. Try node_modules/.bin/oxc_language_server
+            const fs::path server_candidate = p / "node_modules" / ".bin" / "oxc_language_server";
+            if (fs::exists(server_candidate, ec)) {
+                TURBOT_LOG_INFO("oxlint LSP: using {}", server_candidate.string());
+                return spawn_process({server_candidate.string()}, root_dir);
+            }
+        }
+
+        // 3. Try oxlint in PATH with --lsp
+        if (in_path("oxlint")) {
+            FILE* pipe = popen("oxlint --help 2>&1", "r");
+            bool supports_lsp = false;
+            if (pipe) {
+                char buf[512];
+                while (fgets(buf, sizeof(buf), pipe)) {
+                    if (std::string(buf).find("--lsp") != std::string::npos) {
+                        supports_lsp = true;
+                        break;
+                    }
+                }
+                pclose(pipe);
+            }
+            if (supports_lsp) {
+                TURBOT_LOG_INFO("oxlint LSP: using oxlint --lsp from PATH");
+                return spawn_process({"oxlint", "--lsp"}, root_dir);
+            }
+        }
+
+        // 4. Try oxc_language_server in PATH
+        if (in_path("oxc_language_server")) {
+            TURBOT_LOG_INFO("oxlint LSP: using oxc_language_server from PATH");
+            return spawn_process({"oxc_language_server"}, root_dir);
+        }
+
+        TURBOT_LOG_INFO("oxlint not found, please install oxlint or oxc_language_server");
+        return std::nullopt;
+    };
+
+    return info;
+}
+
+/// Gleam — gleam lsp (P3 feature alignment, T17)
+LSPServerInfo make_gleam_server(const std::string& workspace_root) {
+    return make_simple_lsp_server(
+        "gleam",
+        {".gleam"},
+        {"gleam.toml"},
+        {"gleam", "lsp"},
+        "gleam not found, skipping Gleam LSP",
+        workspace_root);
+}
+
 // ─── Custom (user-defined) server ─────────────────────────────────────────────
 
 LSPServerInfo make_custom_server(

@@ -95,4 +95,71 @@ private:
     std::string id_;
 };
 
+// ============================================================================
+// T10: ModelsDev — models.dev snapshot support
+// Mirrors OpenCode provider/models.ts ModelsDev namespace.
+// Priority chain: local cache file → online fetch → registered provider models.
+// ============================================================================
+
+/// Represents a provider entry in the models.dev snapshot.
+struct TURBOT_CORE_API ModelsDevProvider {
+    std::string id;                                   ///< Provider ID (e.g. "anthropic")
+    std::string name;                                 ///< Human-readable name
+    std::vector<std::string> env;                     ///< Required env vars (e.g. {"ANTHROPIC_API_KEY"})
+    nlohmann::json models;                            ///< Raw models map (model_id → model object)
+};
+
+/// ModelsDev — static/dynamic model snapshot service.
+///
+/// Provides the full models.dev catalogue used for model selection in the TUI.
+/// On first call, loads in this priority order:
+///   1. Local cache file (Global::Path::cache / "models.json")
+///   2. Online fetch from models.dev API
+///   3. Fall back to the built-in list from registered ProviderManager instances
+class TURBOT_CORE_API ModelsDev {
+public:
+    /// Base URL for the models.dev API. Can be overridden via OPENCODE_MODELS_URL env var.
+    static constexpr const char* kDefaultModelsUrl = "https://models.dev";
+
+    /// Get the global ModelsDev singleton.
+    static ModelsDev& instance() noexcept;
+
+    ModelsDev(const ModelsDev&) = delete;
+    ModelsDev& operator=(const ModelsDev&) = delete;
+
+    /// Fetch and return the full provider→model map as raw JSON.
+    /// Uses the priority chain: local cache → network → built-in fallback.
+    /// Result is cached in memory after the first successful fetch.
+    ///
+    /// @param force_refresh  If true, bypass the in-memory cache and re-fetch.
+    /// @return JSON object mapping provider ID → provider entry, or empty object on failure.
+    [[nodiscard]] nlohmann::json get(bool force_refresh = false);
+
+    /// Refresh the snapshot from the network and persist it to the local cache file.
+    /// @return true if the refresh succeeded.
+    bool refresh();
+
+    /// Clear the in-memory cached snapshot (does NOT delete the on-disk cache).
+    void clear_cache() noexcept;
+
+private:
+    ModelsDev() = default;
+
+    mutable std::mutex cache_mutex_;
+    nlohmann::json cached_;        ///< In-memory snapshot (empty = not yet loaded)
+    bool cache_loaded_ = false;
+
+    /// Path to the on-disk cache file.
+    static std::string cache_file_path();
+
+    /// Attempt to load snapshot from the local cache file.
+    static nlohmann::json load_from_cache();
+
+    /// Fetch snapshot from the models.dev network API.
+    static nlohmann::json fetch_from_network();
+
+    /// Build a minimal fallback snapshot from ProviderManager's registered models.
+    static nlohmann::json build_fallback_snapshot();
+};
+
 } // namespace turbot::core::provider

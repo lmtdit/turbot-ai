@@ -117,6 +117,8 @@ struct AccountService::Impl {
     std::map<AccountId, std::vector<OrgInfo>> account_orgs;
     std::map<AccountId, AccessToken> access_tokens;
     std::map<AccountId, RefreshToken> refresh_tokens;
+    // Shared HTTP client — avoids creating a new TCP connection for each API call.
+    turbot::network::HttpClient http_client_;
     
     Impl() {
         // Get config path from environment or default
@@ -233,6 +235,69 @@ struct AccountService::Impl {
         }
         return id;
     }
+
+    // T9: Fetch user info from /api/user (mirrors OpenCode fetchUser).
+    // Returns the AccountInfo populated from the server response, or nullopt on failure.
+    std::optional<AccountInfo> fetch_user(const std::string& server_url,
+                                          const std::string& access_token) {
+        try {
+            const std::string endpoint = server_url + "/api/user";
+            const turbot::network::HttpHeaders headers = {
+                {"Authorization", "Bearer " + access_token},
+                {"Accept",        "application/json"}
+            };
+            auto resp = http_client_.get(endpoint, headers);
+            if (!resp.is_success()) {
+                TURBOT_LOG_WARN("fetchUser: GET {} returned status {}", endpoint, resp.status_code);
+                return std::nullopt;
+            }
+            auto j = nlohmann::json::parse(resp.body);
+            AccountInfo info;
+            info.id    = j.value("id",    std::string{});
+            info.email = j.value("email", std::string{});
+            info.url   = server_url;
+            if (info.id.empty()) {
+                TURBOT_LOG_WARN("fetchUser: response missing 'id' field");
+                return std::nullopt;
+            }
+            return info;
+        } catch (const std::exception& ex) {
+            TURBOT_LOG_ERROR("fetchUser: exception: {}", ex.what());
+            return std::nullopt;
+        }
+    }
+
+    // T9: Fetch org list from /api/orgs (mirrors OpenCode fetchOrgs).
+    // Returns list of OrgInfo, empty on failure.
+    std::vector<OrgInfo> fetch_orgs(const std::string& server_url,
+                                    const std::string& access_token) {
+        try {
+            const std::string endpoint = server_url + "/api/orgs";
+            const turbot::network::HttpHeaders headers = {
+                {"Authorization", "Bearer " + access_token},
+                {"Accept",        "application/json"}
+            };
+            auto resp = http_client_.get(endpoint, headers);
+            if (!resp.is_success()) {
+                TURBOT_LOG_WARN("fetchOrgs: GET {} returned status {}", endpoint, resp.status_code);
+                return {};
+            }
+            auto j = nlohmann::json::parse(resp.body);
+            if (!j.is_array()) {
+                TURBOT_LOG_WARN("fetchOrgs: response is not an array");
+                return {};
+            }
+            std::vector<OrgInfo> result;
+            result.reserve(j.size());
+            for (const auto& item : j) {
+                result.push_back(OrgInfo::from_json(item));
+            }
+            return result;
+        } catch (const std::exception& ex) {
+            TURBOT_LOG_ERROR("fetchOrgs: exception: {}", ex.what());
+            return {};
+        }
+    }
 };
 
 // ============================================================================
@@ -254,11 +319,10 @@ std::optional<LoginSession> AccountService::login(const std::string& server_url)
     TURBOT_LOG_INFO("Starting login flow for: {}", server_url);
 
     try {
-        turbot::network::HttpClient http;
         nlohmann::json req_body = {{"client_id", "opencode"}};
         const std::string endpoint = server_url + "/auth/device/code";
 
-        auto resp = http.post_json(endpoint, req_body.dump());
+        auto resp = impl_->http_client_.post_json(endpoint, req_body.dump());
         if (!resp.is_success()) {
             TURBOT_LOG_ERROR("login(): POST {} failed with status {}",
                              endpoint, resp.status_code);
@@ -292,7 +356,6 @@ PollResult AccountService::poll(const LoginSession& session) {
     TURBOT_LOG_DEBUG("Polling for login completion: {}", session.device_code);
 
     try {
-        turbot::network::HttpClient http;
         nlohmann::json req_body = {
             {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"},
             {"device_code", session.device_code},
@@ -300,7 +363,7 @@ PollResult AccountService::poll(const LoginSession& session) {
         };
         const std::string endpoint = session.server + "/auth/device/token";
 
-        auto resp = http.post_json(endpoint, req_body.dump());
+        auto resp = impl_->http_client_.post_json(endpoint, req_body.dump());
 
         // Both success and pending responses may arrive as 200 or 4xx depending
         // on server implementation; always try to parse the body for the status.
@@ -321,11 +384,53 @@ PollResult AccountService::poll(const LoginSession& session) {
                     std::chrono::system_clock::now().time_since_epoch()
                 ).count() + expires_in * 1000LL;
 
+            // T9: fetchUser + fetchOrgs (mirrors OpenCode poll() post-auth steps).
+            // Use the real account ID from the server rather than the server URL as placeholder.
+            auto user_info = impl_->fetch_user(session.server, at);
+            auto remote_orgs = impl_->fetch_orgs(session.server, at);
+
+            // Build the canonical AccountInfo (fall back to server URL as ID if fetch fails).
+            AccountInfo account_info;
+            if (user_info) {
+                account_info = *user_info;
+                result.email = account_info.email;
+                TURBOT_LOG_INFO("poll(): fetched user id={} email={}", account_info.id, account_info.email);
+            } else {
+                // Degrade gracefully: use server URL as ID placeholder
+                account_info.id  = session.server;
+                account_info.url = session.server;
+                TURBOT_LOG_WARN("poll(): fetchUser failed; using server URL as account ID placeholder");
+            }
+
+            // Persist orgs for the account
+            if (!remote_orgs.empty()) {
+                impl_->account_orgs[account_info.id] = remote_orgs;
+                // Set first org as active (mirrors OpenCode: pick first org)
+                account_info.active_org_id = remote_orgs[0].id;
+                TURBOT_LOG_INFO("poll(): fetched {} org(s) for account {}", remote_orgs.size(), account_info.id);
+            }
+
+            // Upsert the account into the in-memory list
+            {
+                bool found = false;
+                for (auto& acc : impl_->accounts) {
+                    if (acc.id == account_info.id || acc.url == account_info.url) {
+                        acc = account_info;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    impl_->accounts.push_back(account_info);
+                }
+                impl_->active_account_id = account_info.id;
+            }
+
             // Persist to SQLite account_state
             auto& store = AccountStore::instance();
             if (store.is_initialized()) {
                 AccountState state;
-                state.account_id    = session.server;  // placeholder until fetchUser()
+                state.account_id    = account_info.id;
                 state.access_token  = at;
                 state.refresh_token = rt;
                 state.token_expiry  = expiry_ms;
@@ -335,8 +440,8 @@ PollResult AccountService::poll(const LoginSession& session) {
             }
 
             // Also update in-memory token maps for backward compat.
-            impl_->access_tokens[session.server]  = at;
-            impl_->refresh_tokens[session.server] = rt;
+            impl_->access_tokens[account_info.id]  = at;
+            impl_->refresh_tokens[account_info.id] = rt;
             impl_->save_accounts();
 
             return result;
@@ -482,14 +587,13 @@ bool AccountService::refresh_token(const AccountId& account_id) {
     TURBOT_LOG_INFO("refresh_token: posting to {} for account {}", endpoint, account_id);
 
     try {
-        turbot::network::HttpClient http;
         nlohmann::json req_body = {
             {"grant_type",    "refresh_token"},
             {"refresh_token", rt_value},
             {"client_id",     "opencode"}
         };
 
-        auto resp = http.post_json(endpoint, req_body.dump());
+        auto resp = impl_->http_client_.post_json(endpoint, req_body.dump());
         if (!resp.is_success()) {
             TURBOT_LOG_ERROR("refresh_token: POST {} returned status {}",
                              endpoint, resp.status_code);

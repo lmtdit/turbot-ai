@@ -1,5 +1,6 @@
 #include <turbot/core/message/message.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/core/id/id.hpp>
 #include <turbot/storage/database.hpp>
 #include <turbot/utils/crypto_utils.hpp>
 #include <chrono>
@@ -11,9 +12,10 @@ namespace turbot::core {
 
 namespace {
 
-// 使用 crypto::generate_uuid() 确保线程安全
+// Generate a message ID using the central ID module.
+// Mirrors OpenCode's MessageID.ascending() → "msg_<12hex><14base62>"
 std::string generate_message_id() {
-    return turbot::utils::crypto::generate_uuid();
+    return turbot::core::id::message_id();
 }
 
 int64_t get_current_time_ms() {

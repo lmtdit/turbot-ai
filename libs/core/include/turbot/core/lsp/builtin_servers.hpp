@@ -113,6 +113,12 @@ namespace turbot::core::lsp {
 /// Zig — zls
 [[nodiscard]] LSPServerInfo make_zig_server(const std::string& workspace_root);
 
+/// Oxlint — oxc_language_server / oxlint --lsp (P2, T17)
+[[nodiscard]] LSPServerInfo make_oxlint_server(const std::string& workspace_root);
+
+/// Gleam — gleam lsp (P3, T17)
+[[nodiscard]] LSPServerInfo make_gleam_server(const std::string& workspace_root);
+
 /// Create user-defined server from JSON config entry.
 [[nodiscard]] LSPServerInfo make_custom_server(
     const std::string& id,

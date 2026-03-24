@@ -22,6 +22,7 @@ set(CORE_SOURCES
     src/provider/impl/zhipu_provider.cpp
     src/provider/impl/kimi_provider.cpp
     src/provider/impl/iflow_provider.cpp
+    src/provider/impl/anthropic_provider.cpp
     # Permission module
     src/permission/permission.cpp
     # Tool module
@@ -67,6 +68,7 @@ set(CORE_SOURCES
     src/session/usage_tracker.cpp
     src/session/retry_manager.cpp
     src/session/session_compaction.cpp
+    src/session/session_instruction.cpp  # T5: InstructionPrompt
     # LLM module (v2.0)
     src/llm/tool_schema.cpp
     src/llm/message_builder.cpp
@@ -104,6 +106,21 @@ set(CORE_SOURCES
     # Project module
     src/project/project.cpp
         src/project/project_store.cpp
+    src/project/instance.cpp
+    # ID module (T14)
+    src/id/id.cpp
+    # Global module (T6)
+    src/global/global.cpp
+    # File module (T12)
+    src/file/file.cpp
+    # Tool builtin: truncate (T11)
+    src/tool/builtin/truncate_tool.cpp
+    # Question module (T18)
+    src/question/question.cpp
+    # IDE module (T19)
+    src/ide/ide.cpp
+    # Session todo module (T20)
+    src/session/session_todo.cpp
     # Account module
     src/account/account.cpp
         src/account/account_store.cpp
@@ -132,6 +149,7 @@ set(CORE_HEADERS
     include/turbot/core/provider/impl/zhipu_provider.hpp
     include/turbot/core/provider/impl/kimi_provider.hpp
     include/turbot/core/provider/impl/iflow_provider.hpp
+    include/turbot/core/provider/impl/anthropic_provider.hpp
     # Permission module
     include/turbot/core/permission/permission.hpp
     # Tool module
@@ -158,6 +176,7 @@ set(CORE_HEADERS
     include/turbot/core/session/session.hpp
     include/turbot/core/session/session_state_machine.hpp
     include/turbot/core/session/session_loop.hpp
+    include/turbot/core/session/session_instruction.hpp  # T5
     # LLM module (v2.0)
     include/turbot/core/llm/tool_schema.hpp
     include/turbot/core/llm/message_builder.hpp
@@ -192,6 +211,24 @@ set(CORE_HEADERS
     include/turbot/core/acp/server.hpp
     include/turbot/core/acp/session.hpp
     include/turbot/core/acp/agent.hpp
+    # ID module (T14)
+    include/turbot/core/id/id.hpp
+    # Global module (T6)
+    include/turbot/core/global/global.hpp
+    # Instance module (T7)
+    include/turbot/core/project/instance.hpp
+    # Flag module (T13)
+    include/turbot/core/flag/flag.hpp
+    # Tool builtin: truncate (T11)
+    include/turbot/core/tool/builtin/truncate_tool.hpp
+    # File module (T12)
+    include/turbot/core/file/file.hpp
+    # Question module (T18)
+    include/turbot/core/question/question.hpp
+    # IDE module (T19)
+    include/turbot/core/ide/ide.hpp
+    # Session todo module (T20)
+    include/turbot/core/session/session_todo.hpp
 )
 
 # Create library
