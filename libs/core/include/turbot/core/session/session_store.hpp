@@ -121,6 +121,17 @@ public:
         std::optional<int64_t> max_seq = std::nullopt
     );
 
+    // ── T20: Todo persistence ────────────────────────────────────────────────
+
+    /// Replace the full todo list for a session (all-or-nothing transaction).
+    /// Mirrors OpenCode Todo.update() persistence.
+    /// @return true on success.
+    bool save_todos(const std::string& session_id,
+                    const std::vector<struct TodoInfo>& todos);
+
+    /// Retrieve the current todo list for a session, ordered by position.
+    [[nodiscard]] std::vector<struct TodoInfo> get_todos(const std::string& session_id);
+
 private:
     SessionStore() = default;
 

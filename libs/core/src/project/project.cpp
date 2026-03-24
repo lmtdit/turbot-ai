@@ -3,6 +3,8 @@
 
 #include <turbot/core/project/project.hpp>
 #include <turbot/core/project/project_store.hpp>
+#include <turbot/core/event/event_bus.hpp>
+#include <turbot/core/session/session_events.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <nlohmann/json.hpp>
 #include <fmt/format.h>
@@ -538,14 +540,21 @@ std::optional<Project> Project::create(const CreateParams& params) {
         }
     }
     
-    // Initialize git if requested
+    // T15: Initialize git if requested and .git not yet present.
+    // Calls the real Project::init_git() which runs `git init` in the worktree.
+    // We reuse the LoadResult from init_git so we don't call from_directory() twice.
+    LoadResult result;
     if (params.init_git && !fs::exists(abs_dir / ".git")) {
-        // Note: In production, this would call git init
-        TURBOT_LOG_INFO("Git initialization requested for: {}", dir_str);
+        TURBOT_LOG_INFO("Project::create: initialising git repository at {}", dir_str);
+        LoadResult tmp = from_directory(dir_str);
+        Project tmp_proj(tmp.project);
+        tmp_proj.init_git();  // runs `git init`, updates VCS type + persists
+        // Re-scan so result reflects the updated VCS type written by init_git.
+        result = from_directory(dir_str);
+    } else {
+        // Create project from directory
+        result = from_directory(dir_str);
     }
-    
-    // Create project from directory
-    LoadResult result = from_directory(dir_str);
     
     // Apply overrides
     if (params.name) {
@@ -567,6 +576,11 @@ std::optional<Project> Project::create(const CreateParams& params) {
     config["project"] = result.project.to_json();
     save_config(dir_str, config);
     
+    // T1: Emit project.updated so ACP / UI consumers stay in sync.
+    turbot::core::EventBus::instance().publish(
+        turbot::core::session::ProjectUpdatedEvent::kEventName,
+        turbot::core::session::ProjectUpdatedEvent{result.project.to_json()});
+
     return Project(result.project);
 }
 
@@ -647,6 +661,11 @@ bool Project::update(const UpdateParams& params) {
         if (config_opt) config = *config_opt;
         config["project"] = info_.to_json();
         save_config(info_.worktree, config);
+
+        // T1: Emit project.updated.
+        turbot::core::EventBus::instance().publish(
+            turbot::core::session::ProjectUpdatedEvent::kEventName,
+            turbot::core::session::ProjectUpdatedEvent{info_.to_json()});
     }
     
     return changed;
@@ -739,6 +758,54 @@ bool Project::init_git() {
     save_config(info_.worktree, config);
 
     return true;
+}
+
+// ─── add_sandbox() / remove_sandbox() (T16) ──────────────────────────────────
+
+std::optional<ProjectInfo> Project::add_sandbox(const std::string& directory) {
+    // Idempotent: only add if not already present
+    auto& sandboxes = info_.sandboxes;
+    if (std::find(sandboxes.begin(), sandboxes.end(), directory) == sandboxes.end()) {
+        sandboxes.push_back(directory);
+    }
+    info_.time.updated = current_timestamp();
+
+    // Persist to SQLite
+    auto& store = ProjectStore::instance();
+    if (store.is_initialized()) {
+        store.save(info_);
+    }
+
+    // Emit project.updated event (mirrors OpenCode GlobalBus.emit)
+    turbot::core::EventBus::instance().publish(
+        turbot::core::session::ProjectUpdatedEvent::kEventName,
+        turbot::core::session::ProjectUpdatedEvent{info_.to_json()});
+
+    TURBOT_LOG_INFO("Project::add_sandbox: project={} dir={}", info_.id, directory);
+    return info_;
+}
+
+std::optional<ProjectInfo> Project::remove_sandbox(const std::string& directory) {
+    auto& sandboxes = info_.sandboxes;
+    const auto it = std::find(sandboxes.begin(), sandboxes.end(), directory);
+    if (it != sandboxes.end()) {
+        sandboxes.erase(it);
+    }
+    info_.time.updated = current_timestamp();
+
+    // Persist to SQLite
+    auto& store = ProjectStore::instance();
+    if (store.is_initialized()) {
+        store.save(info_);
+    }
+
+    // Emit project.updated event (mirrors OpenCode GlobalBus.emit)
+    turbot::core::EventBus::instance().publish(
+        turbot::core::session::ProjectUpdatedEvent::kEventName,
+        turbot::core::session::ProjectUpdatedEvent{info_.to_json()});
+
+    TURBOT_LOG_INFO("Project::remove_sandbox: project={} dir={}", info_.id, directory);
+    return info_;
 }
 
 } // namespace turbot::core::project

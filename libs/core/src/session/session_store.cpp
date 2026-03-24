@@ -1,6 +1,8 @@
 #include <turbot/core/session/session_store.hpp>
 #include <turbot/core/session/session.hpp>
+#include <turbot/core/session/session_todo.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <chrono>
 #include <stdexcept>
 
 namespace turbot::core::session {
@@ -98,6 +100,109 @@ void SessionStore::ensure_schema() {
     db_->execute(R"SQL(
         CREATE INDEX IF NOT EXISTS idx_session_messages_session
             ON session_messages(session_id, seq)
+    )SQL");
+
+    // ── T3: message table (OpenCode-aligned, TEXT PK with msg_ prefix) ──────────
+    // Mirrors OpenCode MessageTable in session.sql.ts:
+    //   id TEXT PK (msg_xxx), session_id FK, time_created, time_updated, data JSON
+    // Turbot extends this with structured columns (role/agent/model_id etc) for
+    // fast server-side queries without JSON extraction.
+    // Index: (session_id, time_created, id) for ordered retrieval per session.
+    db_->execute(R"SQL(
+        CREATE TABLE IF NOT EXISTS messages (
+            id          TEXT    PRIMARY KEY NOT NULL,
+            session_id  TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            role        TEXT    NOT NULL DEFAULT 'user',
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            parent_id   TEXT,
+            agent       TEXT    NOT NULL DEFAULT '',
+            model_id    TEXT    NOT NULL DEFAULT '',
+            provider_id TEXT    NOT NULL DEFAULT '',
+            system      TEXT,
+            tools       TEXT,
+            variant     TEXT,
+            error       TEXT,
+            finish      TEXT,
+            cost        REAL    NOT NULL DEFAULT 0.0,
+            tokens      TEXT,
+            summary     INTEGER,
+            structured  TEXT
+        )
+    )SQL");
+    db_->execute(R"SQL(
+        CREATE INDEX IF NOT EXISTS message_session_time_created_id_idx
+            ON messages(session_id, time_created, id)
+    )SQL");
+    // ALTER TABLE for existing DBs that may already have a messages table from
+    // a previous schema version without some columns.
+    {
+        static const char* kMsgAlterStmts[] = {
+            "ALTER TABLE messages ADD COLUMN parent_id TEXT",
+            "ALTER TABLE messages ADD COLUMN agent TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE messages ADD COLUMN model_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE messages ADD COLUMN provider_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE messages ADD COLUMN system TEXT",
+            "ALTER TABLE messages ADD COLUMN tools TEXT",
+            "ALTER TABLE messages ADD COLUMN variant TEXT",
+            "ALTER TABLE messages ADD COLUMN error TEXT",
+            "ALTER TABLE messages ADD COLUMN finish TEXT",
+            "ALTER TABLE messages ADD COLUMN cost REAL NOT NULL DEFAULT 0.0",
+            "ALTER TABLE messages ADD COLUMN tokens TEXT",
+            "ALTER TABLE messages ADD COLUMN summary INTEGER",
+            "ALTER TABLE messages ADD COLUMN structured TEXT",
+            nullptr
+        };
+        for (int i = 0; kMsgAlterStmts[i]; ++i) {
+            try { db_->execute(kMsgAlterStmts[i]); }
+            catch (const std::exception&) { /* column already exists — safe to ignore */ }
+        }
+    }
+
+    // ── T4: part table (OpenCode-aligned, TEXT PK with prt_ prefix) ─────────────
+    // Mirrors OpenCode PartTable in session.sql.ts:
+    //   id TEXT PK (prt_xxx), message_id FK, session_id, time_created, time_updated, data JSON
+    // Turbot also stores `type` TEXT for fast type-based filtering without JSON extraction.
+    // Indexes: (message_id, id) and (session_id) for fast lookups.
+    db_->execute(R"SQL(
+        CREATE TABLE IF NOT EXISTS parts (
+            id          TEXT    PRIMARY KEY NOT NULL,
+            message_id  TEXT    NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            session_id  TEXT    NOT NULL,
+            type        TEXT    NOT NULL DEFAULT 'text',
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            data        TEXT    NOT NULL
+        )
+    )SQL");
+    db_->execute(R"SQL(
+        CREATE INDEX IF NOT EXISTS part_message_id_id_idx
+            ON parts(message_id, id)
+    )SQL");
+    db_->execute(R"SQL(
+        CREATE INDEX IF NOT EXISTS part_session_idx
+            ON parts(session_id)
+    )SQL");
+
+    // ── T20: todo table (OpenCode-aligned) ───────────────────────────────────
+    // Mirrors OpenCode TodoTable in session.sql.ts:
+    //   session_id FK, content, status, priority, position, time_created, time_updated
+    //   PK: (session_id, position)
+    db_->execute(R"SQL(
+        CREATE TABLE IF NOT EXISTS todos (
+            session_id   TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+            content      TEXT    NOT NULL,
+            status       TEXT    NOT NULL,
+            priority     TEXT    NOT NULL,
+            position     INTEGER NOT NULL,
+            time_created INTEGER NOT NULL,
+            time_updated INTEGER NOT NULL,
+            PRIMARY KEY (session_id, position)
+        )
+    )SQL");
+    db_->execute(R"SQL(
+        CREATE INDEX IF NOT EXISTS todo_session_idx
+            ON todos(session_id)
     )SQL");
 
     schema_ready_ = true;
@@ -573,6 +678,72 @@ int SessionStore::copy_messages(
         TURBOT_LOG_ERROR("SessionStore::copy_messages from {} to {} failed: {}",
                          src_session_id, dst_session_id, e.what());
         return -1;
+    }
+}
+
+// ─── T20: Todo persistence ────────────────────────────────────────────────────
+
+bool SessionStore::save_todos(const std::string& session_id,
+                              const std::vector<TodoInfo>& todos) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return false;
+
+    try {
+        auto tx = db_->begin_transaction();
+        // Delete existing todos for this session
+        tx->execute(
+            "DELETE FROM todos WHERE session_id = ?",
+            {nlohmann::json(session_id)});
+
+        if (!todos.empty()) {
+            const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+            for (int pos = 0; pos < static_cast<int>(todos.size()); ++pos) {
+                const auto& t = todos[static_cast<std::size_t>(pos)];
+                tx->execute(
+                    "INSERT INTO todos (session_id, content, status, priority, position,"
+                    " time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    {nlohmann::json(session_id),
+                     nlohmann::json(t.content),
+                     nlohmann::json(t.status),
+                     nlohmann::json(t.priority),
+                     nlohmann::json(pos),
+                     nlohmann::json(now),
+                     nlohmann::json(now)});
+            }
+        }
+        tx->commit();
+        return true;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::save_todos session={} failed: {}", session_id, e.what());
+        return false;
+    }
+}
+
+std::vector<TodoInfo> SessionStore::get_todos(const std::string& session_id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return {};
+
+    try {
+        auto result = db_->execute(
+            "SELECT content, status, priority FROM todos"
+            " WHERE session_id = ? ORDER BY position ASC",
+            {nlohmann::json(session_id)});
+
+        std::vector<TodoInfo> todos;
+        todos.reserve(result.rows.size());
+        for (const auto& row : result.rows) {
+            TodoInfo t;
+            t.content  = row.count("content")  ? row.at("content").get<std::string>()  : "";
+            t.status   = row.count("status")   ? row.at("status").get<std::string>()   : "pending";
+            t.priority = row.count("priority") ? row.at("priority").get<std::string>() : "medium";
+            todos.push_back(std::move(t));
+        }
+        return todos;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::get_todos session={} failed: {}", session_id, e.what());
+        return {};
     }
 }
 

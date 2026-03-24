@@ -173,6 +173,18 @@ public:
     /// @return true if git was initialized
     bool init_git();
 
+    /// Add a sandbox directory to this project (idempotent).
+    /// Mirrors OpenCode Project.addSandbox().
+    /// @param directory  Absolute path to the sandbox directory.
+    /// @return Updated ProjectInfo, or nullopt on failure.
+    [[nodiscard]] std::optional<ProjectInfo> add_sandbox(const std::string& directory);
+
+    /// Remove a sandbox directory from this project.
+    /// Mirrors OpenCode Project.removeSandbox().
+    /// @param directory  Absolute path to the sandbox directory.
+    /// @return Updated ProjectInfo, or nullopt on failure.
+    [[nodiscard]] std::optional<ProjectInfo> remove_sandbox(const std::string& directory);
+
     /// Get project ID
     [[nodiscard]] const ProjectId& id() const noexcept { return info_.id; }
 

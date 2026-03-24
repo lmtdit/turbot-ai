@@ -1,13 +1,15 @@
 #include <turbot/core/session/session.hpp>
 #include <turbot/core/session/session_store.hpp>
 #include <turbot/core/session/session_compaction.hpp>
+#include <turbot/core/session/session_events.hpp>
 #include <turbot/core/snapshot/snapshot.hpp>
 #include <turbot/core/message/message.hpp>
+#include <turbot/core/event/event_bus.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/core/id/id.hpp>
 #include <fmt/format.h>
 #include <chrono>
 #include <mutex>
-#include <random>
 #include <sstream>
 #include <iomanip>
 
@@ -277,61 +279,8 @@ bool SessionInfo::operator==(const SessionInfo& other) const noexcept {
 // Session implementation
 
 std::string Session::generate_id() {
-    // Generate an OpenCode-compatible session ID.
-    //
-    // Format: "ses_" + 12 hex chars (6 bytes big-endian timestamp) + 14 base62 chars
-    //
-    // The timestamp portion is  ~(ms_timestamp * 0x1000 + per-ms counter) which
-    // gives descending sort order (newest sessions sort first), matching OpenCode's
-    // Identifier.descending("session") scheme.
-    using namespace std::chrono;
-
-    // Monotonic counter per millisecond — prevents identical IDs within the same ms.
-    static std::mutex id_mutex_;
-    static int64_t   last_ts_{0};
-    static int32_t   counter_{0};
-
-    int64_t ts;
-    int32_t cnt;
-    {
-        std::lock_guard<std::mutex> lock(id_mutex_);
-        ts = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
-        if (ts != last_ts_) {
-            last_ts_ = ts;
-            counter_ = 0;
-        }
-        cnt = ++counter_;
-    }
-
-    // Combine timestamp + counter, then bitwise-NOT for descending order.
-    uint64_t val = static_cast<uint64_t>(ts) * 0x1000ULL + static_cast<uint64_t>(cnt);
-    val = ~val;
-
-    // Extract 6 bytes big-endian → 12 hex chars.
-    uint8_t bytes[6];
-    for (int i = 0; i < 6; ++i) {
-        bytes[i] = static_cast<uint8_t>((val >> (40 - 8 * i)) & 0xFF);
-    }
-    std::ostringstream oss;
-    oss << std::hex << std::setfill('0');
-    for (int i = 0; i < 6; ++i) {
-        oss << std::setw(2) << static_cast<int>(bytes[i]);
-    }
-
-    // 14 base62 random chars — use std::random_device directly (closer to
-    // OpenCode's crypto.randomBytes) rather than seeding a deterministic PRNG.
-    static constexpr const char kBase62[] =
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-    static thread_local std::random_device s_rd;  // reuse across calls
-    std::uniform_int_distribution<int> dis(0, 61);
-
-    std::string rand_part;
-    rand_part.reserve(14);
-    for (int i = 0; i < 14; ++i) {
-        rand_part += kBase62[dis(s_rd)];
-    }
-
-    return "ses_" + oss.str() + rand_part;
+    // Delegate to the shared ID module, mirrors OpenCode's Identifier.descending("session").
+    return turbot::core::id::session_id();
 }
 
 int64_t Session::current_timestamp() {
@@ -359,6 +308,13 @@ std::optional<Session> Session::create(const CreateParams& params) {
 
     // Persist to DB if store is initialised
     SessionStore::instance().save(session.info_);
+
+    // T1: Emit session.created + session.updated (mirrors OpenCode createNext()).
+    const nlohmann::json wire = session.info_.to_json();
+    turbot::core::EventBus::instance().publish(
+        SessionCreatedEvent::kEventName, SessionCreatedEvent{wire});
+    turbot::core::EventBus::instance().publish(
+        SessionInfoUpdatedEvent::kEventName, SessionInfoUpdatedEvent{wire});
 
     return session;
 }
@@ -396,6 +352,9 @@ std::optional<Session> Session::fork(const ForkParams& params) {
     // Aligned with OpenCode Session.fork(sessionID, messageID?) which clones all
     // messages up to the specified cutoff.  Since we currently use an INTEGER seq
     // rather than a string MessageID, the cutoff is expressed as a seq number.
+    //
+    // NOTE: We emit session.created AFTER copy_messages succeeds so that
+    // subscribers never see a forked session that is subsequently rolled back.
     auto& store = SessionStore::instance();
     if (store.is_initialized()) {
         int copied = store.copy_messages(
@@ -413,6 +372,16 @@ std::optional<Session> Session::fork(const ForkParams& params) {
         }
         TURBOT_LOG_DEBUG("Session::fork: copied {} messages from {} to {}",
                          copied, params.parent_id, session.info_.id);
+    }
+
+    // T1: Emit session.created + session.updated for the forked session.
+    // Emitted AFTER copy_messages so subscribers only see successfully-created forks.
+    {
+        const nlohmann::json wire = session.info_.to_json();
+        turbot::core::EventBus::instance().publish(
+            SessionCreatedEvent::kEventName, SessionCreatedEvent{wire});
+        turbot::core::EventBus::instance().publish(
+            SessionInfoUpdatedEvent::kEventName, SessionInfoUpdatedEvent{wire});
     }
 
     return session;
@@ -457,24 +426,52 @@ std::vector<Session> Session::list(const std::string& project_id) {
 bool Session::remove(const std::string& id) {
     auto& store = SessionStore::instance();
     if (!store.is_initialized()) return false;
+
+    // T1: Emit session.deleted BEFORE the row is removed so consumers can still
+    // read the session info from the payload (matches OpenCode ordering).
+    auto row = store.find_by_id(id);
+    if (row) {
+        try {
+            turbot::core::EventBus::instance().publish(
+                SessionDeletedEvent::kEventName,
+                SessionDeletedEvent{SessionInfo::from_json(*row).to_json()});
+        } catch (const std::exception& ex) {
+            TURBOT_LOG_WARN("Session::remove: failed to build delete event for session '{}': {}",
+                            id, ex.what());
+        }
+    }
+
     return store.remove(id);
 }
 
 bool Session::update(const UpdateParams& params) {
     if (!mutex_) return false;
-    std::lock_guard<std::mutex> lock(*mutex_);
-    if (params.title) {
-        info_.title = *params.title;
-    }
-    if (params.permission) {
-        info_.permission = *params.permission;
-    }
-    if (params.state) {
-        info_.state = *params.state;
-    }
-    info_.time_updated = current_timestamp();
-    // Persist updated state
-    SessionStore::instance().save(info_);
+    // Serialize info_ under the lock, then publish the event outside the lock.
+    // Calling EventBus::publish() while holding mutex_ risks a deadlock if any
+    // subscriber calls session.update() on the same Session object.
+    nlohmann::json wire;
+    {
+        std::lock_guard<std::mutex> lock(*mutex_);
+        if (params.title) {
+            info_.title = *params.title;
+        }
+        if (params.permission) {
+            info_.permission = *params.permission;
+        }
+        if (params.state) {
+            info_.state = *params.state;
+        }
+        info_.time_updated = current_timestamp();
+        // Persist updated state
+        SessionStore::instance().save(info_);
+        wire = info_.to_json();
+    }  // lock released here
+
+    // T1: Emit session.updated so ACP / UI consumers stay in sync.
+    turbot::core::EventBus::instance().publish(
+        SessionInfoUpdatedEvent::kEventName,
+        SessionInfoUpdatedEvent{wire});
+
     return true;
 }
 

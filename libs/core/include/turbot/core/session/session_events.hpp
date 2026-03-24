@@ -14,6 +14,44 @@
 namespace turbot::core::session {
 
 // ---------------------------------------------------------------------------
+// T1: Session CRUD events — mirrors OpenCode Session.Event.{Created,Updated,Deleted}
+// These are published by Session::create(), Session::update(), Session::remove()
+// so that ACP / UI consumers receive real-time push notifications.
+// ---------------------------------------------------------------------------
+
+/// Published immediately after a new Session is persisted to the DB.
+/// Mirrors OpenCode Bus.publish(Session.Event.Created, { info: result }).
+struct TURBOT_CORE_API SessionCreatedEvent {
+    static constexpr const char* kEventName = "session.created";
+    nlohmann::json info;  ///< Wire-format JSON (same as SessionInfo::to_json())
+};
+
+/// Published after any Session field is updated (title, state, permission, etc.).
+/// Mirrors OpenCode Bus.publish(Session.Event.Updated, { info: result }).
+struct TURBOT_CORE_API SessionInfoUpdatedEvent {
+    static constexpr const char* kEventName = "session.updated";
+    nlohmann::json info;  ///< Wire-format JSON (same as SessionInfo::to_json())
+};
+
+/// Published immediately before a Session is deleted from the DB.
+/// Mirrors OpenCode Bus.publish(Session.Event.Deleted, { info: session }).
+struct TURBOT_CORE_API SessionDeletedEvent {
+    static constexpr const char* kEventName = "session.deleted";
+    nlohmann::json info;  ///< Wire-format JSON (same as SessionInfo::to_json())
+};
+
+// ---------------------------------------------------------------------------
+// T1: Project CRUD events — mirrors OpenCode project.updated
+// ---------------------------------------------------------------------------
+
+/// Published after a Project is created or its metadata is updated.
+/// Mirrors OpenCode Bus.publish(Project.Event.Updated, { info: result }).
+struct TURBOT_CORE_API ProjectUpdatedEvent {
+    static constexpr const char* kEventName = "project.updated";
+    nlohmann::json info;  ///< Wire-format JSON (same as ProjectInfo::to_json())
+};
+
+// ---------------------------------------------------------------------------
 // SessionStatus – lifecycle state of a running SessionLoop
 // ---------------------------------------------------------------------------
 
