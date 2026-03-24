@@ -45,8 +45,8 @@ void reset_store() {
     // Note: the schema is created lazily inside SessionStore on the first save/find call,
     // so we guard against "table not found" by using IF EXISTS.
     try {
-        // Use find_all with a dummy project to trigger schema creation if needed.
-        (void)SessionStore::instance().find_all("__init__");
+        // Use find_all with an empty ListParams to trigger schema creation if needed.
+        (void)SessionStore::instance().find_all(turbot::core::session::ListParams{});
         // Now clear
         // We access the DB indirectly via SessionStore's public API:
         // delete all sessions by listing them all (project_id="") — not ideal,

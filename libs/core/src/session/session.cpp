@@ -1,6 +1,7 @@
 #include <turbot/core/session/session.hpp>
 #include <turbot/core/session/session_store.hpp>
 #include <turbot/core/snapshot/snapshot.hpp>
+#include <turbot/core/common/logger.hpp>
 #include <fmt/format.h>
 #include <chrono>
 #include <mutex>
@@ -197,7 +198,7 @@ SessionInfo SessionInfo::from_json(const nlohmann::json& j) {
     // DB rows may carry an explicit "state" column — honour it for backward compat.
     if (j.contains("state") && j["state"].is_string()) {
         try { info.state = string_to_session_state(j["state"].get<std::string>()); }
-        catch (...) { /* ignore invalid state strings from old rows */ }
+        catch (const std::exception&) { /* ignore invalid state strings from old rows */ }
     }
 
     if (j.contains("permission") && !j["permission"].is_null())
@@ -206,18 +207,6 @@ SessionInfo SessionInfo::from_json(const nlohmann::json& j) {
     // Revert: accept both camelCase and existing snake_case variants.
     if (j.contains("revert") && !j["revert"].is_null()) {
         info.revert = RevertInfo::from_json(j["revert"]);
-    }
-
-    // Summary (git-diff stats).
-    if (j.contains("summary") && !j["summary"].is_null()) {
-        const auto& s = j["summary"];
-        SessionSummary sum;
-        sum.additions = s.value("additions", 0);
-        sum.deletions = s.value("deletions", 0);
-        sum.files     = s.value("files",     0);
-        if (s.contains("diffs") && !s["diffs"].is_null())
-            sum.diffs = s["diffs"];
-        info.summary = std::move(sum);
     }
 
     // Share URL.
@@ -229,6 +218,38 @@ SessionInfo SessionInfo::from_json(const nlohmann::json& j) {
             if (!share.url.empty())
                 info.share = std::move(share);
         }
+    } else if (j.contains("share_url") && !j["share_url"].is_null()) {
+        // Flat DB column form
+        std::string url = j["share_url"].get<std::string>();
+        if (!url.empty()) {
+            SessionShare share;
+            share.url = std::move(url);
+            info.share = std::move(share);
+        }
+    }
+
+    // Summary — nested "summary" (wire format) or flat columns (DB form).
+    if (j.contains("summary") && !j["summary"].is_null()) {
+        const auto& s = j["summary"];
+        SessionSummary sum;
+        sum.additions = s.value("additions", 0);
+        sum.deletions = s.value("deletions", 0);
+        sum.files     = s.value("files",     0);
+        if (s.contains("diffs") && !s["diffs"].is_null())
+            sum.diffs = s["diffs"];
+        info.summary = std::move(sum);
+    } else if (j.contains("summary_additions") && !j["summary_additions"].is_null()) {
+        // Flat DB columns form
+        SessionSummary sum;
+        sum.additions = j.value("summary_additions", 0);
+        sum.deletions = j.value("summary_deletions", 0);
+        sum.files     = j.value("summary_files",     0);
+        if (j.contains("summary_diffs") && !j["summary_diffs"].is_null()) {
+            try {
+                sum.diffs = nlohmann::json::parse(j["summary_diffs"].get<std::string>());
+            } catch (const std::exception&) { /* ignore malformed JSON */ }
+        }
+        info.summary = std::move(sum);
     }
 
     return info;
@@ -368,6 +389,30 @@ std::optional<Session> Session::fork(const ForkParams& params) {
     // Persist the new fork to DB
     SessionStore::instance().save(session.info_);
 
+    // Copy message history from the parent session.
+    //
+    // Aligned with OpenCode Session.fork(sessionID, messageID?) which clones all
+    // messages up to the specified cutoff.  Since we currently use an INTEGER seq
+    // rather than a string MessageID, the cutoff is expressed as a seq number.
+    auto& store = SessionStore::instance();
+    if (store.is_initialized()) {
+        int copied = store.copy_messages(
+            params.parent_id,
+            session.info_.id,
+            params.message_seq_cutoff  // nullopt → copy all messages
+        );
+        if (copied < 0) {
+            TURBOT_LOG_WARN("Session::fork: copy_messages failed (parent={} fork={}); "
+                            "rolling back fork session",
+                            params.parent_id, session.info_.id);
+            // Rollback: remove the orphaned fork session so the DB stays consistent.
+            store.remove(session.info_.id);
+            return std::nullopt;
+        }
+        TURBOT_LOG_DEBUG("Session::fork: copied {} messages from {} to {}",
+                         copied, params.parent_id, session.info_.id);
+    }
+
     return session;
 }
 
@@ -386,11 +431,11 @@ std::optional<Session> Session::get(const std::string& id) {
     }
 }
 
-std::vector<Session> Session::list(const std::string& project_id) {
+std::vector<Session> Session::list(const ListParams& params) {
     auto& store = SessionStore::instance();
     if (!store.is_initialized()) return {};
 
-    auto rows = store.find_all(project_id);
+    auto rows = store.find_all(params);
     std::vector<Session> sessions;
     sessions.reserve(rows.size());
     for (const auto& row : rows) {
@@ -401,6 +446,10 @@ std::vector<Session> Session::list(const std::string& project_id) {
         }
     }
     return sessions;
+}
+
+std::vector<Session> Session::list(const std::string& project_id) {
+    return list(ListParams{.project_id = project_id});
 }
 
 bool Session::remove(const std::string& id) {
@@ -589,6 +638,18 @@ bool Session::cleanup_revert() {
     info_.time_updated = current_timestamp();
 
     return true;
+}
+
+bool Session::set_summary(const SessionSummary& summary) {
+    if (!mutex_) return false;
+    std::lock_guard<std::mutex> lock(*mutex_);
+
+    info_.summary      = summary;
+    info_.time_updated = current_timestamp();
+
+    // Persist to DB — aligned with OpenCode Session.setSummary(sessionID, summary).
+    // Return the save result so callers know if persistence succeeded.
+    return SessionStore::instance().save(info_);
 }
 
 } // namespace turbot::core::session

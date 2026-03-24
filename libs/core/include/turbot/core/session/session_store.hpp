@@ -11,6 +11,10 @@
 
 namespace turbot::core::session {
 
+// Forward declarations
+struct ListParams;
+struct SessionInfo;
+
 /// SessionStore — singleton that owns the database connection used by Session
 /// static methods (get / list / remove / messages / save).
 ///
@@ -44,8 +48,9 @@ public:
     /// Retrieve a SessionInfo row by ID.
     [[nodiscard]] std::optional<nlohmann::json> find_by_id(const std::string& id);
 
-    /// Retrieve all SessionInfo rows for a project, ordered by time_created DESC.
-    [[nodiscard]] std::vector<nlohmann::json> find_all(const std::string& project_id);
+    /// Retrieve SessionInfo rows matching the given filter params.
+    /// Rows are ordered by time_updated DESC; limit defaults to 100.
+    [[nodiscard]] std::vector<nlohmann::json> find_all(const ListParams& params);
 
     /// Retrieve SessionInfo rows for a project with cursor-based pagination.
     /// @param project_id The project ID to filter by
@@ -85,6 +90,21 @@ public:
         const std::string& session_id,
         int limit = 50,
         std::optional<int64_t> cursor = std::nullopt
+    );
+
+    /// Copy messages from @p src_session_id into @p dst_session_id.
+    ///
+    /// Copies all messages up to and including the one with seq == @p max_seq
+    /// (or all messages when max_seq is nullopt).  Each copied message gets a
+    /// fresh seq in the destination session, preserving relative order.
+    ///
+    /// Aligned with OpenCode's Session.fork() message-copy semantics.
+    ///
+    /// @return Number of messages copied, or -1 on error.
+    int copy_messages(
+        const std::string& src_session_id,
+        const std::string& dst_session_id,
+        std::optional<int64_t> max_seq = std::nullopt
     );
 
 private:

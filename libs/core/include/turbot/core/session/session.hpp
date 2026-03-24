@@ -136,6 +136,23 @@ struct TURBOT_CORE_API ForkParams {
     std::string parent_id;                   ///< Parent session ID
     std::string slug;                        ///< Slug for the fork
     std::string title;                       ///< Title for the fork
+    /// Optional cutoff: copy messages up to and including this seq number.
+    /// When nullopt, all messages from the parent are copied.
+    std::optional<int64_t> message_seq_cutoff;
+};
+
+/// Filter parameters for Session::list() — mirrors OpenCode's list() input shape.
+///
+/// All fields are optional; omitting all fields returns all sessions (up to limit).
+/// Aligned with OpenCode packages/opencode/src/session/index.ts list() input.
+struct TURBOT_CORE_API ListParams {
+    std::optional<std::string> project_id;   ///< Filter by project ID
+    std::optional<std::string> directory;    ///< Filter by directory
+    std::optional<std::string> workspace_id; ///< Filter by workspace ID
+    bool roots = false;                      ///< If true, only root sessions (parent_id IS NULL)
+    std::optional<int64_t>  start;           ///< Lower bound on time_updated (epoch ms, inclusive)
+    std::optional<std::string> search;       ///< Substring match on title (LIKE %search%)
+    int limit = 100;                         ///< Max results (default 100, 0 = unlimited)
 };
 
 /// Parameters for reverting a session to a specific message/part
@@ -169,9 +186,16 @@ public:
     /// @return Session or nullopt if not found
     [[nodiscard]] static std::optional<Session> get(const std::string& id);
 
-    /// List sessions for a project
-    /// @param project_id Project ID
-    /// @return Vector of sessions
+    /// List sessions matching the given filter parameters.
+    ///
+    /// Aligned with OpenCode Session.list(input?) which accepts directory,
+    /// workspaceID, roots, start, search, limit as optional filters.
+    ///
+    /// @param params  Filter parameters (all fields optional)
+    /// @return Vector of matching sessions ordered by time_updated DESC
+    [[nodiscard]] static std::vector<Session> list(const ListParams& params = {});
+
+    /// Convenience overload: list all sessions for a project.
     [[nodiscard]] static std::vector<Session> list(const std::string& project_id);
 
     /// Delete a session by ID
@@ -200,6 +224,15 @@ public:
     /// @param permission New permission config
     /// @return true if updated
     bool set_permission(const nlohmann::json& permission);
+
+    /// Set the git-diff summary for this session.
+    ///
+    /// Aligned with OpenCode Session.setSummary(sessionID, summary).
+    /// Updates info_.summary and persists to DB.
+    ///
+    /// @param summary  Git-diff stats to record
+    /// @return true on success
+    bool set_summary(const SessionSummary& summary);
 
     /// Get messages for this session
     /// @param limit Maximum number of messages
