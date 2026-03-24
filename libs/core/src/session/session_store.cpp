@@ -468,6 +468,56 @@ SessionStore::list_messages_paginated(
     }
 }
 
+// ─── delete_messages_by_ids ──────────────────────────────────────────────────
+
+bool SessionStore::delete_messages_by_ids(
+    const std::string& session_id,
+    const std::vector<std::string>& ids
+) {
+    if (ids.empty()) return true;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return false;
+
+    try {
+        // Build a single DELETE with an IN-list for efficiency:
+        //   DELETE FROM session_messages
+        //   WHERE session_id = ? AND json_extract(data, '$.id') IN (?,?,…)
+        //
+        // This issues one statement instead of N, and SQLite only needs to scan
+        // the session's rows once rather than once-per-id.
+        //
+        // json_extract is available in SQLite ≥ 3.9 (json1), shipped by default
+        // in all modern builds.
+        std::string placeholders;
+        placeholders.reserve(ids.size() * 2);  // ",?" per element
+        for (size_t i = 0; i < ids.size(); ++i) {
+            if (i > 0) placeholders += ',';
+            placeholders += '?';
+        }
+        const std::string sql =
+            "DELETE FROM session_messages "
+            "WHERE session_id = ? AND json_extract(data, '$.id') IN (" +
+            placeholders + ")";
+
+        std::vector<nlohmann::json> bind_vals;
+        bind_vals.reserve(ids.size() + 1);
+        bind_vals.push_back(session_id);
+        for (const auto& msg_id : ids) {
+            bind_vals.push_back(msg_id);
+        }
+
+        auto tx = db_->begin_transaction();
+        tx->execute(sql, bind_vals);
+        tx->commit();
+        return true;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR(
+            "SessionStore::delete_messages_by_ids failed for session {}: {}",
+            session_id, e.what());
+        return false;
+    }
+}
+
 // ─── copy_messages ────────────────────────────────────────────────────────────
 
 int SessionStore::copy_messages(

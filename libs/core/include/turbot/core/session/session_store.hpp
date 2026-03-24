@@ -92,6 +92,20 @@ public:
         std::optional<int64_t> cursor = std::nullopt
     );
 
+    /// Delete specific messages from a session by their JSON-embedded "id" field.
+    ///
+    /// Iterates over @p ids and removes the corresponding rows from
+    /// session_messages where json_extract(data, '$.id') matches.
+    /// All deletions are wrapped in a single transaction.
+    ///
+    /// @param session_id  Session to delete from.
+    /// @param ids         Message id values to remove (embedded in the data JSON).
+    /// @return true on success (also true when ids is empty — no-op).
+    bool delete_messages_by_ids(
+        const std::string& session_id,
+        const std::vector<std::string>& ids
+    );
+
     /// Copy messages from @p src_session_id into @p dst_session_id.
     ///
     /// Copies all messages up to and including the one with seq == @p max_seq
