@@ -2,9 +2,12 @@
 // Aligns with OpenCode Account module capability
 
 #include <turbot/core/account/account.hpp>
+#include <turbot/core/account/account_store.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/network/http_client.hpp>
 #include <nlohmann/json.hpp>
 #include <fmt/format.h>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <random>
@@ -246,29 +249,114 @@ AccountService& AccountService::instance() {
 }
 
 std::optional<LoginSession> AccountService::login(const std::string& server_url) {
-    // In production, this would call the OAuth device code endpoint
-    // For now, return a mock session
+    // G07: POST {server}/auth/device/code with {"client_id":"opencode"}
+    // Aligned with OpenCode Account.login(server) device code flow.
     TURBOT_LOG_INFO("Starting login flow for: {}", server_url);
-    
-    LoginSession session;
-    session.device_code = impl_->generate_id();
-    session.user_code = impl_->generate_id();
-    session.url = fmt::format("{}/login?code={}", server_url, session.user_code);
-    session.server = server_url;
-    session.expiry_seconds = 300;
-    session.interval_seconds = 5;
-    
-    return session;
+
+    try {
+        turbot::network::HttpClient http;
+        nlohmann::json req_body = {{"client_id", "opencode"}};
+        const std::string endpoint = server_url + "/auth/device/code";
+
+        auto resp = http.post_json(endpoint, req_body.dump());
+        if (!resp.is_success()) {
+            TURBOT_LOG_ERROR("login(): POST {} failed with status {}",
+                             endpoint, resp.status_code);
+            return std::nullopt;
+        }
+
+        auto j = nlohmann::json::parse(resp.body);
+
+        LoginSession session;
+        session.device_code = j.value("device_code", std::string{});
+        session.user_code   = j.value("user_code",   std::string{});
+        // OpenCode returns verification_uri_complete (full URL); fall back to verification_uri.
+        std::string verify_uri = j.contains("verification_uri_complete")
+            ? j["verification_uri_complete"].get<std::string>()
+            : j.value("verification_uri", std::string{});
+        session.url = verify_uri;
+        session.server          = server_url;
+        session.expiry_seconds  = j.value("expires_in", int64_t{300});
+        session.interval_seconds= j.value("interval",   int64_t{5});
+
+        return session;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("login() exception: {}", e.what());
+        return std::nullopt;
+    }
 }
 
 PollResult AccountService::poll(const LoginSession& session) {
-    // In production, this would poll the OAuth token endpoint
-    // For now, return pending
+    // G08: POST {server}/auth/device/token to check authorization status.
+    // Aligned with OpenCode Account.poll(loginSession) device token flow.
     TURBOT_LOG_DEBUG("Polling for login completion: {}", session.device_code);
-    
-    PollResult result;
-    result.type = PollResultType::Pending;
-    return result;
+
+    try {
+        turbot::network::HttpClient http;
+        nlohmann::json req_body = {
+            {"grant_type", "urn:ietf:params:oauth:grant-type:device_code"},
+            {"device_code", session.device_code},
+            {"client_id",   "opencode"}
+        };
+        const std::string endpoint = session.server + "/auth/device/token";
+
+        auto resp = http.post_json(endpoint, req_body.dump());
+
+        // Both success and pending responses may arrive as 200 or 4xx depending
+        // on server implementation; always try to parse the body for the status.
+        auto j = nlohmann::json::parse(resp.body);
+
+        if (j.contains("access_token") && !j["access_token"].is_null()) {
+            // ── Success path ──────────────────────────────────────────────
+            PollResult result;
+            result.type = PollResultType::Success;
+
+            std::string at = j.value("access_token",  std::string{});
+            std::string rt = j.value("refresh_token", std::string{});
+            int64_t expires_in = j.value("expires_in", int64_t{3600});
+
+            // Compute expiry as ms since epoch
+            const int64_t expiry_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()
+                ).count() + expires_in * 1000LL;
+
+            // Persist to SQLite account_state
+            auto& store = AccountStore::instance();
+            if (store.is_initialized()) {
+                AccountState state;
+                state.account_id    = session.server;  // placeholder until fetchUser()
+                state.access_token  = at;
+                state.refresh_token = rt;
+                state.token_expiry  = expiry_ms;
+                if (!store.save_state(state)) {
+                    TURBOT_LOG_WARN("poll(): failed to persist token state to SQLite");
+                }
+            }
+
+            // Also update in-memory token maps for backward compat.
+            impl_->access_tokens[session.server]  = at;
+            impl_->refresh_tokens[session.server] = rt;
+            impl_->save_accounts();
+
+            return result;
+        }
+
+        // ── Error / pending path ──────────────────────────────────────────
+        const std::string error = j.value("error", std::string{});
+        if (error == "authorization_pending") return PollResult{.type = PollResultType::Pending};
+        if (error == "slow_down")             return PollResult{.type = PollResultType::Slow};
+        if (error == "expired_token")         return PollResult{.type = PollResultType::Expired};
+        if (error == "access_denied")         return PollResult{.type = PollResultType::Denied};
+
+        // Unknown error
+        TURBOT_LOG_WARN("poll(): unknown error from server: {}", error);
+        return PollResult{.type = PollResultType::Error};
+
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("poll() exception: {}", e.what());
+        return PollResult{.type = PollResultType::Error};
+    }
 }
 
 std::vector<AccountInfo> AccountService::list() const {
@@ -358,14 +446,99 @@ std::vector<AccountOrgGroup> AccountService::orgs_by_account() const {
 }
 
 bool AccountService::refresh_token(const AccountId& account_id) {
+    // G09 (sub-04): Implement actual OAuth2 token refresh via HTTP.
+    //
+    // The account_id doubles as the server URL in this implementation
+    // (set during poll() as session.server placeholder).
+    // Endpoint: POST {server}/auth/device/token
+    // Body:     { "grant_type": "refresh_token",
+    //             "refresh_token": "<token>",
+    //             "client_id": "opencode" }
+
+    // ── Step 1: resolve the refresh token ────────────────────────────────
+    std::string rt_value;
+
+    // Try in-memory map first (backward compat with JSON-loaded accounts)
     auto it = impl_->refresh_tokens.find(account_id);
-    if (it == impl_->refresh_tokens.end()) {
+    if (it != impl_->refresh_tokens.end()) {
+        rt_value = it->second;
+    } else {
+        // Fall back to SQLite account_state singleton
+        auto& store = AccountStore::instance();
+        if (!store.is_initialized()) {
+            TURBOT_LOG_WARN("refresh_token: no store available for {}", account_id);
+            return false;
+        }
+        auto state = store.load_state();
+        if (!state || !state->refresh_token) {
+            TURBOT_LOG_WARN("refresh_token: no refresh_token found for {}", account_id);
+            return false;
+        }
+        rt_value = *state->refresh_token;
+    }
+
+    // ── Step 2: POST to the refresh endpoint ─────────────────────────────
+    const std::string endpoint = account_id + "/auth/device/token";
+    TURBOT_LOG_INFO("refresh_token: posting to {} for account {}", endpoint, account_id);
+
+    try {
+        turbot::network::HttpClient http;
+        nlohmann::json req_body = {
+            {"grant_type",    "refresh_token"},
+            {"refresh_token", rt_value},
+            {"client_id",     "opencode"}
+        };
+
+        auto resp = http.post_json(endpoint, req_body.dump());
+        if (!resp.is_success()) {
+            TURBOT_LOG_ERROR("refresh_token: POST {} returned status {}",
+                             endpoint, resp.status_code);
+            return false;
+        }
+
+        auto j = nlohmann::json::parse(resp.body);
+
+        if (!j.contains("access_token") || j["access_token"].is_null()) {
+            const std::string err = j.value("error", std::string{});
+            TURBOT_LOG_ERROR("refresh_token: no access_token in response (error={})", err);
+            return false;
+        }
+
+        // ── Step 3: persist new tokens ───────────────────────────────────
+        const std::string new_at = j.value("access_token",  std::string{});
+        const std::string new_rt = j.value("refresh_token", rt_value); // keep old if not rotated
+        const int64_t expires_in = j.value("expires_in", int64_t{3600});
+
+        const int64_t expiry_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()
+            ).count() + expires_in * 1000LL;
+
+        // Update in-memory token maps
+        impl_->access_tokens[account_id]  = new_at;
+        impl_->refresh_tokens[account_id] = new_rt;
+        impl_->save_accounts();
+
+        // Update SQLite account_state
+        auto& store = AccountStore::instance();
+        if (store.is_initialized()) {
+            AccountState state;
+            state.account_id    = account_id;
+            state.access_token  = new_at;
+            state.refresh_token = new_rt;
+            state.token_expiry  = expiry_ms;
+            if (!store.save_state(state)) {
+                TURBOT_LOG_WARN("refresh_token: failed to persist new tokens to SQLite");
+            }
+        }
+
+        TURBOT_LOG_INFO("refresh_token: successfully refreshed token for {}", account_id);
+        return true;
+
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("refresh_token: exception: {}", e.what());
         return false;
     }
-    
-    // In production, this would call the OAuth refresh endpoint
-    TURBOT_LOG_INFO("Refreshing token for account: {}", account_id);
-    return true;
 }
 
 std::optional<AccessToken> AccountService::get_access_token(const AccountId& account_id) const {
@@ -373,7 +546,81 @@ std::optional<AccessToken> AccountService::get_access_token(const AccountId& acc
     if (it != impl_->access_tokens.end()) {
         return it->second;
     }
+    // Fallback: check SQLite account_state
+    auto& store = AccountStore::instance();
+    if (store.is_initialized()) {
+        auto state = store.load_state();
+        if (state && state->account_id == account_id && state->access_token)
+            return *state->access_token;
+    }
     return std::nullopt;
+}
+
+// ─── resolve_token (G09) ──────────────────────────────────────────────────────
+
+std::optional<AccessToken> AccountService::resolve_token(const AccountId& account_id) {
+    // Aligned with OpenCode Account.resolveToken(accountID):
+    //   if (token_expiry <= now + 60s) → refresh first
+    //   else → return access_token directly
+
+    auto& store = AccountStore::instance();
+    if (store.is_initialized()) {
+        auto state = store.load_state();
+        if (state && state->access_token) {
+            const int64_t now_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()
+                ).count();
+            const int64_t grace_ms = 60LL * 1000LL;  // 60-second safety buffer
+
+            if (state->token_expiry && *state->token_expiry <= now_ms + grace_ms) {
+                // Token expired or about to expire — attempt refresh
+                TURBOT_LOG_INFO("resolve_token: token near expiry; refreshing for {}", account_id);
+                if (refresh_token(account_id)) {
+                    // Re-read after refresh
+                    state = store.load_state();
+                } else {
+                    TURBOT_LOG_WARN("resolve_token: refresh failed for {}", account_id);
+                    return std::nullopt;
+                }
+            }
+            if (state && state->access_token)
+                return *state->access_token;
+        }
+    }
+
+    // Fallback: in-memory map (used when store is not initialised)
+    return get_access_token(account_id);
+}
+
+// ─── init_store (G06) ─────────────────────────────────────────────────────────
+
+void AccountService::init_store(std::shared_ptr<turbot::storage::Database> db) {
+    AccountStore::instance().init(std::move(db));
+
+    // G06: Migrate existing in-memory accounts to SQLite on first init.
+    auto& store = AccountStore::instance();
+    for (const auto& acc : impl_->accounts) {
+        if (!store.save_account(acc.id, acc.email, acc.url)) {
+            TURBOT_LOG_WARN("init_store: failed to migrate account {} to SQLite", acc.id);
+        }
+    }
+    // Migrate active token to account_state if available
+    if (impl_->active_account_id) {
+        AccountState state;
+        state.account_id = impl_->active_account_id;
+        auto at_it = impl_->access_tokens.find(*impl_->active_account_id);
+        if (at_it != impl_->access_tokens.end())
+            state.access_token = at_it->second;
+        auto rt_it = impl_->refresh_tokens.find(*impl_->active_account_id);
+        if (rt_it != impl_->refresh_tokens.end())
+            state.refresh_token = rt_it->second;
+        if (state.access_token || state.refresh_token) {
+            if (!store.save_state(state)) {
+                TURBOT_LOG_WARN("init_store: failed to migrate token state to SQLite");
+            }
+        }
+    }
 }
 
 } // namespace turbot::core::account

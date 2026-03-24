@@ -1,6 +1,7 @@
 #pragma once
 
 #include <turbot/core/common/export.hpp>
+#include <turbot/storage/database.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <memory>
@@ -166,6 +167,21 @@ public:
     /// @param account_id Account ID
     /// @return Access token or nullopt
     [[nodiscard]] std::optional<AccessToken> get_access_token(const AccountId& account_id) const;
+
+    /// Resolve a valid access token for the active account.
+    ///
+    /// If the stored token is expired (or expires within 60 s), calls the
+    /// refresh endpoint before returning.  Aligned with OpenCode's
+    /// Account.resolveToken(accountID).
+    ///
+    /// @return Access token or nullopt if unavailable / refresh failed
+    [[nodiscard]] std::optional<AccessToken> resolve_token(
+        const AccountId& account_id);
+
+    /// Initialise the underlying SQLite store.  Must be called before
+    /// `login()` and `poll()` can persist tokens.
+    /// @param db Shared database connection (same as SessionStore)
+    void init_store(std::shared_ptr<turbot::storage::Database> db);
     
 private:
     AccountService();
