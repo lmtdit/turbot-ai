@@ -1,6 +1,7 @@
 #pragma once
 
 #include <turbot/core/common/export.hpp>
+#include <turbot/storage/database.hpp>
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <memory>

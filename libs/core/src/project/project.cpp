@@ -2,6 +2,7 @@
 // Aligns with OpenCode Project module capability
 
 #include <turbot/core/project/project.hpp>
+#include <turbot/core/project/project_store.hpp>
 #include <turbot/core/common/logger.hpp>
 #include <nlohmann/json.hpp>
 #include <fmt/format.h>
@@ -126,13 +127,64 @@ ProjectInfo ProjectInfo::from_json(const nlohmann::json& j) {
     info.id = j.value("id", std::string{});
     info.worktree = j.value("worktree", std::string{});
     info.vcs = string_to_vcs_type(j.value("vcs", "none"));
-    if (j.contains("name")) info.name = j["name"].get<std::string>();
-    if (j.contains("icon")) info.icon = ProjectIcon::from_json(j["icon"]);
-    if (j.contains("commands")) info.commands = ProjectCommands::from_json(j["commands"]);
-    if (j.contains("time")) info.time = ProjectTime::from_json(j["time"]);
-    if (j.contains("sandboxes")) {
-        info.sandboxes = j["sandboxes"].get<std::vector<std::string>>();
+    if (j.contains("name") && !j["name"].is_null())
+        info.name = j["name"].get<std::string>();
+
+    // icon: nested object (wire) or flat columns (DB)
+    if (j.contains("icon") && !j["icon"].is_null()) {
+        info.icon = ProjectIcon::from_json(j["icon"]);
+    } else {
+        // Flat DB columns: icon_url / icon_color
+        bool has_icon = false;
+        ProjectIcon icon;
+        if (j.contains("icon_url") && !j["icon_url"].is_null()) {
+            icon.url = j["icon_url"].get<std::string>();
+            has_icon = true;
+        }
+        if (j.contains("icon_color") && !j["icon_color"].is_null()) {
+            icon.color = j["icon_color"].get<std::string>();
+            has_icon = true;
+        }
+        if (has_icon) info.icon = std::move(icon);
     }
+
+    // commands: nested object (wire) or flat JSON string (DB)
+    if (j.contains("commands") && !j["commands"].is_null()) {
+        const auto& cmd = j["commands"];
+        if (cmd.is_object()) {
+            info.commands = ProjectCommands::from_json(cmd);
+        } else if (cmd.is_string()) {
+            try {
+                info.commands = ProjectCommands::from_json(
+                    nlohmann::json::parse(cmd.get<std::string>()));
+            } catch (const std::exception&) { /* ignore malformed */ }
+        }
+    }
+
+    // time: nested object (wire) or flat columns (DB)
+    if (j.contains("time") && j["time"].is_object()) {
+        info.time = ProjectTime::from_json(j["time"]);
+    } else {
+        info.time.created = j.value("time_created", int64_t{0});
+        info.time.updated = j.value("time_updated", int64_t{0});
+        if (j.contains("time_initialized") && !j["time_initialized"].is_null())
+            info.time.initialized = j["time_initialized"].get<int64_t>();
+    }
+
+    // sandboxes: JSON array (wire) or JSON string (DB)
+    if (j.contains("sandboxes") && !j["sandboxes"].is_null()) {
+        const auto& sb = j["sandboxes"];
+        if (sb.is_array()) {
+            info.sandboxes = sb.get<std::vector<std::string>>();
+        } else if (sb.is_string()) {
+            try {
+                auto parsed = nlohmann::json::parse(sb.get<std::string>());
+                if (parsed.is_array())
+                    info.sandboxes = parsed.get<std::vector<std::string>>();
+            } catch (const std::exception&) { /* ignore malformed */ }
+        }
+    }
+
     return info;
 }
 
@@ -402,39 +454,69 @@ LoadResult Project::from_directory(const std::string& directory) {
     // Generate project ID
     ProjectId id = generate_id(dir_str);
     
-    // Load existing config if available
+    int64_t now = current_timestamp();
+
+    auto& store = ProjectStore::instance();
+
+    // Try to load from SQLite first; fall back to JSON config for migration.
+    if (store.is_initialized()) {
+        auto row = store.find_by_id(id);
+        if (row) {
+            try {
+                result.project = ProjectInfo::from_json(*row);
+                result.project.vcs     = vcs;
+                result.project.time.updated = now;
+                store.save(result.project);
+                result.sandbox = result.project.worktree;
+                return result;
+            } catch (const std::exception& e) {
+                TURBOT_LOG_WARN("Project::from_directory: corrupt DB row for {}: {}", id, e.what());
+            }
+        }
+    }
+
+    // Not in DB — load from JSON config if available (legacy), or create new.
     auto config_opt = load_config(dir_str);
     
-    int64_t now = current_timestamp();
-    
     if (config_opt && config_opt->contains("project")) {
-        // Load from config
+        // Migrate from JSON config
         result.project = ProjectInfo::from_json((*config_opt)["project"]);
-        result.project.vcs = vcs; // Update VCS from current state
+        result.project.vcs = vcs;
         result.project.time.updated = now;
     } else {
         // Create new project info
-        result.project.id = id;
+        result.project.id       = id;
         result.project.worktree = dir_str;
-        result.project.vcs = vcs;
+        result.project.vcs      = vcs;
         result.project.time.created = now;
         result.project.time.updated = now;
         
         // Try to discover icon
         auto icon = discover_icon(dir_str);
-        if (icon) {
-            result.project.icon = icon;
-        }
+        if (icon) result.project.icon = icon;
     }
     
-    // Set sandbox to worktree for now
+    // Set sandbox to worktree
     result.sandbox = result.project.worktree;
     
-    // Save updated config
-    nlohmann::json config;
-    if (config_opt) {
-        config = *config_opt;
+    // Persist to SQLite (UPSERT)
+    if (store.is_initialized()) {
+        store.save(result.project);
+
+        // G05: Migrate sessions that were assigned to 'global' project
+        // but belong to this worktree — aligned with OpenCode's fromDirectory()
+        // migration logic.
+        int migrated = store.migrate_sessions(result.project.id, dir_str);
+        if (migrated > 0) {
+            TURBOT_LOG_INFO("Project::from_directory: migrated {} sessions from "
+                            "'global' to project {} (worktree={})",
+                            migrated, result.project.id, dir_str);
+        }
     }
+
+    // Also keep JSON config in sync (backward compatibility).
+    nlohmann::json config;
+    if (config_opt) config = *config_opt;
     config["project"] = result.project.to_json();
     save_config(dir_str, config);
     
@@ -488,28 +570,50 @@ std::optional<Project> Project::create(const CreateParams& params) {
 }
 
 std::optional<Project> Project::get(const ProjectId& id) {
-    // For now, we need to search for the project
-    // In a full implementation, we would have a project store
+    auto& store = ProjectStore::instance();
+    if (store.is_initialized()) {
+        auto row = store.find_by_id(id);
+        if (row) {
+            try {
+                return Project(ProjectInfo::from_json(*row));
+            } catch (const std::exception& e) {
+                TURBOT_LOG_WARN("Project::get: corrupt DB row for {}: {}", id, e.what());
+            }
+        }
+        return std::nullopt;
+    }
+    // Fallback: linear search (store not initialised)
     auto projects = list();
     for (const auto& project : projects) {
-        if (project.id() == id) {
-            return project;
-        }
+        if (project.id() == id) return project;
     }
     return std::nullopt;
 }
 
 std::vector<Project> Project::list() {
-    // In a full implementation, this would query a project store
-    // For now, return empty list
-    // Projects are loaded on-demand via from_directory
-    return {};
+    auto& store = ProjectStore::instance();
+    if (!store.is_initialized()) return {};
+
+    auto rows = store.find_all();
+    std::vector<Project> projects;
+    projects.reserve(rows.size());
+    for (const auto& row : rows) {
+        try {
+            projects.emplace_back(ProjectInfo::from_json(row));
+        } catch (const std::exception&) {
+            // Skip corrupt rows
+        }
+    }
+    return projects;
 }
 
 bool Project::remove(const ProjectId& id) {
-    // In a full implementation, this would delete from the store
-    TURBOT_LOG_INFO("Project removal requested: {}", id);
-    return true;
+    auto& store = ProjectStore::instance();
+    if (!store.is_initialized()) {
+        TURBOT_LOG_INFO("Project removal requested: {}", id);
+        return true;
+    }
+    return store.remove(id);
 }
 
 bool Project::update(const UpdateParams& params) {
@@ -531,12 +635,15 @@ bool Project::update(const UpdateParams& params) {
     if (changed) {
         info_.time.updated = current_timestamp();
         
-        // Save config
+        // Persist to SQLite
+        auto& store = ProjectStore::instance();
+        if (store.is_initialized()) {
+            store.save(info_);
+        }
+        // Also keep JSON config in sync (backward compatibility).
         auto config_opt = load_config(info_.worktree);
         nlohmann::json config;
-        if (config_opt) {
-            config = *config_opt;
-        }
+        if (config_opt) config = *config_opt;
         config["project"] = info_.to_json();
         save_config(info_.worktree, config);
     }
@@ -552,12 +659,15 @@ bool Project::set_initialized() {
     info_.time.initialized = current_timestamp();
     info_.time.updated = *info_.time.initialized;
     
-    // Save config
+    // Persist to SQLite
+    auto& store = ProjectStore::instance();
+    if (store.is_initialized()) {
+        store.save(info_);
+    }
+    // Also keep JSON config in sync (backward compatibility).
     auto config_opt = load_config(info_.worktree);
     nlohmann::json config;
-    if (config_opt) {
-        config = *config_opt;
-    }
+    if (config_opt) config = *config_opt;
     config["project"] = info_.to_json();
     save_config(info_.worktree, config);
     
@@ -578,12 +688,15 @@ bool Project::init_git() {
     // Regenerate ID based on git remote
     info_.id = generate_id(info_.worktree);
     
-    // Save config
+    // Persist to SQLite
+    auto& store = ProjectStore::instance();
+    if (store.is_initialized()) {
+        store.save(info_);
+    }
+    // Also keep JSON config in sync (backward compatibility).
     auto config_opt = load_config(info_.worktree);
     nlohmann::json config;
-    if (config_opt) {
-        config = *config_opt;
-    }
+    if (config_opt) config = *config_opt;
     config["project"] = info_.to_json();
     save_config(info_.worktree, config);
     
