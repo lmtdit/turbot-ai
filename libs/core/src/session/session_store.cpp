@@ -748,6 +748,41 @@ std::vector<TodoInfo> SessionStore::get_todos(const std::string& session_id) {
 }
 
 // ---------------------------------------------------------------------------
+// ─── delete_parts_by_ids — T41 (G41) ─────────────────────────────────────────
+// Mirrors OpenCode db.delete(PartTable).where(eq(PartTable.id, part.id))
+// called for each removed part in SessionRevert.cleanup().
+
+bool SessionStore::delete_parts_by_ids(const std::vector<std::string>& part_ids) {
+    if (part_ids.empty()) return true;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return false;
+
+    try {
+        // Build a single DELETE with an IN-list: DELETE FROM parts WHERE id IN (?,…)
+        std::string placeholders;
+        placeholders.reserve(part_ids.size() * 2);
+        for (size_t i = 0; i < part_ids.size(); ++i) {
+            if (i > 0) placeholders += ',';
+            placeholders += '?';
+        }
+        const std::string sql = "DELETE FROM parts WHERE id IN (" + placeholders + ")";
+
+        std::vector<nlohmann::json> bind_vals;
+        bind_vals.reserve(part_ids.size());
+        for (const auto& pid : part_ids) {
+            bind_vals.push_back(pid);
+        }
+
+        auto tx = db_->begin_transaction();
+        tx->execute(sql, bind_vals);
+        tx->commit();
+        return true;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::delete_parts_by_ids failed: {}", e.what());
+        return false;
+    }
+}
+
 // T40: upsert_part — mirrors OpenCode insert(PartTable).onConflictDoUpdate
 // ---------------------------------------------------------------------------
 

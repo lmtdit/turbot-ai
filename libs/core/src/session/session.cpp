@@ -757,6 +757,54 @@ bool Session::set_summary(const SessionSummary& summary) {
 }
 
 // ---------------------------------------------------------------------------
+// G48: set_share / unshare — mirrors OpenCode Session.share / Session.unshare
+// ---------------------------------------------------------------------------
+// OpenCode: db.update(SessionTable).set({ share_url: share.url }) + Bus.publish(Event.Updated)
+// Turbot:   info_.share = share + SessionStore::save() + EventBus::publish(SessionInfoUpdatedEvent)
+
+bool Session::set_share(const SessionShare& share) {
+    if (!mutex_) return false;
+    nlohmann::json wire;
+    {
+        std::lock_guard<std::mutex> lock(*mutex_);
+        info_.share        = share;
+        info_.time_updated = current_timestamp();
+        if (!SessionStore::instance().save(info_)) {
+            return false;
+        }
+        wire = info_.to_json();
+    }  // lock released
+
+    // Publish Session.Event.Updated so ACP / UI subscribers stay in sync.
+    turbot::core::EventBus::instance().publish(
+        SessionInfoUpdatedEvent::kEventName,
+        SessionInfoUpdatedEvent{wire});
+
+    return true;
+}
+
+bool Session::unshare() {
+    if (!mutex_) return false;
+    nlohmann::json wire;
+    {
+        std::lock_guard<std::mutex> lock(*mutex_);
+        info_.share        = std::nullopt;
+        info_.time_updated = current_timestamp();
+        if (!SessionStore::instance().save(info_)) {
+            return false;
+        }
+        wire = info_.to_json();
+    }  // lock released
+
+    // Publish Session.Event.Updated (mirrors OpenCode Bus.publish(Event.Updated, { info })).
+    turbot::core::EventBus::instance().publish(
+        SessionInfoUpdatedEvent::kEventName,
+        SessionInfoUpdatedEvent{wire});
+
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 // T40: Part streaming — update_part / update_part_delta
 // ---------------------------------------------------------------------------
 

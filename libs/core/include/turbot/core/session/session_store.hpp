@@ -132,6 +132,17 @@ public:
     /// Retrieve the current todo list for a session, ordered by position.
     [[nodiscard]] std::vector<struct TodoInfo> get_todos(const std::string& session_id);
 
+    // ── T41 (G41): Part deletion — used by SessionRevert::cleanup() ─────────
+
+    /// Delete specific parts from the parts table by their ID.
+    ///
+    /// Mirrors OpenCode db.delete(PartTable).where(eq(PartTable.id, part.id))
+    /// called inside SessionRevert.cleanup() for each removed part.
+    ///
+    /// @param part_ids   Part id values to remove.
+    /// @return true on success (also true when part_ids is empty — no-op).
+    bool delete_parts_by_ids(const std::vector<std::string>& part_ids);
+
     // ── T40: Part upsert ────────────────────────────────────────────────────
 
     /// Upsert a message part into the parts table.

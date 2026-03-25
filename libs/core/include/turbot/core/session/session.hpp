@@ -274,6 +274,24 @@ public:
     /// @return true on success
     bool set_summary(const SessionSummary& summary);
 
+    /// Set the share URL for this session (enterprise).
+    ///
+    /// Aligned with OpenCode Session.share(id) which updates share_url and
+    /// publishes Session.Event.Updated.  Turbot stores the URL in info_.share
+    /// and emits SessionInfoUpdatedEvent so connected ACP/UI clients stay in sync.
+    ///
+    /// @param share  Share info (must contain a non-empty URL)
+    /// @return true on success
+    bool set_share(const SessionShare& share);
+
+    /// Clear the share URL for this session (enterprise).
+    ///
+    /// Aligned with OpenCode Session.unshare(id) which sets share_url to null
+    /// and publishes Session.Event.Updated.
+    ///
+    /// @return true on success
+    bool unshare();
+
     /// Get messages for this session
     /// @param limit Maximum number of messages
     /// @param offset Offset for pagination

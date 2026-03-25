@@ -297,4 +297,34 @@ struct TURBOT_CORE_API PartUpdatedEvent {
     nlohmann::json part;        ///< Full part JSON payload
 };
 
+// ============================================================================
+// T41 (G41): Message/Part removal events — mirrors OpenCode MessageV2.Event.Removed /
+// MessageV2.Event.PartRemoved published during SessionRevert.cleanup()
+// ============================================================================
+
+/**
+ * @brief Broadcast when a message is deleted from the DB (e.g. during revert cleanup).
+ *
+ * Mirrors OpenCode Bus.publish(MessageV2.Event.Removed, { sessionID, messageID }).
+ */
+struct TURBOT_CORE_API MessageRemovedEvent {
+    static constexpr const char* kEventName = "message.removed";
+
+    std::string session_id;   ///< Session that owned the message
+    std::string message_id;   ///< ID of the removed message
+};
+
+/**
+ * @brief Broadcast when a specific part is deleted from the DB (partial revert cleanup).
+ *
+ * Mirrors OpenCode Bus.publish(MessageV2.Event.PartRemoved, { sessionID, messageID, partID }).
+ */
+struct TURBOT_CORE_API PartRemovedEvent {
+    static constexpr const char* kEventName = "message.part.removed";
+
+    std::string session_id;   ///< Session that owned the part
+    std::string message_id;   ///< Message that owned the part
+    std::string part_id;      ///< ID of the removed part
+};
+
 } // namespace turbot::core::session

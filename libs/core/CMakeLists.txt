@@ -72,6 +72,7 @@ set(CORE_SOURCES
     # Session module
     src/session/session.cpp
     src/session/session_store.cpp
+    src/session/session_revert.cpp
     src/session/session_state_machine.cpp
     src/session/session_loop.cpp
     src/session/usage_tracker.cpp
