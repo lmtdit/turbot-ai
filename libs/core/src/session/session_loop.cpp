@@ -8,6 +8,7 @@
 #include <turbot/core/llm/llm.hpp>
 #include <turbot/core/plugin/plugin.hpp>
 #include <turbot/core/common/logger.hpp>
+#include <turbot/core/message/message_error.hpp>
 #include <turbot/utils/string_utils.hpp>
 #include <fmt/format.h>
 #include <algorithm>
@@ -509,10 +510,16 @@ LoopResult SessionLoop::process_llm_response() {
             }
         );
     } catch (const AbortRetryException&) {
-        // User requested stop — treat as graceful Stop, not an error
+        // User requested stop — treat as graceful Stop, not an error.
+        // Mirrors OpenCode MessageV2.AbortedError: published when user aborts.
+        turbot::core::EventBus::instance().publish(
+            SessionErrorEvent::kEventName,
+            SessionErrorEvent{session_.id(), "Aborted by user", "aborted"}
+        );
         return LoopResult::Stop;
     } catch (const APIError& e) {
-        // Non-retryable or exhausted retries
+        // Non-retryable or exhausted retries.
+        // Classify as ContextOverflowError or APIError following OpenCode message-v2.ts pattern.
         const std::string code = e.code.value_or("llm_error");
         if (on_error_) {
             on_error_(e.what(), code);
@@ -1013,6 +1020,54 @@ void SessionLoop::generate_title_if_needed() {
         SessionTitleUpdatedEvent{session_.id(), title}
     );
     TURBOT_LOG_DEBUG("Title Agent: session '{}' titled '{}'", session_.id(), title);
+}
+
+// ---------------------------------------------------------------------------
+// G43: run(PromptInput) — mirrors OpenCode SessionPrompt.prompt(input)
+// ---------------------------------------------------------------------------
+// Applies agent/model/system/format/variant overrides, then delegates to the
+// existing run(user_message) implementation.  Override fields are stored in
+// member variables and cleared after run() returns so they only affect this turn.
+
+LoopResult SessionLoop::run(const PromptInput& input) {
+    // Apply overrides from PromptInput.
+    if (input.agent && !input.agent->empty()) {
+        // Agent override: load by name from registry and set.
+        // If lookup fails, the currently set agent is kept unchanged.
+        auto agent_ptr = agent::AgentRegistry::instance().get(*input.agent);
+        if (agent_ptr) {
+            set_agent(agent_ptr);
+        }
+    }
+    if (input.model_id && !input.model_id->empty()) {
+        set_model(*input.model_id);
+    }
+    // Store per-turn overrides (cleared after run returns).
+    system_override_  = input.system;
+    format_override_  = input.format;
+    variant_override_ = input.variant;
+
+    // noReply: create a user message in history but skip the LLM loop.
+    // Mirrors OpenCode PromptInput.noReply = true path in prompt.ts L184-186.
+    if (input.no_reply) {
+        // Still store the user message for history consistency.
+        process_user_message(input.user_message);
+        // Clear overrides and return immediately.
+        system_override_  = std::nullopt;
+        format_override_  = std::nullopt;
+        variant_override_ = std::nullopt;
+        return LoopResult::Stop;
+    }
+
+    // Delegate to the main run() implementation.
+    LoopResult result = run(input.user_message);
+
+    // Clear per-turn overrides so they don't bleed into subsequent calls.
+    system_override_  = std::nullopt;
+    format_override_  = std::nullopt;
+    variant_override_ = std::nullopt;
+
+    return result;
 }
 
 } // namespace turbot::core::session
