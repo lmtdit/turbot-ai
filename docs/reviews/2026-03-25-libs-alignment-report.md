@@ -681,27 +681,27 @@ _评审人：code-reviewer（SPEARM 六维度框架）_
 **执行时间**：2026-03-25  
 **总体进度**：18/20 任务完成（Sub-06 完成）
 
-| 步骤                                        | 状态    | 关键文件                                                                | 备注                                                                   |
-| ------------------------------------------- | ------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| T16 Project::add_sandbox() 声明             | ✅ 完成 | `libs/core/include/turbot/core/project/project.hpp`                     | idempotent + [[nodiscard]] 接口                                         |
-| T16 Project::remove_sandbox() 声明          | ✅ 完成 | `libs/core/include/turbot/core/project/project.hpp`                     | 同上                                                                   |
-| T16 add_sandbox()/remove_sandbox() 实现     | ✅ 完成 | `libs/core/src/project/project.cpp`                                     | std::find去重 + 持久化 SQLite + EventBus project.updated 事件          |
-| T17 make_oxlint_server() 实现               | ✅ 完成 | `libs/core/src/lsp/builtin_servers.cpp`                                 | 4级回退：node_modules/.bin/oxlint → oxc_language_server → PATH oxlint → PATH server |
-| T17 make_gleam_server() 实现                | ✅ 完成 | `libs/core/src/lsp/builtin_servers.cpp`                                 | gleam lsp 简单调用                                                     |
-| T17 builtin_servers.hpp 添加声明            | ✅ 完成 | `libs/core/include/turbot/core/lsp/builtin_servers.hpp`                 | make_oxlint_server + make_gleam_server                                 |
-| T17 popen 路径注入修复（审查第1轮）         | ✅ 完成 | `builtin_servers.cpp`                                                   | 单引号转义 candidate.string()                                          |
-| T18 question/question.hpp 创建              | ✅ 完成 | `libs/core/include/turbot/core/question/question.hpp`                   | 独立接口：QuestionOption/QuestionInfo/QuestionRequest/Question命名空间  |
-| T18 question/question.cpp 创建（委托版本）  | ✅ 完成 | `libs/core/src/question/question.cpp`                                   | 委托 tool::builtin::Question，共享 g_pending 状态，避免状态分裂        |
-| T18 双g_pending状态分裂修复（审查第1轮）    | ✅ 完成 | `question.cpp`                                                          | 改为委托模式，消除独立 g_pending 副本                                  |
-| CMakeLists.txt 注册（T18）                  | ✅ 完成 | `libs/core/CMakeLists.txt`                                              | src/question/question.cpp + include question.hpp                       |
+| 步骤                                       | 状态    | 关键文件                                                | 备注                                                                                |
+| ------------------------------------------ | ------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| T16 Project::add_sandbox() 声明            | ✅ 完成 | `libs/core/include/turbot/core/project/project.hpp`     | idempotent + [[nodiscard]] 接口                                                     |
+| T16 Project::remove_sandbox() 声明         | ✅ 完成 | `libs/core/include/turbot/core/project/project.hpp`     | 同上                                                                                |
+| T16 add_sandbox()/remove_sandbox() 实现    | ✅ 完成 | `libs/core/src/project/project.cpp`                     | std::find去重 + 持久化 SQLite + EventBus project.updated 事件                       |
+| T17 make_oxlint_server() 实现              | ✅ 完成 | `libs/core/src/lsp/builtin_servers.cpp`                 | 4级回退：node_modules/.bin/oxlint → oxc_language_server → PATH oxlint → PATH server |
+| T17 make_gleam_server() 实现               | ✅ 完成 | `libs/core/src/lsp/builtin_servers.cpp`                 | gleam lsp 简单调用                                                                  |
+| T17 builtin_servers.hpp 添加声明           | ✅ 完成 | `libs/core/include/turbot/core/lsp/builtin_servers.hpp` | make_oxlint_server + make_gleam_server                                              |
+| T17 popen 路径注入修复（审查第1轮）        | ✅ 完成 | `builtin_servers.cpp`                                   | 单引号转义 candidate.string()                                                       |
+| T18 question/question.hpp 创建             | ✅ 完成 | `libs/core/include/turbot/core/question/question.hpp`   | 独立接口：QuestionOption/QuestionInfo/QuestionRequest/Question命名空间              |
+| T18 question/question.cpp 创建（委托版本） | ✅ 完成 | `libs/core/src/question/question.cpp`                   | 委托 tool::builtin::Question，共享 g_pending 状态，避免状态分裂                     |
+| T18 双g_pending状态分裂修复（审查第1轮）   | ✅ 完成 | `question.cpp`                                          | 改为委托模式，消除独立 g_pending 副本                                               |
+| CMakeLists.txt 注册（T18）                 | ✅ 完成 | `libs/core/CMakeLists.txt`                              | src/question/question.cpp + include question.hpp                                    |
 
 ### 代码审查质量评估（Sub-06）
 
-| 审查轮次 | SPEARM 综合分 | 判定      | C-/D 触发 | 发现问题                               | 修复情况 |
-| -------- | ------------- | --------- | --------- | -------------------------------------- | -------- |
-| 第 1 次  | 86/100        | 🟢 良好   | 否        | 1个H(R) + 1个M(S) + 1个M(A)           | 全部修复 |
-| 第 2 次  | 89/100        | 🟢 良好   | 否        | 1个L（命名一致性）                     | 可接受   |
-| 第 3 次  | 90/100        | ✅ 优秀   | 否        | 无新问题                               | 无需修复 |
+| 审查轮次 | SPEARM 综合分 | 判定    | C-/D 触发 | 发现问题                    | 修复情况 |
+| -------- | ------------- | ------- | --------- | --------------------------- | -------- |
+| 第 1 次  | 86/100        | 🟢 良好 | 否        | 1个H(R) + 1个M(S) + 1个M(A) | 全部修复 |
+| 第 2 次  | 89/100        | 🟢 良好 | 否        | 1个L（命名一致性）          | 可接受   |
+| 第 3 次  | 90/100        | ✅ 优秀 | 否        | 无新问题                    | 无需修复 |
 
 **最终评级**：S(A-) P(A-) E(A-) A(A-) R(A-) M(A-) | 综合分 90/100  
 **迭代轮次**：共 1 轮修复（3个问题合并修复）  
@@ -714,25 +714,25 @@ _评审人：code-reviewer（SPEARM 六维度框架）_
 **执行时间**：2026-03-25  
 **总体进度**：20/20 任务完成（Sub-07 完成，全部计划 T1~T20 完成）
 
-| 步骤                                         | 状态    | 关键文件                                                                  | 备注                                                               |
-| -------------------------------------------- | ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| T19 ide/ide.hpp 创建                         | ✅ 完成 | `libs/core/include/turbot/core/ide/ide.hpp`                               | IdeKind 枚举 + Ide 命名空间：detect/detect_kind/already_installed/install |
-| T19 ide/ide.cpp 创建                         | ✅ 完成 | `libs/core/src/ide/ide.cpp`                                               | kSupportedIdes 5个IDE；WIFEXITED/WEXITSTATUS 平台安全退出码检测   |
-| T19 popen 退出码修复（审查第1轮）            | ✅ 完成 | `ide.cpp`                                                                 | 使用 WIFEXITED/WEXITSTATUS 代替直接比较 pclose() 返回值            |
-| T19 stderr_buf 死代码清除（审查第1轮）       | ✅ 完成 | `ide.cpp`                                                                 | 删除未使用的 stderr_buf 声明                                       |
-| T20 session_todo.hpp 创建                    | ✅ 完成 | `libs/core/include/turbot/core/session/session_todo.hpp`                  | TodoInfo + Todo::update/get + TodoUpdatedEvent                     |
-| T20 session_todo.cpp 创建                    | ✅ 完成 | `libs/core/src/session/session_todo.cpp`                                  | TodoInfo 序列化 + 委托 SessionStore + EventBus publish             |
-| T20 todos 表 schema（session_store.cpp）     | ✅ 完成 | `libs/core/src/session/session_store.cpp`                                 | PK(session_id,position)，索引 todo_session_idx，对齐 TodoTable     |
-| T20 save_todos()/get_todos()（session_store） | ✅ 完成 | `libs/core/src/session/session_store.cpp` + `.hpp`                       | 事务原子替换 + ordered SELECT，使用 nlohmann::json 参数绑定        |
-| CMakeLists.txt 注册（T19/T20）               | ✅ 完成 | `libs/core/CMakeLists.txt`                                                | src + include 均已注册                                             |
+| 步骤                                          | 状态    | 关键文件                                                 | 备注                                                                      |
+| --------------------------------------------- | ------- | -------------------------------------------------------- | ------------------------------------------------------------------------- |
+| T19 ide/ide.hpp 创建                          | ✅ 完成 | `libs/core/include/turbot/core/ide/ide.hpp`              | IdeKind 枚举 + Ide 命名空间：detect/detect_kind/already_installed/install |
+| T19 ide/ide.cpp 创建                          | ✅ 完成 | `libs/core/src/ide/ide.cpp`                              | kSupportedIdes 5个IDE；WIFEXITED/WEXITSTATUS 平台安全退出码检测           |
+| T19 popen 退出码修复（审查第1轮）             | ✅ 完成 | `ide.cpp`                                                | 使用 WIFEXITED/WEXITSTATUS 代替直接比较 pclose() 返回值                   |
+| T19 stderr_buf 死代码清除（审查第1轮）        | ✅ 完成 | `ide.cpp`                                                | 删除未使用的 stderr_buf 声明                                              |
+| T20 session_todo.hpp 创建                     | ✅ 完成 | `libs/core/include/turbot/core/session/session_todo.hpp` | TodoInfo + Todo::update/get + TodoUpdatedEvent                            |
+| T20 session_todo.cpp 创建                     | ✅ 完成 | `libs/core/src/session/session_todo.cpp`                 | TodoInfo 序列化 + 委托 SessionStore + EventBus publish                    |
+| T20 todos 表 schema（session_store.cpp）      | ✅ 完成 | `libs/core/src/session/session_store.cpp`                | PK(session_id,position)，索引 todo_session_idx，对齐 TodoTable            |
+| T20 save_todos()/get_todos()（session_store） | ✅ 完成 | `libs/core/src/session/session_store.cpp` + `.hpp`       | 事务原子替换 + ordered SELECT，使用 nlohmann::json 参数绑定               |
+| CMakeLists.txt 注册（T19/T20）                | ✅ 完成 | `libs/core/CMakeLists.txt`                               | src + include 均已注册                                                    |
 
 ### 代码审查质量评估（Sub-07）
 
-| 审查轮次 | SPEARM 综合分 | 判定    | C-/D 触发 | 发现问题                         | 修复情况 |
-| -------- | ------------- | ------- | --------- | -------------------------------- | -------- |
-| 第 1 次  | 88/100        | 🟢 良好 | 否        | 1个M（stderr_buf死代码）+1个LOW  | 全部修复 |
-| 第 2 次  | 90/100        | ✅ 优秀 | 否        | 无新问题                         | 无需修复 |
-| 第 3 次  | 90/100        | ✅ 优秀 | 否        | 无新问题                         | 无需修复 |
+| 审查轮次 | SPEARM 综合分 | 判定    | C-/D 触发 | 发现问题                        | 修复情况 |
+| -------- | ------------- | ------- | --------- | ------------------------------- | -------- |
+| 第 1 次  | 88/100        | 🟢 良好 | 否        | 1个M（stderr_buf死代码）+1个LOW | 全部修复 |
+| 第 2 次  | 90/100        | ✅ 优秀 | 否        | 无新问题                        | 无需修复 |
+| 第 3 次  | 90/100        | ✅ 优秀 | 否        | 无新问题                        | 无需修复 |
 
 **最终评级**：S(A-) P(A-) E(A-) A(A) R(B+) M(A) | 综合分 90/100  
 **迭代轮次**：共 1 轮修复（2个问题合并修复）  
@@ -745,12 +745,12 @@ _评审人：code-reviewer（SPEARM 六维度框架）_
 **执行时间**：2026-03-25（全天）  
 **最终进度**：T1~T20 全部 20 个任务完成 ✅
 
-| Sub 计划 | 任务 | 综合分 | 关键成果 |
-| -------- | ---- | ------ | -------- |
-| Sub-01   | T6/T7/T14 | 92/100 | Global路径单例、Instance单例、统一ID生成 |
-| Sub-02   | T3/T4/T5  | 92/100 | messages TEXT PK、parts表、session_instruction |
-| Sub-03   | T1/T2/T15 | 92/100 | EventBus全集成、processor评估、initGit真实调用 |
-| Sub-04   | T8/T9/T10 | 92/100 | Anthropic Provider、fetchUser/Orgs、models-snapshot |
-| Sub-05   | T11/T12/T13 | 91/100 | truncate工具、file/模块、flag/功能开关 |
-| Sub-06   | T16/T17/T18 | 90/100 | addSandbox、Oxlint/Gleam LSP、question/模块 |
-| Sub-07   | T19/T20 | 90/100 | ide/检测安装、session_todo持久化 |
+| Sub 计划 | 任务        | 综合分 | 关键成果                                            |
+| -------- | ----------- | ------ | --------------------------------------------------- |
+| Sub-01   | T6/T7/T14   | 92/100 | Global路径单例、Instance单例、统一ID生成            |
+| Sub-02   | T3/T4/T5    | 92/100 | messages TEXT PK、parts表、session_instruction      |
+| Sub-03   | T1/T2/T15   | 92/100 | EventBus全集成、processor评估、initGit真实调用      |
+| Sub-04   | T8/T9/T10   | 92/100 | Anthropic Provider、fetchUser/Orgs、models-snapshot |
+| Sub-05   | T11/T12/T13 | 91/100 | truncate工具、file/模块、flag/功能开关              |
+| Sub-06   | T16/T17/T18 | 90/100 | addSandbox、Oxlint/Gleam LSP、question/模块         |
+| Sub-07   | T19/T20     | 90/100 | ide/检测安装、session_todo持久化                    |
