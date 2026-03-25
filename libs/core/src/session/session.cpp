@@ -756,4 +756,45 @@ bool Session::set_summary(const SessionSummary& summary) {
     return SessionStore::instance().save(info_);
 }
 
+// ---------------------------------------------------------------------------
+// T40: Part streaming — update_part / update_part_delta
+// ---------------------------------------------------------------------------
+
+bool Session::update_part(const std::string&    session_id,
+                          const std::string&    message_id,
+                          const nlohmann::json& part_json) {
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) return false;
+
+    const std::string part_id = part_json.value("id", std::string{});
+    if (part_id.empty()) {
+        TURBOT_LOG_WARN("Session::update_part: part_json missing 'id' field");
+        return false;
+    }
+
+    const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+
+    // Upsert the part row (aligned with OpenCode insert().onConflictDoUpdate())
+    const bool ok = store.upsert_part(session_id, message_id, part_id, part_json, now);
+
+    // Publish PartUpdatedEvent regardless of DB result (mirrors OpenCode ordering)
+    turbot::core::EventBus::instance().publish(
+        PartUpdatedEvent::kEventName,
+        PartUpdatedEvent{session_id, message_id, part_id, part_json});
+
+    return ok;
+}
+
+void Session::update_part_delta(const std::string& session_id,
+                                const std::string& message_id,
+                                const std::string& part_id,
+                                const std::string& field,
+                                const std::string& delta) {
+    // Mirrors OpenCode Session.updatePartDelta: only Bus.publish, no DB write.
+    turbot::core::EventBus::instance().publish(
+        PartDeltaEvent::kEventName,
+        PartDeltaEvent{session_id, message_id, part_id, field, delta});
+}
+
 } // namespace turbot::core::session

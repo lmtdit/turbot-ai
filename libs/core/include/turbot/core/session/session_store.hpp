@@ -132,6 +132,24 @@ public:
     /// Retrieve the current todo list for a session, ordered by position.
     [[nodiscard]] std::vector<struct TodoInfo> get_todos(const std::string& session_id);
 
+    // ── T40: Part upsert ────────────────────────────────────────────────────
+
+    /// Upsert a message part into the parts table.
+    ///
+    /// Mirrors OpenCode insert(PartTable).onConflictDoUpdate({ target: PartTable.id }).
+    ///
+    /// @param session_id  Session that owns the part.
+    /// @param message_id  Message that owns the part.
+    /// @param part_id     Part primary key (prt_xxx).
+    /// @param part_json   Full part payload JSON.
+    /// @param now         Current epoch-ms timestamp.
+    /// @return true on success.
+    bool upsert_part(const std::string& session_id,
+                     const std::string& message_id,
+                     const std::string& part_id,
+                     const nlohmann::json& part_json,
+                     int64_t now);
+
 private:
     SessionStore() = default;
 

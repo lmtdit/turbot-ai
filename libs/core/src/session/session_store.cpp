@@ -189,7 +189,7 @@ void SessionStore::ensure_schema() {
     //   session_id FK, content, status, priority, position, time_created, time_updated
     //   PK: (session_id, position)
     db_->execute(R"SQL(
-        CREATE TABLE IF NOT EXISTS todos (
+        CREATE TABLE IF NOT EXISTS todo (
             session_id   TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
             content      TEXT    NOT NULL,
             status       TEXT    NOT NULL,
@@ -202,7 +202,7 @@ void SessionStore::ensure_schema() {
     )SQL");
     db_->execute(R"SQL(
         CREATE INDEX IF NOT EXISTS todo_session_idx
-            ON todos(session_id)
+            ON todo(session_id)
     )SQL");
 
     schema_ready_ = true;
@@ -692,7 +692,7 @@ bool SessionStore::save_todos(const std::string& session_id,
         auto tx = db_->begin_transaction();
         // Delete existing todos for this session
         tx->execute(
-            "DELETE FROM todos WHERE session_id = ?",
+            "DELETE FROM todo WHERE session_id = ?",
             {nlohmann::json(session_id)});
 
         if (!todos.empty()) {
@@ -702,7 +702,7 @@ bool SessionStore::save_todos(const std::string& session_id,
             for (int pos = 0; pos < static_cast<int>(todos.size()); ++pos) {
                 const auto& t = todos[static_cast<std::size_t>(pos)];
                 tx->execute(
-                    "INSERT INTO todos (session_id, content, status, priority, position,"
+                    "INSERT INTO todo (session_id, content, status, priority, position,"
                     " time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
                     {nlohmann::json(session_id),
                      nlohmann::json(t.content),
@@ -727,7 +727,7 @@ std::vector<TodoInfo> SessionStore::get_todos(const std::string& session_id) {
 
     try {
         auto result = db_->execute(
-            "SELECT content, status, priority FROM todos"
+            "SELECT content, status, priority FROM todo"
             " WHERE session_id = ? ORDER BY position ASC",
             {nlohmann::json(session_id)});
 
@@ -744,6 +744,46 @@ std::vector<TodoInfo> SessionStore::get_todos(const std::string& session_id) {
     } catch (const std::exception& e) {
         TURBOT_LOG_ERROR("SessionStore::get_todos session={} failed: {}", session_id, e.what());
         return {};
+    }
+}
+
+// ---------------------------------------------------------------------------
+// T40: upsert_part — mirrors OpenCode insert(PartTable).onConflictDoUpdate
+// ---------------------------------------------------------------------------
+
+bool SessionStore::upsert_part(
+        const std::string&    session_id,
+        const std::string&    message_id,
+        const std::string&    part_id,
+        const nlohmann::json& part_json,
+        int64_t               now) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return false;
+
+    // Extract type field for the dedicated column (fast filtering without JSON extraction)
+    const std::string type = part_json.value("type", std::string{"text"});
+    const std::string data = part_json.dump();
+
+    try {
+        db_->execute(
+            R"SQL(
+                INSERT INTO parts (id, message_id, session_id, type, time_created, time_updated, data)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    data         = excluded.data,
+                    time_updated = excluded.time_updated
+            )SQL",
+            {nlohmann::json(part_id),
+             nlohmann::json(message_id),
+             nlohmann::json(session_id),
+             nlohmann::json(type),
+             nlohmann::json(now),
+             nlohmann::json(now),
+             nlohmann::json(data)});
+        return true;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::upsert_part part={} failed: {}", part_id, e.what());
+        return false;
     }
 }
 

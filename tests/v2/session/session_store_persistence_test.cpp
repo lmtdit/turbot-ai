@@ -156,7 +156,7 @@ TEST_CASE("Session.Store.FindAll", "[Session][Store]") {
     }
 
     // 查找所有
-    auto all = store.find_all(unique_project);
+    auto all = store.find_all(turbot::core::session::ListParams{.project_id = unique_project});
     REQUIRE(all.size() == 3);
 
     fixture.teardown();
@@ -362,7 +362,7 @@ TEST_CASE("Session.Store.FindAllEmptyProject", "[Session][Store]") {
     store.init(fixture.db);
 
     // 查找空项目的 Session
-    auto all = store.find_all("empty-project");
+    auto all = store.find_all(turbot::core::session::ListParams{.project_id = std::string{"empty-project"}});
     REQUIRE(all.empty());
 
     fixture.teardown();

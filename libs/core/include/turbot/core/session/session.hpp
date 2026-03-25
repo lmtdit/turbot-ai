@@ -203,6 +203,46 @@ public:
     /// @return true if deleted
     static bool remove(const std::string& id);
 
+    // =========================================================================
+    // T40: Part streaming — mirrors OpenCode Session.updatePart / updatePartDelta
+    // =========================================================================
+
+    /**
+     * @brief Upsert a message part into the DB and publish PartUpdatedEvent.
+     *
+     * Mirrors OpenCode Session.updatePart(part): insert/onConflictDoUpdate the
+     * part row, then Bus.publish(MessageV2.Event.PartUpdated, { part }).
+     *
+     * @param session_id  Session that owns the part.
+     * @param message_id  Message that owns the part.
+     * @param part_json   Full part JSON payload (must contain "id" field).
+     * @return true on success.
+     */
+    static bool update_part(const std::string& session_id,
+                            const std::string& message_id,
+                            const nlohmann::json& part_json);
+
+    /**
+     * @brief Publish a PartDeltaEvent for incremental streaming text.
+     *
+     * Mirrors OpenCode Session.updatePartDelta(input):
+     *   Bus.publish(MessageV2.Event.PartDelta, input)
+     *
+     * This does NOT write to the DB — it only broadcasts via EventBus so that
+     * connected UI/ACP clients can append text incrementally.
+     *
+     * @param session_id  Session that owns the part.
+     * @param message_id  Message that owns the part.
+     * @param part_id     Part being streamed.
+     * @param field       Field name (typically "text").
+     * @param delta       Incremental text fragment.
+     */
+    static void update_part_delta(const std::string& session_id,
+                                  const std::string& message_id,
+                                  const std::string& part_id,
+                                  const std::string& field,
+                                  const std::string& delta);
+
     /// Default constructor — initialises the mutex so the object is immediately usable.
     Session() : mutex_(std::make_shared<std::mutex>()) {}
 

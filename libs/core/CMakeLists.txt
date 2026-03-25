@@ -23,6 +23,15 @@ set(CORE_SOURCES
     src/provider/impl/kimi_provider.cpp
     src/provider/impl/iflow_provider.cpp
     src/provider/impl/anthropic_provider.cpp
+    # Provider error/auth utilities (T23)
+    src/provider/provider_error.cpp
+    src/provider/provider_auth.cpp
+    # Provider transform layer (T22)
+    src/provider/provider_transform.cpp
+    # Azure provider (T24)
+    src/provider/impl/azure_provider.cpp
+    # Gemini provider (T25)
+    src/provider/impl/gemini_provider.cpp
     # Permission module
     src/permission/permission.cpp
     # Tool module
@@ -121,6 +130,8 @@ set(CORE_SOURCES
     src/ide/ide.cpp
     # Session todo module (T20)
     src/session/session_todo.cpp
+    # Session summary module (T21)
+    src/session/session_summary.cpp
     # Account module
     src/account/account.cpp
         src/account/account_store.cpp
@@ -150,6 +161,17 @@ set(CORE_HEADERS
     include/turbot/core/provider/impl/kimi_provider.hpp
     include/turbot/core/provider/impl/iflow_provider.hpp
     include/turbot/core/provider/impl/anthropic_provider.hpp
+    # Provider error/auth (T23)
+    include/turbot/core/provider/provider_error.hpp
+    include/turbot/core/provider/provider_auth.hpp
+    # Provider transform (T22)
+    include/turbot/core/provider/provider_transform.hpp
+    # Azure provider (T24)
+    include/turbot/core/provider/impl/azure_provider.hpp
+    # Gemini provider (T25)
+    include/turbot/core/provider/impl/gemini_provider.hpp
+    # Truncation dir (T27)
+    include/turbot/core/tool/truncation_dir.hpp
     # Permission module
     include/turbot/core/permission/permission.hpp
     # Tool module
@@ -229,6 +251,8 @@ set(CORE_HEADERS
     include/turbot/core/ide/ide.hpp
     # Session todo module (T20)
     include/turbot/core/session/session_todo.hpp
+    # Session summary (T21)
+    include/turbot/core/session/session_summary.hpp
 )
 
 # Create library

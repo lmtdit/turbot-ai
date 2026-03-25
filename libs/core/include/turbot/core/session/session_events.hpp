@@ -259,4 +259,42 @@ struct TURBOT_CORE_API PermissionRepliedEvent {
     permission::PermissionReply reply;              ///< User's decision
 };
 
+// ============================================================================
+// T40: Part streaming delta events — mirrors OpenCode MessageV2.Event.PartDelta /
+// MessageV2.Event.PartUpdated published by Session.updatePartDelta / updatePart
+// ============================================================================
+
+/**
+ * @brief Broadcast for each incremental text delta of a streaming part.
+ *
+ * Mirrors OpenCode Bus.publish(MessageV2.Event.PartDelta, input) from
+ * Session.updatePartDelta().  Subscribers (UI / ACP) append the delta to the
+ * current displayed text without a full re-render.
+ */
+struct TURBOT_CORE_API PartDeltaEvent {
+    static constexpr const char* kEventName = "session.part_delta";
+
+    std::string session_id;   ///< Session that owns the part
+    std::string message_id;   ///< Message that owns the part
+    std::string part_id;      ///< Part being updated
+    std::string field;        ///< Field receiving the delta (e.g. "text")
+    std::string delta;        ///< Incremental text delta
+};
+
+/**
+ * @brief Broadcast whenever a message part is fully written / updated.
+ *
+ * Mirrors OpenCode Bus.publish(MessageV2.Event.PartUpdated, { part }) from
+ * Session.updatePart().  Contains the complete part JSON so subscribers can
+ * replace their local copy atomically.
+ */
+struct TURBOT_CORE_API PartUpdatedEvent {
+    static constexpr const char* kEventName = "session.part_updated";
+
+    std::string    session_id;  ///< Session that owns the part
+    std::string    message_id;  ///< Message that owns the part
+    std::string    part_id;     ///< Part that was updated
+    nlohmann::json part;        ///< Full part JSON payload
+};
+
 } // namespace turbot::core::session
