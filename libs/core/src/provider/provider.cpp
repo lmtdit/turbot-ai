@@ -12,7 +12,7 @@ namespace turbot::core::provider {
 // ===== ModelCapabilities =====
 
 nlohmann::json ModelCapabilities::to_json() const {
-    return nlohmann::json{
+    nlohmann::json j{
         {"temperature", temperature},
         {"reasoning", reasoning},
         {"tool_call", tool_call},
@@ -20,6 +20,11 @@ nlohmann::json ModelCapabilities::to_json() const {
         {"vision", vision},
         {"audio", audio}
     };
+    // Only emit "interleavedField" when set (keeps JSON compact for non-interleaved models).
+    if (!interleaved_field.empty()) {
+        j["interleavedField"] = interleaved_field;
+    }
+    return j;
 }
 
 ModelCapabilities ModelCapabilities::from_json(const nlohmann::json& j) {
@@ -30,6 +35,12 @@ ModelCapabilities ModelCapabilities::from_json(const nlohmann::json& j) {
     caps.streaming = j.value("streaming", true);
     caps.vision = j.value("vision", false);
     caps.audio = j.value("audio", false);
+    // Accept both camelCase "interleavedField" and snake_case "interleaved_field".
+    if (j.contains("interleavedField") && j["interleavedField"].is_string()) {
+        caps.interleaved_field = j["interleavedField"].get<std::string>();
+    } else if (j.contains("interleaved_field") && j["interleaved_field"].is_string()) {
+        caps.interleaved_field = j["interleaved_field"].get<std::string>();
+    }
     return caps;
 }
 

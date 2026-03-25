@@ -208,6 +208,40 @@ std::vector<nlohmann::json> normalize_messages(
         return result;
     }
 
+    // --- Interleaved reasoning (G42): extract reasoning parts from assistant messages ---
+    // Aligned with OpenCode transform.ts L136-169:
+    //   if (typeof model.capabilities.interleaved === "object" && interleaved.field) { … }
+    // When interleaved_field is set (e.g. "reasoning_content" for DeepSeek-R1),
+    // reasoning parts are moved to providerOptions.openaiCompatible[field].
+    if (!model.capabilities.interleaved_field.empty()) {
+        const std::string& field = model.capabilities.interleaved_field;
+        for (auto& msg : msgs) {
+            if (msg.value("role", std::string{}) != "assistant") continue;
+            if (!msg.contains("content") || !msg["content"].is_array()) continue;
+
+            // Collect reasoning text and build filtered content (no reasoning parts).
+            std::string reasoning_text;
+            nlohmann::json filtered = nlohmann::json::array();
+            for (const auto& part : msg["content"]) {
+                if (part.value("type", std::string{}) == "reasoning") {
+                    if (part.contains("text") && part["text"].is_string()) {
+                        reasoning_text += part["text"].get<std::string>();
+                    }
+                } else {
+                    filtered.push_back(part);
+                }
+            }
+
+            msg["content"] = std::move(filtered);
+
+            if (!reasoning_text.empty()) {
+                // Mirrors: providerOptions: { openaiCompatible: { [field]: reasoningText } }
+                msg["providerOptions"]["openaiCompatible"][field] = std::move(reasoning_text);
+            }
+        }
+        return msgs;
+    }
+
     return msgs;
 }
 

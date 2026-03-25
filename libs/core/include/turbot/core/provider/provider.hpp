@@ -22,6 +22,14 @@ struct TURBOT_CORE_API ModelCapabilities {
     bool vision = false;         ///< Supports image input
     bool audio = false;          ///< Supports audio input/output
 
+    /// Interleaved reasoning: when non-empty, the model expects reasoning content
+    /// to be extracted from assistant messages and placed in
+    /// providerOptions.openaiCompatible[interleaved_field].
+    ///
+    /// Aligned with OpenCode capabilities.interleaved.field:
+    ///   if (typeof model.capabilities.interleaved === "object" && interleaved.field) { … }
+    std::string interleaved_field;  ///< e.g. "reasoning_content" for DeepSeek-R1
+
     [[nodiscard]] nlohmann::json to_json() const;
     static ModelCapabilities from_json(const nlohmann::json& j);
 };
