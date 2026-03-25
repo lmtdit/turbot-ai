@@ -418,7 +418,8 @@ nlohmann::json options(const ModelInfo&     model,
     }
 
     // Baseten / ZhipuAI thinking
-    if (pid == "baseten") {
+    if (pid == "baseten" ||
+        (pid == "opencode" && (contains(id, "kimi-k2-thinking") || contains(id, "glm-4.6")))) {
         result["chat_template_args"] = {{"enable_thinking", true}};
     }
     if ((pid == "zai" || pid == "zhipuai")) {
@@ -450,6 +451,11 @@ nlohmann::json options(const ModelInfo&     model,
         }
     }
 
+    // Alibaba-CN: enable_thinking for reasoning models (except kimi-k2-thinking)
+    if (pid == "alibaba-cn" && model.capabilities.reasoning && !contains(id, "kimi-k2-thinking")) {
+        result["enable_thinking"] = true;
+    }
+
     // gpt-5 series
     if (contains(id, "gpt-5") && !contains(id, "gpt-5-chat")) {
         if (!contains(id, "gpt-5-pro")) {
@@ -459,6 +465,12 @@ nlohmann::json options(const ModelInfo&     model,
         if (contains(id, "gpt-5.") && !contains(id, "codex") &&
             !contains(id, "-chat") && pid != "azure") {
             result["textVerbosity"] = "low";
+        }
+        // opencode provider specific
+        if (pid == "opencode" || pid.rfind("opencode", 0) == 0) {
+            result["promptCacheKey"] = session_id;
+            result["include"] = nlohmann::json::array({"reasoning.encrypted_content"});
+            result["reasoningSummary"] = "auto";
         }
     }
 
@@ -550,67 +562,189 @@ nlohmann::json provider_options(const ModelInfo& model, const nlohmann::json& op
 nlohmann::json variants(const ModelInfo& model) {
     if (!model.capabilities.reasoning) return nlohmann::json::object();
 
-    const std::string pid    = model.provider_id;
-    const std::string id     = to_lower(model.id);
+    const std::string pid = model.provider_id;
+    const std::string id  = to_lower(model.id);
 
-    // Models that explicitly return no variants
-    for (const auto& kw : {"deepseek","minimax","glm","mistral","kimi","k2p5"}) {
-        if (contains(id, kw)) return nlohmann::json::object();
-    }
+    // Anthropic Adaptive: newer claude models (opus-4.6/sonnet-4.6 equivalent)
+    // In turbot, we approximate via model.id pattern
+    const bool is_anthropic_adaptive =
+        contains(id, "opus-4-6") || contains(id, "opus-4.6") ||
+        contains(id, "sonnet-4-6") || contains(id, "sonnet-4.6");
 
-    auto make_effort_map = [](const std::vector<std::string>& efforts,
-                               const std::string& effort_key,
-                               const std::string& extra_key = {},
-                               const std::string& extra_val = {}) {
-        nlohmann::json result = nlohmann::json::object();
-        for (const auto& e : efforts) {
-            nlohmann::json opts = {{effort_key, e}};
-            if (!extra_key.empty()) opts[extra_key] = extra_val;
-            result[e] = opts;
-        }
-        return result;
+    const std::vector<std::string> WIDELY   = {"low","medium","high"};
+    const std::vector<std::string> ADAPTIVE = {"low","medium","high","max"};
+
+    // Helper: build map of effort → { key: effort }
+    auto make_efforts = [](const std::vector<std::string>& efforts,
+                           const std::string& key) -> nlohmann::json {
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : efforts) r[e] = {{key, e}};
+        return r;
     };
 
-    if (pid == "anthropic") {
-        return {
-            {"high", {{"thinking", {{"type","enabled"}, {"budgetTokens", 16000}}}}},
-            {"max",  {{"thinking", {{"type","enabled"}, {"budgetTokens", 31999}}}}}
-        };
+    // Anthropic Adaptive helper
+    auto make_adaptive = [&](const std::string& thinking_field) -> nlohmann::json {
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : ADAPTIVE) {
+            r[e] = {{thinking_field, {{"type","adaptive"}}}, {"effort", e}};
+        }
+        return r;
+    };
+
+    // Models that explicitly return no variants (per opencode)
+    if (contains(id, "deepseek") || contains(id, "minimax") || contains(id, "glm") ||
+        contains(id, "mistral")  || contains(id, "kimi")    || contains(id, "k2p5")) {
+        return nlohmann::json::object();
     }
-    if (pid == "amazon-bedrock" || contains(pid, "bedrock")) {
-        return {
-            {"high", {{"reasoningConfig", {{"type","enabled"}, {"budgetTokens", 16000}}}}},
-            {"max",  {{"reasoningConfig", {{"type","enabled"}, {"budgetTokens", 31999}}}}}
-        };
-    }
-    if (pid == "openai") {
-        const std::vector<std::string> efforts = {"low","medium","high"};
-        return make_effort_map(efforts, "reasoningEffort");
-    }
-    if (pid == "azure") {
-        const std::vector<std::string> efforts = {"low","medium","high"};
-        return make_effort_map(efforts, "reasoningEffort");
-    }
-    if (pid == "google") {
-        if (contains(id, "2.5")) {
+
+    // grok-3-mini special case
+    if (contains(id, "grok") && contains(id, "grok-3-mini")) {
+        if (pid == "openrouter") {
             return {
-                {"high", {{"thinkingConfig", {{"includeThoughts",true},{"thinkingBudget",16000}}}}},
-                {"max",  {{"thinkingConfig", {{"includeThoughts",true},{"thinkingBudget",24576}}}}}
+                {"low",  {{"reasoning", {{"effort","low"}}}}},
+                {"high", {{"reasoning", {{"effort","high"}}}}}
             };
         }
         return {
-            {"low",  {{"thinkingConfig", {{"includeThoughts",true},{"thinkingLevel","low"}}}}},
-            {"high", {{"thinkingConfig", {{"includeThoughts",true},{"thinkingLevel","high"}}}}}
+            {"low",  {{"reasoningEffort","low"}}},
+            {"high", {{"reasoningEffort","high"}}}
         };
     }
+    if (contains(id, "grok")) return nlohmann::json::object();
+
+    // --- Dispatch on provider_id (turbot uses provider_id, not npm package) ---
+
     if (pid == "openrouter") {
-        const std::vector<std::string> efforts = {"none","minimal","low","medium","high","xhigh"};
-        return make_effort_map(efforts, "reasoning_effort");
+        if (!contains(model.id, "gpt") && !contains(model.id, "gemini-3") &&
+            !contains(model.id, "claude")) {
+            return nlohmann::json::object();
+        }
+        // openrouter uses reasoning.effort wrapper
+        const std::vector<std::string> eff = {"none","minimal","low","medium","high","xhigh"};
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : eff) r[e] = {{"reasoning", {{"effort", e}}}};
+        return r;
     }
 
-    // Default: wide efforts with reasoningEffort
-    const std::vector<std::string> efforts = {"low","medium","high"};
-    return make_effort_map(efforts, "reasoningEffort");
+    if (pid == "github-copilot" || pid == "copilot") {
+        if (contains(model.id, "gemini")) return nlohmann::json::object();
+        if (contains(model.id, "claude")) {
+            return {{"thinking", {{"thinking_budget",4000}}}};
+        }
+        // copilotEfforts: WIDELY + optional xhigh for newer models
+        std::vector<std::string> efforts = WIDELY;
+        if (contains(id, "5.1-codex-max") || contains(id, "5.2") || contains(id, "5.3") ||
+            contains(id, "gpt-5")) {
+            efforts.push_back("xhigh");
+        }
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : efforts) {
+            r[e] = {{"reasoningEffort",e},{"reasoningSummary","auto"},
+                    {"include", nlohmann::json::array({"reasoning.encrypted_content"})}};
+        }
+        return r;
+    }
+
+    if (pid == "azure") {
+        if (id == "o1-mini") return nlohmann::json::object();
+        std::vector<std::string> efforts = {"low","medium","high"};
+        if (contains(id, "gpt-5-") || id == "gpt-5") efforts.insert(efforts.begin(), "minimal");
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : efforts) {
+            r[e] = {{"reasoningEffort",e},{"reasoningSummary","auto"},
+                    {"include", nlohmann::json::array({"reasoning.encrypted_content"})}};
+        }
+        return r;
+    }
+
+    if (pid == "openai") {
+        if (id == "gpt-5-pro") return nlohmann::json::object();
+        std::vector<std::string> efforts = WIDELY;
+        if (contains(id, "codex")) {
+            if (contains(id, "5.2") || contains(id, "5.3")) efforts.push_back("xhigh");
+        } else {
+            if (contains(id, "gpt-5-") || id == "gpt-5") efforts.insert(efforts.begin(), "minimal");
+            // Conservative: add none/xhigh for modern gpt models
+            efforts.insert(efforts.begin(), "none");
+            efforts.push_back("xhigh");
+        }
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : efforts) {
+            r[e] = {{"reasoningEffort",e},{"reasoningSummary","auto"},
+                    {"include", nlohmann::json::array({"reasoning.encrypted_content"})}};
+        }
+        return r;
+    }
+
+    if (pid == "anthropic") {
+        if (is_anthropic_adaptive) return make_adaptive("thinking");
+        // Dynamic budgetTokens from model limits
+        int out_limit = 32768;
+        if (model.limits.contains("max_tokens") && model.limits["max_tokens"].is_number_integer()) {
+            out_limit = model.limits["max_tokens"].get<int>();
+        }
+        const int budget_high = std::min(16000, static_cast<int>(out_limit / 2 - 1));
+        const int budget_max  = std::min(31999, out_limit - 1);
+        return {
+            {"high", {{"thinking",{{"type","enabled"},{"budgetTokens",budget_high}}}}},
+            {"max",  {{"thinking",{{"type","enabled"},{"budgetTokens",budget_max}}}}}
+        };
+    }
+
+    if (pid == "amazon-bedrock" || contains(pid, "bedrock")) {
+        if (is_anthropic_adaptive) {
+            nlohmann::json r = nlohmann::json::object();
+            for (const auto& e : ADAPTIVE) {
+                r[e] = {{"reasoningConfig",{{"type","adaptive"},{"maxReasoningEffort",e}}}};
+            }
+            return r;
+        }
+        if (contains(id, "anthropic") || contains(id, "claude")) {
+            return {
+                {"high", {{"reasoningConfig",{{"type","enabled"},{"budgetTokens",16000}}}}},
+                {"max",  {{"reasoningConfig",{{"type","enabled"},{"budgetTokens",31999}}}}}
+            };
+        }
+        // Amazon Nova
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : WIDELY) {
+            r[e] = {{"reasoningConfig",{{"type","enabled"},{"maxReasoningEffort",e}}}};
+        }
+        return r;
+    }
+
+    if (pid == "google" || contains(pid, "google-vertex") || contains(pid, "vertex")) {
+        if (contains(id, "2.5")) {
+            return {
+                {"high", {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",16000}}}}},
+                {"max",  {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",24576}}}}}
+            };
+        }
+        std::vector<std::string> levels = {"low","high"};
+        if (contains(id, "3.1")) levels = {"low","medium","high"};
+        nlohmann::json r = nlohmann::json::object();
+        for (const auto& e : levels) {
+            r[e] = {{"thinkingConfig",{{"includeThoughts",true},{"thinkingLevel",e}}}};
+        }
+        return r;
+    }
+
+    if (pid == "mistral" || pid == "cohere" || pid == "perplexity") {
+        return nlohmann::json::object();
+    }
+
+    if (pid == "groq") {
+        return make_efforts({"none","low","medium","high"}, "reasoningEffort");
+    }
+
+    // Gateway / openai-compatible / cerebras / togetherai / xai / deepinfra / venice
+    if (pid == "gateway" || pid == "openai-compatible" || pid == "cerebras" ||
+        pid == "togetherai" || pid == "xai" || pid == "deepinfra" || pid == "venice" ||
+        pid == "sap") {
+        return make_efforts(WIDELY, "reasoningEffort");
+    }
+
+    return nlohmann::json::object();
 }
 
 nlohmann::json schema(const ModelInfo& model, nlohmann::json sch) {

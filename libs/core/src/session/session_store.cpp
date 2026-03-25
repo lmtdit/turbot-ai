@@ -359,6 +359,94 @@ std::vector<nlohmann::json> SessionStore::find_all(const ListParams& params) {
 
 // ─── find_all_paginated ──────────────────────────────────────────────────────────
 
+// ─── find_all_global — G53 ────────────────────────────────────────────────────
+// Cross-project session listing mirrors OpenCode Session.listGlobal(input?).
+// Joins with the 'project' table to populate { id, name?, worktree } per session.
+
+std::vector<std::pair<nlohmann::json, nlohmann::json>>
+SessionStore::find_all_global(
+    const std::optional<std::string>& directory,
+    bool roots,
+    const std::optional<int64_t>& start,
+    const std::optional<int64_t>& cursor,
+    const std::optional<std::string>& search,
+    int limit,
+    bool archived
+) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return {};
+
+    try {
+        // Build a dynamic WHERE clause.
+        std::string sql =
+            "SELECT s.*, p.name AS _proj_name, p.worktree AS _proj_worktree "
+            "FROM sessions s "
+            "LEFT JOIN project p ON s.project_id = p.id "
+            "WHERE 1=1";
+
+        std::vector<nlohmann::json> bind_vals;
+
+        if (directory) {
+            sql += " AND s.directory = ?";
+            bind_vals.push_back(*directory);
+        }
+        if (roots) {
+            sql += " AND s.parent_id IS NULL";
+        }
+        if (start) {
+            sql += " AND s.time_updated >= ?";
+            bind_vals.push_back(*start);
+        }
+        if (cursor) {
+            sql += " AND s.time_updated < ?";
+            bind_vals.push_back(*cursor);
+        }
+        if (search) {
+            sql += " AND s.title LIKE ?";
+            bind_vals.push_back("%" + *search + "%");
+        }
+        if (!archived) {
+            sql += " AND s.time_archived IS NULL";
+        }
+
+        const int lim = limit > 0 ? limit : 100;
+        sql += " ORDER BY s.time_updated DESC, s.id DESC LIMIT ?";
+        bind_vals.push_back(lim);
+
+        auto result = db_->execute(sql, bind_vals);
+
+        std::vector<std::pair<nlohmann::json, nlohmann::json>> out;
+        out.reserve(result.rows.size());
+
+        for (auto& row : result.rows) {
+            // Extract project info from the joined columns before building session JSON.
+            nlohmann::json proj;
+            proj["id"] = row.value("project_id", std::string{});
+
+            if (row.contains("_proj_name") && !row["_proj_name"].is_null()) {
+                proj["name"] = row["_proj_name"];
+            }
+            if (row.contains("_proj_worktree") && !row["_proj_worktree"].is_null()) {
+                proj["worktree"] = row["_proj_worktree"];
+            } else {
+                proj["worktree"] = "";
+            }
+
+            // Remove joined columns before deserialising as SessionInfo.
+            row.erase("_proj_name");
+            row.erase("_proj_worktree");
+
+            out.emplace_back(row, std::move(proj));
+        }
+
+        return out;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::find_all_global failed: {}", e.what());
+        return {};
+    }
+}
+
+
 std::pair<std::vector<nlohmann::json>, std::optional<std::string>>
 SessionStore::find_all_paginated(
     const std::string& project_id,
@@ -628,18 +716,85 @@ bool SessionStore::delete_messages_by_ids(
 int SessionStore::copy_messages(
     const std::string& src_session_id,
     const std::string& dst_session_id,
-    std::optional<int64_t> max_seq
+    std::optional<int64_t> max_seq,
+    nlohmann::json* id_map_out
 ) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!db_) return -1;
 
     try {
-        // Single bulk INSERT using a window function — eliminates the N-statement loop
-        // and the repeated COALESCE(MAX(seq)) subquery per row.
-        // Requires SQLite ≥ 3.25.0 (released Sep 2018) for ROW_NUMBER().
-        //
-        // Bind order: dst_session_id (outer col), dst_session_id (COALESCE sub),
-        //             src_session_id (WHERE), [max_seq (WHERE seq<=?)]
+        if (id_map_out) {
+            // Row-by-row path: we need to generate new message IDs and track the mapping.
+            // OpenCode fork() generates new MessageID.ascending() for each copied message,
+            // remaps parentID references using idMap, and then copies parts per message.
+            // Turbot generates new IDs as "msg_" + seq counter for simplicity.
+
+            // 1. Fetch source messages in order.
+            std::string fetch_sql =
+                "SELECT seq, data FROM session_messages WHERE session_id = ?";
+            std::vector<nlohmann::json> fetch_vals = {src_session_id};
+            if (max_seq) {
+                fetch_sql += " AND seq <= ?";
+                fetch_vals.push_back(*max_seq);
+            }
+            fetch_sql += " ORDER BY seq ASC";
+
+            auto fetch_res = db_->execute(fetch_sql, fetch_vals);
+
+            // 2. Insert each row with a new message ID.
+            auto tx = db_->begin_transaction();
+            *id_map_out = nlohmann::json::object();
+
+            const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+
+            int count = 0;
+            for (const auto& row : fetch_res.rows) {
+                const std::string data_str = row.value("data", std::string{"{}"});
+                nlohmann::json msg_data;
+                try {
+                    msg_data = nlohmann::json::parse(data_str);
+                } catch (...) {
+                    msg_data = nlohmann::json::object();
+                }
+
+                // Extract old message ID from JSON.
+                const std::string old_id = msg_data.value("id", std::string{});
+                // Generate new ascending message ID.
+                const std::string new_id = "msg_" + std::to_string(now) + "_" +
+                    std::to_string(count);
+
+                if (!old_id.empty()) {
+                    (*id_map_out)[old_id] = new_id;
+                }
+
+                // Update sessionID and id in the cloned message data.
+                msg_data["id"]        = new_id;
+                msg_data["sessionID"] = dst_session_id;
+
+                // Remap parentID if present and in the map.
+                if (msg_data.contains("parentID") && msg_data["parentID"].is_string()) {
+                    const std::string old_parent = msg_data["parentID"].get<std::string>();
+                    if (id_map_out->contains(old_parent)) {
+                        msg_data["parentID"] = (*id_map_out)[old_parent];
+                    }
+                }
+
+                tx->execute(
+                    R"SQL(
+                        INSERT INTO session_messages (session_id, seq, data, created_at)
+                        SELECT ?, COALESCE((SELECT MAX(seq) FROM session_messages WHERE session_id = ?), -1) + 1, ?, ?
+                    )SQL",
+                    {dst_session_id, dst_session_id, msg_data.dump(), now}
+                );
+                ++count;
+            }
+
+            tx->commit();
+            return count;
+        }
+
+        // Fast bulk-insert path (no id mapping needed).
         std::string insert_sql;
         std::vector<nlohmann::json> bind_vals;
         if (max_seq) {
@@ -668,7 +823,6 @@ int SessionStore::copy_messages(
             bind_vals = {dst_session_id, dst_session_id, src_session_id};
         }
 
-        // Wrap in a transaction so the INSERT is atomic; destructor auto-rollbacks on failure.
         auto tx = db_->begin_transaction();
         auto result = tx->execute(insert_sql, bind_vals);
         tx->commit();
@@ -682,6 +836,85 @@ int SessionStore::copy_messages(
 }
 
 // ─── T20: Todo persistence ────────────────────────────────────────────────────
+
+// ─── copy_parts — G55 ─────────────────────────────────────────────────────────
+// Mirrors OpenCode Session.fork(): for each msg in msgs, iterate msg.parts and
+// call updatePart({ ...part, id: PartID.ascending(), messageID: cloned.id, sessionID })
+// Turbot does a bulk copy: for each (old_msg_id → new_msg_id) mapping, copy
+// all parts from that old message into the new session with new IDs.
+
+int SessionStore::copy_parts(
+    const std::string& src_session_id,
+    const std::string& dst_session_id,
+    const nlohmann::json& id_map_json
+) {
+    if (!id_map_json.is_object() || id_map_json.empty()) return 0;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!db_) return -1;
+
+    try {
+        int total_copied = 0;
+        const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+
+        auto tx = db_->begin_transaction();
+
+        for (auto it = id_map_json.begin(); it != id_map_json.end(); ++it) {
+            const std::string old_msg_id = it.key();
+            const std::string new_msg_id = it.value().get<std::string>();
+
+            // Fetch all parts for this source message.
+            auto res = tx->execute(
+                "SELECT type, data FROM parts WHERE message_id = ? AND session_id = ?",
+                {nlohmann::json(old_msg_id), nlohmann::json(src_session_id)}
+            );
+
+            for (const auto& row : res.rows) {
+                const std::string type = row.value("type", std::string{"text"});
+                const std::string data_str = row.value("data", std::string{"{}"});
+
+                // Parse the part JSON and update sessionID/messageID fields.
+                nlohmann::json part_data;
+                try {
+                    part_data = nlohmann::json::parse(data_str);
+                } catch (...) {
+                    part_data = nlohmann::json::object();
+                }
+                part_data["sessionID"]  = dst_session_id;
+                part_data["messageID"]  = new_msg_id;
+
+                // Generate a new part ID (prt_ prefix, ascending order).
+                // Use a simple timestamp-counter scheme similar to opencode's PartID.ascending().
+                const std::string new_part_id = "prt_" + std::to_string(now) + "_" +
+                    std::to_string(total_copied);
+                part_data["id"] = new_part_id;
+
+                tx->execute(
+                    R"SQL(
+                        INSERT INTO parts (id, message_id, session_id, type, time_created, time_updated, data)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    )SQL",
+                    {nlohmann::json(new_part_id),
+                     nlohmann::json(new_msg_id),
+                     nlohmann::json(dst_session_id),
+                     nlohmann::json(type),
+                     nlohmann::json(now),
+                     nlohmann::json(now),
+                     nlohmann::json(part_data.dump())}
+                );
+                ++total_copied;
+            }
+        }
+
+        tx->commit();
+        return total_copied;
+    } catch (const std::exception& e) {
+        TURBOT_LOG_ERROR("SessionStore::copy_parts from {} to {} failed: {}",
+                         src_session_id, dst_session_id, e.what());
+        return -1;
+    }
+}
+
 
 bool SessionStore::save_todos(const std::string& session_id,
                               const std::vector<TodoInfo>& todos) {

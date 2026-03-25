@@ -10,10 +10,30 @@
 #include <fmt/format.h>
 #include <chrono>
 #include <mutex>
+#include <regex>
 #include <sstream>
 #include <iomanip>
 
 namespace turbot::core::session {
+
+// ─── SessionProjectInfo implementation — G57 ─────────────────────────────────
+
+SessionProjectInfo SessionProjectInfo::from_json(const nlohmann::json& j) {
+    SessionProjectInfo info;
+    info.id = j.value("id", std::string{});
+    if (j.contains("name") && !j["name"].is_null())
+        info.name = j["name"].get<std::string>();
+    info.worktree = j.value("worktree", std::string{});
+    return info;
+}
+
+nlohmann::json SessionProjectInfo::to_json() const {
+    nlohmann::json j;
+    j["id"]       = id;
+    j["worktree"] = worktree;
+    if (name) j["name"] = *name;
+    return j;
+}
 
 // ─── RevertInfo implementation ───────────────────────────────────────────────
 
@@ -350,17 +370,19 @@ std::optional<Session> Session::fork(const ForkParams& params) {
     // Copy message history from the parent session.
     //
     // Aligned with OpenCode Session.fork(sessionID, messageID?) which clones all
-    // messages up to the specified cutoff.  Since we currently use an INTEGER seq
-    // rather than a string MessageID, the cutoff is expressed as a seq number.
+    // messages up to the specified cutoff, remaps IDs, and copies parts.
     //
     // NOTE: We emit session.created AFTER copy_messages succeeds so that
     // subscribers never see a forked session that is subsequently rolled back.
     auto& store = SessionStore::instance();
     if (store.is_initialized()) {
+        // Use id_map path so we can subsequently copy parts (G55).
+        nlohmann::json id_map;
         int copied = store.copy_messages(
             params.parent_id,
             session.info_.id,
-            params.message_seq_cutoff  // nullopt → copy all messages
+            params.message_seq_cutoff,  // nullopt → copy all messages
+            &id_map
         );
         if (copied < 0) {
             TURBOT_LOG_WARN("Session::fork: copy_messages failed (parent={} fork={}); "
@@ -372,6 +394,20 @@ std::optional<Session> Session::fork(const ForkParams& params) {
         }
         TURBOT_LOG_DEBUG("Session::fork: copied {} messages from {} to {}",
                          copied, params.parent_id, session.info_.id);
+
+        // G55: also copy parts — mirrors OpenCode's updatePart call per part.
+        if (!id_map.empty()) {
+            int parts_copied = store.copy_parts(params.parent_id, session.info_.id, id_map);
+            if (parts_copied < 0) {
+                TURBOT_LOG_WARN("Session::fork: copy_parts failed (parent={} fork={}); "
+                                "fork session has messages but no parts",
+                                params.parent_id, session.info_.id);
+                // Non-fatal: fork session is still usable without parts.
+            } else {
+                TURBOT_LOG_DEBUG("Session::fork: copied {} parts from {} to {}",
+                                 parts_copied, params.parent_id, session.info_.id);
+            }
+        }
     }
 
     // T1: Emit session.created + session.updated for the forked session.
@@ -647,6 +683,43 @@ bool Session::restore() {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// G56: set_archived() — mirrors OpenCode Session.setArchived({ sessionID, time? })
+//   time provided   → archives the session (sets time_archived)
+//   time == nullopt → unarchives the session (clears time_archived)
+// ---------------------------------------------------------------------------
+
+bool Session::set_archived(std::optional<int64_t> time) {
+    if (!mutex_) return false;
+    nlohmann::json wire;
+    {
+        std::lock_guard<std::mutex> lock(*mutex_);
+
+        if (time) {
+            // Archive: set time_archived and update state.
+            info_.time_archived = *time;
+            info_.state         = SessionState::Archived;
+        } else {
+            // Unarchive: clear time_archived and restore state.
+            info_.time_archived = std::nullopt;
+            info_.state         = SessionState::Active;
+        }
+        info_.time_updated = current_timestamp();
+
+        if (!SessionStore::instance().save(info_)) {
+            return false;
+        }
+        wire = info_.to_json();
+    }  // lock released
+
+    // Publish Session.Event.Updated so ACP / UI consumers stay in sync.
+    turbot::core::EventBus::instance().publish(
+        SessionInfoUpdatedEvent::kEventName,
+        SessionInfoUpdatedEvent{wire});
+
+    return true;
+}
+
 bool Session::revert(const RevertParams& params) {
     if (!mutex_) return false;
     std::lock_guard<std::mutex> lock(*mutex_);
@@ -843,6 +916,119 @@ void Session::update_part_delta(const std::string& session_id,
     turbot::core::EventBus::instance().publish(
         PartDeltaEvent::kEventName,
         PartDeltaEvent{session_id, message_id, part_id, field, delta});
+}
+
+// ---------------------------------------------------------------------------
+// G51: touch() — mirrors OpenCode Session.touch(sessionID)
+//   db.update(SessionTable).set({ time_updated: now }).where(eq(id, sessionID))
+//   + Bus.publish(Event.Updated, { info })
+// ---------------------------------------------------------------------------
+
+bool Session::touch(const std::string& id) {
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) return false;
+
+    // Build a minimal update: only time_updated changes.
+    // We must load the row first so we can publish the full info.
+    auto row = store.find_by_id(id);
+    if (!row) {
+        TURBOT_LOG_WARN("Session::touch: session not found: {}", id);
+        return false;
+    }
+
+    try {
+        SessionInfo info = SessionInfo::from_json(*row);
+        info.time_updated = current_timestamp();
+
+        if (!store.save(info)) {
+            return false;
+        }
+
+        // Publish Session.Event.Updated so ACP / UI consumers stay in sync.
+        turbot::core::EventBus::instance().publish(
+            SessionInfoUpdatedEvent::kEventName,
+            SessionInfoUpdatedEvent{info.to_json()});
+
+        return true;
+    } catch (const std::exception& ex) {
+        TURBOT_LOG_WARN("Session::touch: failed for session '{}': {}", id, ex.what());
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// G52: is_default_title() — mirrors OpenCode Session.isDefaultTitle(title)
+//   /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+// ---------------------------------------------------------------------------
+
+bool Session::is_default_title(const std::string& title) noexcept {
+    // Static regex compiled once (thread-safe in C++11+).
+    static const std::regex kDefaultTitlePattern{
+        R"(^(New session - |Child session - )\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$)"
+    };
+    try {
+        return std::regex_search(title, kDefaultTitlePattern);
+    } catch (...) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// G53: list_global() — mirrors OpenCode Session.listGlobal(input?)
+//   Cross-project listing with archived filter, cursor pagination, and
+//   project JOIN to populate { id, name?, worktree } alongside each session.
+// ---------------------------------------------------------------------------
+
+std::vector<std::pair<nlohmann::json, nlohmann::json>>
+Session::list_global(const ListGlobalParams& params) {
+    auto& store = SessionStore::instance();
+    if (!store.is_initialized()) return {};
+
+    // Delegate to SessionStore::find_all_global() which issues the cross-project
+    // SQL query (no project_id filter, supports cursor, archived, etc.).
+    // Each element is { session_json, project_json } where project_json has
+    // { id, name?, worktree } — matching OpenCode's listGlobal() yield shape.
+    return store.find_all_global(
+        params.directory,
+        params.roots,
+        params.start,
+        params.cursor,
+        params.search,
+        params.limit,
+        params.archived
+    );
+}
+
+// ---------------------------------------------------------------------------
+// G54: plan() — mirrors OpenCode Session.plan(input)
+//   vcs project  → <worktree>/.opencode/plans/<created>-<slug>.md
+//   non-vcs      → <data_dir>/plans/<created>-<slug>.md
+// ---------------------------------------------------------------------------
+
+std::string Session::plan(const std::string& slug,
+                           int64_t time_created,
+                           const std::string& worktree) {
+    // Build filename: "<time_created>-<slug>.md"
+    const std::string filename = fmt::format("{}-{}.md", time_created, slug);
+
+    if (!worktree.empty()) {
+        // VCS project: store plan inside the worktree under .opencode/plans/
+        // Mirrors: path.join(Instance.worktree, ".opencode", "plans") + filename
+        return worktree + "/.opencode/plans/" + filename;
+    }
+
+    // Non-VCS project: store plan in the global data directory.
+    // We use a best-effort approach: look for XDG_DATA_HOME or ~/.local/share/opencode/plans
+    // This mirrors OpenCode's Global.Path.data + "/plans"
+    const char* data_home = std::getenv("XDG_DATA_HOME");
+    std::string base;
+    if (data_home && data_home[0] != '\0') {
+        base = std::string(data_home) + "/opencode";
+    } else {
+        const char* home = std::getenv("HOME");
+        base = home ? std::string(home) + "/.local/share/opencode" : "/tmp/opencode";
+    }
+    return base + "/plans/" + filename;
 }
 
 } // namespace turbot::core::session

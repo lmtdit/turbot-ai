@@ -77,6 +77,29 @@ struct TURBOT_CORE_API SessionShare {
     bool operator==(const SessionShare& o) const noexcept { return url == o.url; }
 };
 
+/// Project info embedded in global session listing results (G57).
+///
+/// Aligned with OpenCode Session.ProjectInfo used in listGlobal():
+///   { id: ProjectID, name?: string, worktree: string }
+///
+/// Returned alongside SessionInfo in list_global() results so callers can
+/// display the project context for each session without a separate lookup.
+struct TURBOT_CORE_API SessionProjectInfo {
+    std::string id;                          ///< Project ID
+    std::optional<std::string> name;         ///< Project display name (may be absent)
+    std::string worktree;                    ///< Project worktree path
+
+    /// Deserialize from JSON (supports both wire and flat-column forms).
+    static SessionProjectInfo from_json(const nlohmann::json& j);
+
+    /// Serialize to JSON.
+    [[nodiscard]] nlohmann::json to_json() const;
+
+    bool operator==(const SessionProjectInfo& o) const noexcept {
+        return id == o.id && name == o.name && worktree == o.worktree;
+    }
+};
+
 /// Session information structure
 struct TURBOT_CORE_API SessionInfo {
     std::string id;                              ///< Unique session identifier (ses_ prefix)
@@ -163,6 +186,19 @@ struct TURBOT_CORE_API RevertParams {
     std::vector<turbot::core::snapshot::PatchResult> patches;
 };
 
+/// Parameters for Session::list_global() — cross-project global listing.
+///
+/// Aligned with OpenCode Session.listGlobal(input?) signature.
+struct TURBOT_CORE_API ListGlobalParams {
+    std::optional<std::string> directory;  ///< Filter by directory
+    bool roots = false;                    ///< Only root sessions (parent_id IS NULL)
+    std::optional<int64_t> start;          ///< Lower bound on time_updated (epoch ms)
+    std::optional<int64_t> cursor;         ///< Upper bound on time_updated for pagination
+    std::optional<std::string> search;     ///< Substring match on title
+    int limit = 100;                       ///< Max results
+    bool archived = false;                 ///< Include archived sessions
+};
+
 /// Forward declaration for message
 namespace message {
 struct Message;
@@ -202,6 +238,48 @@ public:
     /// @param id Session ID
     /// @return true if deleted
     static bool remove(const std::string& id);
+
+    /// Touch a session: update time_updated and publish Event.Updated.
+    ///
+    /// Aligned with OpenCode Session.touch(sessionID).
+    ///
+    /// @param id Session ID
+    /// @return true on success
+    static bool touch(const std::string& id);
+
+    /// Check whether a session title is a default auto-generated title.
+    ///
+    /// Aligned with OpenCode Session.isDefaultTitle(title):
+    ///   /^(New session - |Child session - )\d{4}-\d{2}-\d{2}T.../
+    ///
+    /// @param title Session title to test
+    /// @return true if title matches the default pattern
+    [[nodiscard]] static bool is_default_title(const std::string& title) noexcept;
+
+    /// List sessions across all projects (global view).
+    ///
+    /// Aligned with OpenCode Session.listGlobal(input?).
+    /// Unlike list(), this is not scoped to a single project; each result
+    /// includes a `project` JSON blob with {id, name?, worktree}.
+    ///
+    /// @param params Filter parameters
+    /// @return Vector of {session_json, project_json} pairs
+    [[nodiscard]] static std::vector<std::pair<nlohmann::json, nlohmann::json>>
+    list_global(const ListGlobalParams& params = {});
+
+    /// Return the path for a session plan file.
+    ///
+    /// Aligned with OpenCode Session.plan(input):
+    ///   vcs project → <worktree>/.opencode/plans/<created>-<slug>.md
+    ///   otherwise   → <data_dir>/plans/<created>-<slug>.md
+    ///
+    /// @param slug         Session slug
+    /// @param time_created Session creation timestamp (epoch ms)
+    /// @param worktree     Project worktree path (empty → non-vcs mode)
+    /// @return Absolute path to the plan file
+    [[nodiscard]] static std::string plan(const std::string& slug,
+                                          int64_t time_created,
+                                          const std::string& worktree = {});
 
     // =========================================================================
     // T40: Part streaming — mirrors OpenCode Session.updatePart / updatePartDelta
@@ -309,6 +387,18 @@ public:
     /// Restore from archived state
     /// @return true if restored successfully
     bool restore();
+
+    /// Set archived time for this session (G56).
+    ///
+    /// Aligned with OpenCode Session.setArchived({ sessionID, time? }):
+    ///   - time provided   → sets time_archived (archives the session)
+    ///   - time == nullopt → clears time_archived (unarchives the session)
+    ///
+    /// Publishes Session.Event.Updated after persisting to DB.
+    ///
+    /// @param time  Archival timestamp in epoch ms, or nullopt to unarchive
+    /// @return true on success
+    bool set_archived(std::optional<int64_t> time = std::nullopt);
 
     /// Revert session to the specified message/part.
     ///

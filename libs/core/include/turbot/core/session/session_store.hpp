@@ -52,6 +52,30 @@ public:
     /// Rows are ordered by time_updated DESC; limit defaults to 100.
     [[nodiscard]] std::vector<nlohmann::json> find_all(const ListParams& params);
 
+    /// Cross-project global session listing — mirrors OpenCode Session.listGlobal().
+    ///
+    /// Unlike find_all(), no project_id filter is applied.
+    /// Supports archived filter, cursor-based pagination (time_updated < cursor),
+    /// and start (time_updated >= start). Each returned pair is
+    /// { session_json, project_json } where project_json = { id, name?, worktree }.
+    ///
+    /// @param directory  Filter by directory (optional)
+    /// @param roots      If true, only root sessions (parent_id IS NULL)
+    /// @param start      Lower bound on time_updated (epoch ms, inclusive)
+    /// @param cursor     Upper bound on time_updated for pagination (exclusive)
+    /// @param search     Substring match on title (LIKE %search%)
+    /// @param limit      Max results (default 100)
+    /// @param archived   Include archived sessions (default false)
+    /// @return Vector of (session_json, project_json) pairs
+    [[nodiscard]] std::vector<std::pair<nlohmann::json, nlohmann::json>>
+    find_all_global(const std::optional<std::string>& directory,
+                    bool roots,
+                    const std::optional<int64_t>& start,
+                    const std::optional<int64_t>& cursor,
+                    const std::optional<std::string>& search,
+                    int limit,
+                    bool archived);
+
     /// Retrieve SessionInfo rows for a project with cursor-based pagination.
     /// @param project_id The project ID to filter by
     /// @param limit Maximum number of rows to return
@@ -114,11 +138,33 @@ public:
     ///
     /// Aligned with OpenCode's Session.fork() message-copy semantics.
     ///
+    /// @param id_map_out  When non-null, filled with {old_message_id → new_message_id}
+    ///                    mapping so callers can subsequently invoke copy_parts().
     /// @return Number of messages copied, or -1 on error.
     int copy_messages(
         const std::string& src_session_id,
         const std::string& dst_session_id,
-        std::optional<int64_t> max_seq = std::nullopt
+        std::optional<int64_t> max_seq = std::nullopt,
+        nlohmann::json* id_map_out = nullptr
+    );
+
+    /// Copy parts for all messages of a forked session.
+    ///
+    /// After copy_messages() creates new message rows in dst_session_id, this
+    /// method copies the corresponding part rows from src to dst, remapping
+    /// message_id and session_id while generating new part IDs.
+    ///
+    /// Aligned with OpenCode Session.fork() which iterates msg.parts and calls
+    /// updatePart({ ...part, id: PartID.ascending(), messageID: cloned.id, sessionID: session.id }).
+    ///
+    /// @param src_session_id  Source session
+    /// @param dst_session_id  Destination (forked) session
+    /// @param id_map_json     JSON object mapping old_message_id → new_message_id
+    /// @return Number of parts copied, or -1 on error.
+    int copy_parts(
+        const std::string& src_session_id,
+        const std::string& dst_session_id,
+        const nlohmann::json& id_map_json
     );
 
     // ── T20: Todo persistence ────────────────────────────────────────────────
