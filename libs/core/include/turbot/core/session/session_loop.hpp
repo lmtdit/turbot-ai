@@ -42,6 +42,39 @@ struct TURBOT_CORE_API SessionLoopConfig {
     int doom_loop_threshold = 3;        ///< Max consecutive identical tool calls
 };
 
+/// Extended prompt input — mirrors OpenCode SessionPrompt.PromptInput.
+///
+/// Aligned with opencode/packages/opencode/src/session/prompt.ts PromptInput:
+///   { sessionID, messageID?, model?, agent?, noReply?, format?, system?, variant?, parts? }
+///
+/// Fields used to control the next run() invocation.
+struct TURBOT_CORE_API PromptInput {
+    /// The text content of the user message.  At least one of `user_message`
+    /// or `parts` must be non-empty.
+    std::string user_message;
+
+    /// Optional override model {providerID, modelID}.
+    std::optional<std::string> provider_id;
+    std::optional<std::string> model_id;
+
+    /// Agent name override (matches OpenCode agent field).
+    std::optional<std::string> agent;
+
+    /// If true, only create the user message without running the LLM loop
+    /// (mirrors OpenCode noReply: true).
+    bool no_reply = false;
+
+    /// Output format override — mirrors OpenCode MessageV2.Format.
+    /// Accepted values: "text", "json_schema".
+    std::optional<std::string> format;
+
+    /// Additional system prompt injected for this turn only.
+    std::optional<std::string> system;
+
+    /// Model variant name (e.g. "thinking") — mirrors OpenCode variant field.
+    std::optional<std::string> variant;
+};
+
 /// Step information for callbacks
 struct TURBOT_CORE_API StepInfo {
     int step_number = 0;
@@ -111,6 +144,16 @@ public:
     /// @param user_message The user message to process
     /// @return Final result
     LoopResult run(const std::string& user_message);
+
+    /// Run the loop with extended prompt input (G43 alignment with OpenCode PromptInput).
+    ///
+    /// Applies agent/model/system/format/variant overrides before dispatching to
+    /// the same internal loop as run(user_message).  Mirrors OpenCode's
+    /// SessionPrompt.prompt(input) which calls loop({ sessionID }).
+    ///
+    /// @param input  Extended prompt input
+    /// @return Final result
+    LoopResult run(const PromptInput& input);
 
     /// Run a single iteration (for testing or manual control)
     /// @return Loop result
@@ -211,6 +254,11 @@ private:
     // Alive flag shared with EventBus lambda to prevent UAF after SessionLoop destructs.
     // Destroyed before the mutex members; lambda checks weak_ptr before accessing *this.
     std::shared_ptr<bool> perm_alive_flag_{std::make_shared<bool>(true)};
+
+    // ── G43: PromptInput overrides (set by run(PromptInput), cleared after run) ──
+    std::optional<std::string> system_override_;  ///< Per-turn system prompt injection
+    std::optional<std::string> format_override_;  ///< Output format override ("text"|"json_schema")
+    std::optional<std::string> variant_override_; ///< Model variant override
 
     /// Process a user message
     LoopResult process_user_message(const std::string& content);

@@ -8,6 +8,7 @@
 #include <random>
 #include <regex>
 #include <set>
+#include <unordered_set>
 #include <cstdlib>
 
 // macOS environ workaround
@@ -858,6 +859,12 @@ nlohmann::json ConfigManager::merge_config_with_append(const nlohmann::json& bas
         return override;
     }
 
+    // Keys that use concat (union) semantics instead of replace when both sides are arrays.
+    // Mirrors OpenCode mergeConfigConcatArrays() in config.ts L66-76:
+    //   merged.plugin      = [...target.plugin,      ...source.plugin]      (deduplicated)
+    //   merged.instructions = [...target.instructions, ...source.instructions] (deduplicated)
+    static const std::set<std::string> kConcatKeys = {"plugin", "instructions"};
+
     nlohmann::json result = base;
 
     for (auto& [key, value] : override.items()) {
@@ -869,6 +876,21 @@ nlohmann::json ConfigManager::merge_config_with_append(const nlohmann::json& bas
                     result[array_key].push_back(item);
                 }
             }
+        } else if (kConcatKeys.count(key) && result.contains(key) &&
+                   result[key].is_array() && value.is_array()) {
+            // G46: concat-merge semantics for plugin/instructions — mirrors OpenCode
+            // mergeConfigConcatArrays: Array.from(new Set([...target, ...source]))
+            // Deduplicates by value (string arrays).
+            nlohmann::json merged = result[key];
+            for (const auto& item : value) {
+                // Deduplicate: only append if not already present.
+                bool found = false;
+                for (const auto& existing : merged) {
+                    if (existing == item) { found = true; break; }
+                }
+                if (!found) merged.push_back(item);
+            }
+            result[key] = std::move(merged);
         } else if (result.contains(key) && result[key].is_object() && value.is_object()) {
             // 递归合并对象
             result[key] = merge_config_with_append(result[key], value);
