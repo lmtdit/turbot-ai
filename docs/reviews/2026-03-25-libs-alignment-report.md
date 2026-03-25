@@ -766,53 +766,53 @@ _评审人：code-reviewer（SPEARM 六维度框架）_
 
 ### Sub-01（R2）：T21 session_summary + T23 provider_error/auth + T26 todo表名修正
 
-**执行时间**：2026-03-25  
+**执行时间**：2026-03-25
 
-| 步骤                                        | 状态    | 关键文件                                          | 备注                                                        |
-| ------------------------------------------- | ------- | ------------------------------------------------- | ----------------------------------------------------------- |
-| T21 session_summary.hpp/cpp 创建            | ✅ 完成 | `libs/core/session/session_summary.hpp/cpp`       | summarize_session() 委托 SessionStore + EventBus publish    |
-| T23 provider_error.hpp 扩展                 | ✅ 完成 | `libs/core/provider/provider_error.hpp`           | ProviderAuthError / ProviderRateLimitError / 新枚举值       |
-| T23 provider_auth.hpp/cpp 创建              | ✅ 完成 | `libs/core/provider/provider_auth.hpp/cpp`        | validate_api_key() + AuthStatus 枚举                        |
-| T26 session_store.cpp todos→todo 表名修正   | ✅ 完成 | `libs/core/src/session/session_store.cpp`         | 5处 SQL 语句从 `todos` 改为 `todo`，对齐 opencode DB schema |
+| 步骤                                      | 状态    | 关键文件                                    | 备注                                                        |
+| ----------------------------------------- | ------- | ------------------------------------------- | ----------------------------------------------------------- |
+| T21 session_summary.hpp/cpp 创建          | ✅ 完成 | `libs/core/session/session_summary.hpp/cpp` | summarize_session() 委托 SessionStore + EventBus publish    |
+| T23 provider_error.hpp 扩展               | ✅ 完成 | `libs/core/provider/provider_error.hpp`     | ProviderAuthError / ProviderRateLimitError / 新枚举值       |
+| T23 provider_auth.hpp/cpp 创建            | ✅ 完成 | `libs/core/provider/provider_auth.hpp/cpp`  | validate_api_key() + AuthStatus 枚举                        |
+| T26 session_store.cpp todos→todo 表名修正 | ✅ 完成 | `libs/core/src/session/session_store.cpp`   | 5处 SQL 语句从 `todos` 改为 `todo`，对齐 opencode DB schema |
 
 ---
 
 ### Sub-02（R2）：T22 provider_transform + T24 Azure Provider + T27 truncation_dir
 
-**执行时间**：2026-03-25  
+**执行时间**：2026-03-25
 
-| 步骤                                        | 状态    | 关键文件                                                   | 备注                                                         |
-| ------------------------------------------- | ------- | ---------------------------------------------------------- | ------------------------------------------------------------ |
-| T22 provider_transform.hpp/cpp 创建         | ✅ 完成 | `libs/core/provider/provider_transform.hpp/cpp`            | 无状态命名空间；port of opencode `transform.ts`              |
-| T22 to_provider_messages() 实现             | ✅ 完成 | `provider_transform.cpp`                                   | system/assistant/user role 转换；tool_use/tool_result 映射   |
-| T22 to_session_parts() 实现                 | ✅ 完成 | `provider_transform.cpp`                                   | text/reasoning/tool_use 三类 Part 反向映射                   |
-| T24 azure_provider.hpp/cpp 创建             | ✅ 完成 | `libs/core/provider/impl/azure_provider.hpp/cpp`           | Azure OpenAI Service；`api-key` header；deployment URL 格式  |
-| T27 truncation_dir.hpp 创建                 | ✅ 完成 | `libs/core/include/turbot/core/provider/truncation_dir.hpp` | TruncationDir 枚举 + inline 函数；port of `truncation-dir.ts` |
+| 步骤                                | 状态    | 关键文件                                                    | 备注                                                          |
+| ----------------------------------- | ------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
+| T22 provider_transform.hpp/cpp 创建 | ✅ 完成 | `libs/core/provider/provider_transform.hpp/cpp`             | 无状态命名空间；port of opencode `transform.ts`               |
+| T22 to_provider_messages() 实现     | ✅ 完成 | `provider_transform.cpp`                                    | system/assistant/user role 转换；tool_use/tool_result 映射    |
+| T22 to_session_parts() 实现         | ✅ 完成 | `provider_transform.cpp`                                    | text/reasoning/tool_use 三类 Part 反向映射                    |
+| T24 azure_provider.hpp/cpp 创建     | ✅ 完成 | `libs/core/provider/impl/azure_provider.hpp/cpp`            | Azure OpenAI Service；`api-key` header；deployment URL 格式   |
+| T27 truncation_dir.hpp 创建         | ✅ 完成 | `libs/core/include/turbot/core/provider/truncation_dir.hpp` | TruncationDir 枚举 + inline 函数；port of `truncation-dir.ts` |
 
 ---
 
 ### Sub-03（R2）：T25 Google Gemini Provider
 
-**执行时间**：2026-03-25  
+**执行时间**：2026-03-25
 
-| 步骤                                          | 状态    | 关键文件                                                      | 备注                                                              |
-| --------------------------------------------- | ------- | ------------------------------------------------------------- | ----------------------------------------------------------------- |
-| T25 gemini_provider.hpp 创建                  | ✅ 完成 | `libs/core/provider/impl/gemini_provider.hpp`                 | GeminiProvider 类；build_request/parse_response/parse_stream_chunk |
-| T25 gemini_provider.cpp 创建                  | ✅ 完成 | `libs/core/provider/impl/gemini_provider.cpp`                 | generateContent + streamGenerateContent；`x-goog-api-key` header  |
-| T25 Gemini→OpenCode 格式转换                  | ✅ 完成 | `gemini_provider.cpp`                                         | candidates[0] 解析；text/functionCall/functionResponse Part 映射  |
+| 步骤                         | 状态    | 关键文件                                      | 备注                                                               |
+| ---------------------------- | ------- | --------------------------------------------- | ------------------------------------------------------------------ |
+| T25 gemini_provider.hpp 创建 | ✅ 完成 | `libs/core/provider/impl/gemini_provider.hpp` | GeminiProvider 类；build_request/parse_response/parse_stream_chunk |
+| T25 gemini_provider.cpp 创建 | ✅ 完成 | `libs/core/provider/impl/gemini_provider.cpp` | generateContent + streamGenerateContent；`x-goog-api-key` header   |
+| T25 Gemini→OpenCode 格式转换 | ✅ 完成 | `gemini_provider.cpp`                         | candidates[0] 解析；text/functionCall/functionResponse Part 映射   |
 
 ---
 
 ### Sub-04（R2）：T28~T41 P2 任务（Session 流式更新）
 
-**执行时间**：2026-03-25  
+**执行时间**：2026-03-25
 
-| 步骤                                           | 状态    | 关键文件                                                          | 备注                                                                   |
-| ---------------------------------------------- | ------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| T40 PartDeltaEvent / PartUpdatedEvent 新增      | ✅ 完成 | `libs/core/session/session_events.hpp`                            | PartDeltaEvent（仅 EventBus）；PartUpdatedEvent（DB + EventBus）       |
-| T40 Session::update_part() 实现                 | ✅ 完成 | `libs/core/src/session/session.cpp`                               | upsert_part + publish PartUpdatedEvent                                 |
-| T40 Session::update_part_delta() 实现           | ✅ 完成 | `libs/core/src/session/session.cpp`                               | 仅 publish PartDeltaEvent（无 DB write）                               |
-| T40 SessionStore::upsert_part() 实现            | ✅ 完成 | `libs/core/src/session/session_store.cpp`                         | INSERT … ON CONFLICT(id) DO UPDATE SET data/time_updated               |
+| 步骤                                       | 状态    | 关键文件                                  | 备注                                                             |
+| ------------------------------------------ | ------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| T40 PartDeltaEvent / PartUpdatedEvent 新增 | ✅ 完成 | `libs/core/session/session_events.hpp`    | PartDeltaEvent（仅 EventBus）；PartUpdatedEvent（DB + EventBus） |
+| T40 Session::update_part() 实现            | ✅ 完成 | `libs/core/src/session/session.cpp`       | upsert_part + publish PartUpdatedEvent                           |
+| T40 Session::update_part_delta() 实现      | ✅ 完成 | `libs/core/src/session/session.cpp`       | 仅 publish PartDeltaEvent（无 DB write）                         |
+| T40 SessionStore::upsert_part() 实现       | ✅ 完成 | `libs/core/src/session/session_store.cpp` | INSERT … ON CONFLICT(id) DO UPDATE SET data/time_updated         |
 
 ---
 
@@ -820,40 +820,40 @@ _评审人：code-reviewer（SPEARM 六维度框架）_
 
 #### 第 1 轮终审
 
-| 维度 | 等级 | 发现问题 |
-| ---- | ---- | -------- |
-| S    | B    | [MEDIUM] Azure/Gemini 空 API Key 未 guard；[MEDIUM] Azure URL 路径注入 |
-| P    | A-   | [MEDIUM] Gemini tool call ID 碰撞（同名函数不唯一）                     |
+| 维度 | 等级 | 发现问题                                                                                           |
+| ---- | ---- | -------------------------------------------------------------------------------------------------- |
+| S    | B    | [MEDIUM] Azure/Gemini 空 API Key 未 guard；[MEDIUM] Azure URL 路径注入                             |
+| P    | A-   | [MEDIUM] Gemini tool call ID 碰撞（同名函数不唯一）                                                |
 | E    | B+   | [MEDIUM] provider_transform.cpp 缺 `is_string()` guard；[MEDIUM] Gemini 空 chunk 未设置 event.type |
-| A    | A-   | 无新问题                                                                |
-| R    | B+   | [MEDIUM] 新增模块 T22/T24/T25/T40 缺少单元测试                          |
-| M    | B    | [LOW] Gemini `trim` lambda 重复定义                                     |
+| A    | A-   | 无新问题                                                                                           |
+| R    | B+   | [MEDIUM] 新增模块 T22/T24/T25/T40 缺少单元测试                                                     |
+| M    | B    | [LOW] Gemini `trim` lambda 重复定义                                                                |
 
 **综合分**：85/100 — 🟡 良好  
 **问题统计**：6 个 MEDIUM，1 个 LOW
 
 #### 修复清单
 
-| 编号 | 问题 | 修复方案 | 文件 |
-| ---- | ---- | -------- | ---- |
-| F1 | Azure 空 key 未 guard | `if (!config_.api_key.empty())` 包裹 header 写入 | `azure_provider.cpp` |
-| F2 | Azure URL 路径注入 | `deployment_url()` 过滤非 `[-_.]alnum` 字符 | `azure_provider.cpp` |
-| F3 | Gemini 空 key 未 guard | `if (!config_.api_key.empty())` 包裹 header 写入 | `gemini_provider.cpp` |
-| F4 | Gemini tool call ID 碰撞 | `"call_" + name + "_" + tc_index++` 追加序号 | `gemini_provider.cpp` |
-| F5 | 空 chunk 未设置 event.type | `chunk.empty()` 路径设置 `StreamEventType::Finish` | `gemini_provider.cpp` |
-| F6 | `is_string()` guard 缺失 | `part["text"].is_string()` 前置检查 | `provider_transform.cpp` |
-| F7 | trim lambda 重复 | 提取为文件级 `static trim_whitespace()` 函数 | `gemini_provider.cpp` |
-| F8 | T40 测试缺失 | 追加3个 `[session][store][t40]` 测试用例 | `session_store_test.cpp` |
+| 编号 | 问题                       | 修复方案                                           | 文件                     |
+| ---- | -------------------------- | -------------------------------------------------- | ------------------------ |
+| F1   | Azure 空 key 未 guard      | `if (!config_.api_key.empty())` 包裹 header 写入   | `azure_provider.cpp`     |
+| F2   | Azure URL 路径注入         | `deployment_url()` 过滤非 `[-_.]alnum` 字符        | `azure_provider.cpp`     |
+| F3   | Gemini 空 key 未 guard     | `if (!config_.api_key.empty())` 包裹 header 写入   | `gemini_provider.cpp`    |
+| F4   | Gemini tool call ID 碰撞   | `"call_" + name + "_" + tc_index++` 追加序号       | `gemini_provider.cpp`    |
+| F5   | 空 chunk 未设置 event.type | `chunk.empty()` 路径设置 `StreamEventType::Finish` | `gemini_provider.cpp`    |
+| F6   | `is_string()` guard 缺失   | `part["text"].is_string()` 前置检查                | `provider_transform.cpp` |
+| F7   | trim lambda 重复           | 提取为文件级 `static trim_whitespace()` 函数       | `gemini_provider.cpp`    |
+| F8   | T40 测试缺失               | 追加3个 `[session][store][t40]` 测试用例           | `session_store_test.cpp` |
 
 #### 第 2 轮终审（全部修复后）
 
-| 维度 | 等级 | 说明 |
-| ---- | ---- | ---- |
-| S    | A-   | 空 key guard + URL sanitize 均已修复 |
-| P    | A-   | tool call ID 碰撞修复；`(void)` 消除 nodiscard warning |
-| E    | A-   | `is_string()` guard + 空 chunk Finish type 均已修复 |
-| A    | A-   | 架构设计对齐 opencode `transform.ts` / deployment URL 格式 |
-| R    | A-   | T40 upsert_part 补充3个测试用例，7个断言全部通过 |
+| 维度 | 等级 | 说明                                                                          |
+| ---- | ---- | ----------------------------------------------------------------------------- |
+| S    | A-   | 空 key guard + URL sanitize 均已修复                                          |
+| P    | A-   | tool call ID 碰撞修复；`(void)` 消除 nodiscard warning                        |
+| E    | A-   | `is_string()` guard + 空 chunk Finish type 均已修复                           |
+| A    | A-   | 架构设计对齐 opencode `transform.ts` / deployment URL 格式                    |
+| R    | A-   | T40 upsert_part 补充3个测试用例，7个断言全部通过                              |
 | M    | B+   | trim 提取为 static 函数；遗留 Azure/OpenAI parse_response 重复（P3 架构优化） |
 
 **综合分**：89.5/100 ≈ **90/100** — 🟢 良好（接近优秀）  
@@ -867,10 +867,10 @@ _评审人：code-reviewer（SPEARM 六维度框架）_
 **最终进度**：T21~T40 计划任务完成 ✅  
 **全局进度**：T1~T40 全部核心任务已完成
 
-| Sub 计划      | 任务              | 综合分    | 关键成果                                                       |
-| ------------- | ----------------- | --------- | -------------------------------------------------------------- |
-| Sub-01 (R2)   | T21/T23/T26       | —         | session_summary、provider_error/auth、todo表名修正             |
-| Sub-02 (R2)   | T22/T24/T27       | —         | provider_transform、Azure Provider、truncation_dir             |
-| Sub-03 (R2)   | T25               | —         | Google Gemini Provider（原生 API）                              |
-| Sub-04 (R2)   | T28~T41（含T40）  | —         | PartDeltaEvent/PartUpdatedEvent、upsert_part、update_part_delta |
-| **终审 (R2)** | **T21~T40 全局**  | **90/100** | **6个MEDIUM修复 + T40测试补充 + 编译验证通过**                |
+| Sub 计划      | 任务             | 综合分     | 关键成果                                                        |
+| ------------- | ---------------- | ---------- | --------------------------------------------------------------- |
+| Sub-01 (R2)   | T21/T23/T26      | —          | session_summary、provider_error/auth、todo表名修正              |
+| Sub-02 (R2)   | T22/T24/T27      | —          | provider_transform、Azure Provider、truncation_dir              |
+| Sub-03 (R2)   | T25              | —          | Google Gemini Provider（原生 API）                              |
+| Sub-04 (R2)   | T28~T41（含T40） | —          | PartDeltaEvent/PartUpdatedEvent、upsert_part、update_part_delta |
+| **终审 (R2)** | **T21~T40 全局** | **90/100** | **6个MEDIUM修复 + T40测试补充 + 编译验证通过**                  |
