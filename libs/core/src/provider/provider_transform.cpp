@@ -112,10 +112,17 @@ std::vector<nlohmann::json> unsupported_parts(
 std::vector<nlohmann::json> normalize_messages(
         std::vector<nlohmann::json> msgs, const ModelInfo& model) {
     const std::string id_lower = to_lower(model.id);
-    const std::string pid      = model.provider_id;
+    // Sub-G78: use model.api.npm for Anthropic/Bedrock detection (mirrors opencode L54)
+    // Fall back to provider_id for compatibility
+    const std::string& npm      = model.api.npm;
+    const std::string& pid      = model.provider_id;
+    const std::string  api_id_l = to_lower(model.api.id);
 
     // --- Anthropic: remove empty string/text/reasoning parts ---
-    if (pid == "anthropic" || pid == "amazon-bedrock") {
+    // opencode: model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/amazon-bedrock"
+    const bool is_anthropic_npm = (npm == "@ai-sdk/anthropic" || npm == "@ai-sdk/amazon-bedrock");
+    const bool is_anthropic_pid = (pid == "anthropic" || pid == "amazon-bedrock");
+    if (is_anthropic_npm || is_anthropic_pid) {
         std::vector<nlohmann::json> out;
         out.reserve(msgs.size());
         for (auto& msg : msgs) {
@@ -145,7 +152,8 @@ std::vector<nlohmann::json> normalize_messages(
     }
 
     // --- Claude: sanitise toolCallId chars ---
-    if (contains(id_lower, "claude")) {
+    // Sub-G78: opencode uses model.api.id.includes("claude") — use api_id_l with fallback
+    if (contains(api_id_l, "claude") || contains(id_lower, "claude")) {
         for (auto& msg : msgs) {
             if (!msg.contains("role") || !msg.contains("content")) continue;
             const std::string role = msg["role"].get<std::string>();
@@ -174,7 +182,9 @@ std::vector<nlohmann::json> normalize_messages(
     }
 
     // --- Mistral: sanitise toolCallId to 9 alphanumeric chars ---
-    if (pid == "mistral" || contains(id_lower, "mistral") || contains(id_lower, "devstral")) {
+    // Sub-G78: use api_id_l for model id check (mirrors opencode model.api.id.toLowerCase())
+    if (pid == "mistral" || contains(api_id_l, "mistral") || contains(api_id_l, "devstral") ||
+        contains(id_lower, "mistral") || contains(id_lower, "devstral")) {
         std::vector<nlohmann::json> result;
         result.reserve(msgs.size() + 4);
         for (std::size_t i = 0; i < msgs.size(); ++i) {
@@ -284,6 +294,7 @@ std::vector<nlohmann::json> apply_caching(
     const bool is_copilot    = pid == "copilot" || pid == "github-copilot";
     // All others (openai-compatible, azure, etc.) use openaiCompatible key
     const bool is_openai_compat = !is_anthropic && !is_bedrock && !is_openrouter && !is_copilot;
+    (void)is_openai_compat; // used implicitly via else branch
 
     for (auto* mp : targets) {
         auto& msg = *mp;
@@ -324,13 +335,19 @@ std::vector<nlohmann::json> apply_caching(
 
 /// Map provider_id → SDK key for providerOptions remapping.
 /// Mirrors sdkKey() in transform.ts — adapted for Turbot provider IDs.
+/// Sub-G73: extended to cover google-vertex-anthropic and gateway mappings.
 std::optional<std::string> sdk_key(const std::string& provider_id) {
-    if (provider_id == "azure")            return "openai";
-    if (provider_id == "anthropic")        return "anthropic";
-    if (provider_id == "amazon-bedrock")   return "bedrock";
-    if (provider_id == "google")           return "google";
-    if (provider_id == "openrouter")       return "openrouter";
-    if (provider_id == "copilot")          return "copilot";
+    if (provider_id == "azure")                     return "openai";
+    if (provider_id == "anthropic")                 return "anthropic";
+    if (provider_id == "amazon-bedrock")            return "bedrock";
+    if (provider_id == "google")                    return "google";
+    if (provider_id == "google-vertex")             return "google";
+    if (provider_id == "google-vertex-anthropic" ||
+        provider_id == "vertex-anthropic")          return "anthropic";  // NEW: gv/anthropic → "anthropic"
+    if (provider_id == "gateway")                   return "gateway";   // NEW
+    if (provider_id == "openrouter")                return "openrouter";
+    if (provider_id == "copilot" ||
+        provider_id == "github-copilot")            return "copilot";
     return std::nullopt;
 }
 
@@ -360,8 +377,10 @@ message(std::vector<nlohmann::json> messages,
     }
 
     // Remap providerOptions keys (provider_id → SDK key)
+    // Sub-G73: skip remap for azure (mirrors opencode: model.api.npm !== "@ai-sdk/azure")
+    const bool is_azure = model.provider_id == "azure";
     const auto key = sdk_key(model.provider_id);
-    if (key && *key != model.provider_id) {
+    if (key && *key != model.provider_id && !is_azure) {
         for (auto& msg : messages) {
             const auto remap = [&](nlohmann::json& opts) {
                 if (opts.is_null() || !opts.contains(model.provider_id)) return;
@@ -418,10 +437,8 @@ std::optional<int> top_k(const ModelInfo& model) {
 }
 
 int max_output_tokens(const ModelInfo& model) {
-    const int model_limit = static_cast<int>(
-        model.limits.contains("max_tokens")
-            ? model.limits["max_tokens"].get<int>()
-            : OUTPUT_TOKEN_MAX);
+    // Sub-G80: use model.limit.output (mirrors opencode: Math.min(model.limit.output, OUTPUT_TOKEN_MAX))
+    const int model_limit = model.limit.output > 0 ? model.limit.output : OUTPUT_TOKEN_MAX;
     return std::min(model_limit, OUTPUT_TOKEN_MAX);
 }
 
@@ -474,8 +491,8 @@ nlohmann::json options(const ModelInfo&     model,
     // Mirrors: (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic")
     if (pid == "anthropic" || pid == "google-vertex-anthropic" || pid == "vertex-anthropic") {
         if (contains(id, "k2p5") || contains(id, "kimi-k2.5") || contains(id, "kimi-k2p5")) {
-            const int output_limit = static_cast<int>(
-                model.limits.contains("max_tokens") ? model.limits["max_tokens"].get<int>() : 8192);
+            // Sub-G81: use model.limit.output (mirrors opencode: model.limit.output / 2 - 1)
+            const int output_limit = model.limit.output > 0 ? model.limit.output : 8192;
             result["thinking"] = {{"type","enabled"},
                                   {"budgetTokens", std::min(16000, output_limit / 2 - 1)}};
         }
@@ -595,9 +612,13 @@ nlohmann::json variants(const ModelInfo& model) {
     const std::string pid = model.provider_id;
     const std::string id  = to_lower(model.id);
 
-    // Anthropic Adaptive: newer claude models (opus-4.6/sonnet-4.6 equivalent)
-    // In turbot, we approximate via model.id pattern
+    // Sub-G74: isAnthropicAdaptive checks model.api.id (mirrors opencode: model.api.id.includes(v))
+    // Fall back to model.id for compat.
+    const std::string api_id = to_lower(model.api.id);
     const bool is_anthropic_adaptive =
+        contains(api_id, "opus-4-6") || contains(api_id, "opus-4.6") ||
+        contains(api_id, "sonnet-4-6") || contains(api_id, "sonnet-4.6") ||
+        // fallback to model.id
         contains(id, "opus-4-6") || contains(id, "opus-4.6") ||
         contains(id, "sonnet-4-6") || contains(id, "sonnet-4.6");
 
@@ -661,10 +682,13 @@ nlohmann::json variants(const ModelInfo& model) {
         if (contains(model.id, "claude")) {
             return {{"thinking", {{"thinking_budget",4000}}}};
         }
-        // copilotEfforts: WIDELY + optional xhigh for newer models
+        // Sub-G76: copilot efforts — "xhigh" added for codex-max/5.2/5.3 or gpt-5 with release_date gate
+        // Mirrors opencode L441-446
         std::vector<std::string> efforts = WIDELY;
-        if (contains(id, "5.1-codex-max") || contains(id, "5.2") || contains(id, "5.3") ||
-            contains(id, "gpt-5")) {
+        if (contains(id, "5.1-codex-max") || contains(id, "5.2") || contains(id, "5.3")) {
+            efforts.push_back("xhigh");
+        } else if (contains(id, "gpt-5") &&
+                   !model.release_date.empty() && model.release_date >= "2025-12-04") {
             efforts.push_back("xhigh");
         }
         nlohmann::json r = nlohmann::json::object();
@@ -694,9 +718,13 @@ nlohmann::json variants(const ModelInfo& model) {
             if (contains(id, "5.2") || contains(id, "5.3")) efforts.push_back("xhigh");
         } else {
             if (contains(id, "gpt-5-") || id == "gpt-5") efforts.insert(efforts.begin(), "minimal");
-            // Conservative: add none/xhigh for modern gpt models
-            efforts.insert(efforts.begin(), "none");
-            efforts.push_back("xhigh");
+            // Sub-G75: release_date gates for "none" and "xhigh" (mirrors opencode L500-505)
+            if (!model.release_date.empty() && model.release_date >= "2025-11-13") {
+                efforts.insert(efforts.begin(), "none");
+            }
+            if (!model.release_date.empty() && model.release_date >= "2025-12-04") {
+                efforts.push_back("xhigh");
+            }
         }
         nlohmann::json r = nlohmann::json::object();
         for (const auto& e : efforts) {
@@ -708,9 +736,11 @@ nlohmann::json variants(const ModelInfo& model) {
 
     if (pid == "anthropic") {
         if (is_anthropic_adaptive) return make_adaptive("thinking");
-        // Dynamic budgetTokens from model limits
+        // Sub-G82: use model.limit.output (mirrors opencode: model.limit.output / 2 - 1)
         int out_limit = 32768;
-        if (model.limits.contains("max_tokens") && model.limits["max_tokens"].is_number_integer()) {
+        if (model.limit.output > 0) {
+            out_limit = model.limit.output;
+        } else if (model.limits.contains("max_tokens") && model.limits["max_tokens"].is_number_integer()) {
             out_limit = model.limits["max_tokens"].get<int>();
         }
         const int budget_high = std::min(16000, static_cast<int>(out_limit / 2 - 1));
