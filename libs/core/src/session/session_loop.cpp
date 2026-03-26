@@ -363,8 +363,11 @@ LoopResult SessionLoop::process_llm_response() {
     if (tools.empty() && provider_) {
         // Case-insensitive match so that "LiteLLM-Proxy" or "LITELLM" variants
         // are also covered. Uses turbot::utils::to_lower for consistency.
+        // Sub-G96: mirrors opencode L177 — also check model.api.id.toLowerCase().includes("litellm")
         const bool is_litellm =
-            turbot::utils::to_lower(provider_->id()).find("litellm") != std::string::npos;
+            turbot::utils::to_lower(provider_->id()).find("litellm") != std::string::npos ||
+            (!model_api_id_.empty() &&
+             turbot::utils::to_lower(model_api_id_).find("litellm") != std::string::npos);
         if (is_litellm) {
             bool history_has_tool_calls = false;
             {

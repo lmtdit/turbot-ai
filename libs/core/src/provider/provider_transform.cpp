@@ -647,6 +647,7 @@ nlohmann::json variants(const ModelInfo& model) {
 
     const std::string pid = model.provider_id;
     const std::string id  = to_lower(model.id);
+    const std::string npm = model.api.npm;  // Sub-G92/G93: npm dispatch mirrors opencode switch(model.api.npm)
 
     // Sub-G74: isAnthropicAdaptive checks model.api.id (mirrors opencode: model.api.id.includes(v))
     // Fall back to model.id for compat.
@@ -686,7 +687,8 @@ nlohmann::json variants(const ModelInfo& model) {
 
     // grok-3-mini special case
     if (contains(id, "grok") && contains(id, "grok-3-mini")) {
-        if (pid == "openrouter") {
+        // Sub-G93: mirrors opencode L353 — check npm === "@openrouter/ai-sdk-provider" OR pid == "openrouter"
+        if (pid == "openrouter" || npm == "@openrouter/ai-sdk-provider") {
             return {
                 {"low",  {{"reasoning", {{"effort","low"}}}}},
                 {"high", {{"reasoning", {{"effort","high"}}}}}
@@ -795,7 +797,10 @@ nlohmann::json variants(const ModelInfo& model) {
             }
             return r;
         }
-        if (contains(id, "anthropic") || contains(id, "claude")) {
+        // Sub-G94: mirrors opencode L569 — use model.api.id (api_id) to detect anthropic/claude,
+        // fall back to model.id for compat.
+        if (contains(api_id, "anthropic") || contains(api_id, "claude") ||
+            contains(id,     "anthropic") || contains(id,     "claude")) {
             return {
                 {"high", {{"reasoningConfig",{{"type","enabled"},{"budgetTokens",16000}}}}},
                 {"max",  {{"reasoningConfig",{{"type","enabled"},{"budgetTokens",31999}}}}}
@@ -899,8 +904,12 @@ nlohmann::json variants(const ModelInfo& model) {
     }
 
     // openai-compatible / cerebras / togetherai / xai / deepinfra / venice
+    // Sub-G92: mirrors opencode L458-469 switch(model.api.npm) — also match by npm package name
     if (pid == "openai-compatible" || pid == "cerebras" ||
-        pid == "togetherai" || pid == "xai" || pid == "deepinfra" || pid == "venice") {
+        pid == "togetherai" || pid == "xai" || pid == "deepinfra" || pid == "venice" ||
+        npm == "@ai-sdk/cerebras" || npm == "@ai-sdk/togetherai" ||
+        npm == "@ai-sdk/xai" || npm == "@ai-sdk/deepinfra" ||
+        npm == "venice-ai-sdk-provider" || npm == "@ai-sdk/openai-compatible") {
         return make_efforts(WIDELY, "reasoningEffort");
     }
 
@@ -908,8 +917,10 @@ nlohmann::json variants(const ModelInfo& model) {
 }
 
 nlohmann::json schema(const ModelInfo& model, nlohmann::json sch) {
-    const std::string id = to_lower(model.id);
-    if (model.provider_id != "google" && !contains(id, "gemini")) {
+    const std::string id     = to_lower(model.id);
+    const std::string api_id = to_lower(model.api.id);  // Sub-G95: mirrors opencode L934 model.api.id.includes("gemini")
+    // Gemini sanitisation applies when provider is google OR model/api id contains "gemini"
+    if (model.provider_id != "google" && !contains(id, "gemini") && !contains(api_id, "gemini")) {
         return sch;
     }
 
