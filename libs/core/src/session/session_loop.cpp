@@ -104,6 +104,14 @@ void SessionLoop::set_model(const std::string& model_id) {
     model_id_ = model_id;
 }
 
+void SessionLoop::set_model_api_npm(const std::string& api_npm) {
+    model_api_npm_ = api_npm;
+}
+
+void SessionLoop::set_model_api_id(const std::string& api_id) {
+    model_api_id_ = api_id;
+}
+
 void SessionLoop::set_on_message(MessageCallback callback) {
     on_message_ = std::move(callback);
 }
@@ -635,6 +643,13 @@ LoopResult SessionLoop::process_llm_response() {
             tool_msg.add_part(core::Part::create_text(fmt::format("Error: {}", result.output)));
         } else {
             tool_msg.add_part(core::Part::create_text(result.output));
+            // Sub-G83/G84: store attachments in Message so build_llm_messages() can emit them.
+            // Each attachment is stored as a File part with data.url + data.mime.
+            for (const auto& att : result.attachments) {
+                if (!att.url.empty() && !att.mime.empty()) {
+                    tool_msg.add_part(core::Part::create_file(att.url, std::nullopt, att.mime));
+                }
+            }
         }
         
         {
@@ -898,7 +913,31 @@ std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() con
                              system_array.size(), out["system"].size());
         }
     }
-    
+
+    // Sub-G84: determine supportsMediaInToolResults from model.api.npm.
+    // Mirrors opencode message-v2.ts toModelMessages() L575-585.
+    // Providers that support rich content in tool results can receive media inline;
+    // others require media to be injected as a separate user message.
+    const bool supports_media_in_tool_results = [&]() -> bool {
+        if (model_api_npm_ == "@ai-sdk/anthropic")             return true;
+        if (model_api_npm_ == "@ai-sdk/openai")                return true;
+        if (model_api_npm_ == "@ai-sdk/amazon-bedrock")        return true;
+        if (model_api_npm_ == "@ai-sdk/google-vertex/anthropic") return true;
+        if (model_api_npm_ == "@ai-sdk/google") {
+            // Gemini-3 (but not gemini-2.x) supports media in tool results
+            const std::string api_id_lower = turbot::utils::to_lower(model_api_id_);
+            return api_id_lower.find("gemini-3") != std::string::npos &&
+                   api_id_lower.find("gemini-2") == std::string::npos;
+        }
+        return false;
+    }();
+
+    // Helper: check if mime type is media (image/* or application/pdf)
+    // Mirrors opencode MessageV2.isMedia()
+    auto is_media = [](const std::string& mime) -> bool {
+        return mime.rfind("image/", 0) == 0 || mime == "application/pdf";
+    };
+
     // Add conversation messages
     // Copy under lock, then build LLM messages outside the lock
     std::vector<core::Message> snapshot;
@@ -922,6 +961,38 @@ std::vector<turbot::core::llm::LLMMessage> SessionLoop::build_llm_messages() con
                 // Tool result message: use tool_call_id stored in agent field
                 auto content = msg.get_text();
                 result.push_back(llm::LLMMessage::tool_result(msg.info().agent, content));
+
+                // Sub-G84: handle media attachments from tool results.
+                // Collect file parts (stored by process_llm_response when ToolResult has attachments).
+                // If supportsMediaInToolResults == false, media files must be injected as a user
+                // message following the tool result — mirrors opencode L762-778.
+                std::vector<std::pair<std::string, std::string>> media_attachments; // {url, mime}
+                for (const auto& part : msg.parts()) {
+                    if (!part.is_file()) continue;
+                    const auto& data = part.data;
+                    std::string url  = data.value("path", std::string{});
+                    std::string mime = data.value("mime_type", std::string{});
+                    if (url.empty()) url = data.value("url", std::string{});
+                    if (url.empty() || mime.empty()) continue;
+                    if (!is_media(mime)) continue;
+                    media_attachments.emplace_back(url, mime);
+                }
+                if (!media_attachments.empty() && !supports_media_in_tool_results) {
+                    // Inject media as a user message (mirrors opencode L763-778)
+                    // Build a JSON content array: text part + file parts
+                    nlohmann::json parts_arr = nlohmann::json::array();
+                    parts_arr.push_back({{"type","text"},{"text","Attached image(s) from tool result:"}});
+                    for (const auto& [url, mime] : media_attachments) {
+                        parts_arr.push_back({{"type","file"},{"url",url},{"mediaType",mime}});
+                    }
+                    // Use a synthesized user message to carry the media
+                    llm::LLMMessage media_msg;
+                    media_msg.role = provider::ChatRole::User;
+                    media_msg.content = parts_arr.dump();
+                    result.push_back(std::move(media_msg));
+                    TURBOT_LOG_DEBUG("Sub-G84: injected {} media attachment(s) as user message "
+                                     "(supportsMediaInToolResults=false)", media_attachments.size());
+                }
                 break;
             }
             case core::Role::System:

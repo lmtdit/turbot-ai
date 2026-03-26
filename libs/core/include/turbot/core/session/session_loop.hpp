@@ -125,6 +125,16 @@ public:
     /// Set the model ID
     void set_model(const std::string& model_id);
 
+    /// Set the model API npm package (used for supportsMediaInToolResults detection).
+    /// Mirrors opencode model.api.npm — used by build_llm_messages() to decide
+    /// whether media attachments from tool results can be sent inline or must be
+    /// injected as separate user messages.
+    /// @param api_npm  e.g. "@ai-sdk/anthropic", "@ai-sdk/openai", ""
+    void set_model_api_npm(const std::string& api_npm);
+
+    /// Set the model API id (used for provider-specific logic).
+    void set_model_api_id(const std::string& api_id);
+
     /// Set callbacks
     void set_on_message(MessageCallback callback);
     void set_on_tool_call(ToolCallCallback callback);
@@ -200,6 +210,10 @@ private:
 
     provider::Provider* provider_ = nullptr;
     std::string model_id_;
+    /// model.api.npm — used for supportsMediaInToolResults and other npm-dispatched logic.
+    std::string model_api_npm_;
+    /// model.api.id (lowercase) — used for provider-specific model ID checks.
+    std::string model_api_id_;
     SessionLoopConfig config_;
 
     std::vector<core::Message> messages_;
