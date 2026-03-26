@@ -38,6 +38,22 @@ struct TURBOT_CORE_API MessageInfo {
     std::optional<bool> summary;
     std::optional<nlohmann::json> structured;
 
+    /// G71: Output format for structured output requests.
+    /// Mirrors opencode MessageV2.User.format (OutputFormat: {type:"text"} | {type:"json_schema",...})
+    std::optional<nlohmann::json> format;
+
+    /// G72: Working directory paths recorded at AI run time.
+    /// Mirrors opencode MessageV2.Assistant.path: {cwd: string, root: string}
+    struct PathInfo {
+        std::string cwd;
+        std::string root;
+        [[nodiscard]] nlohmann::json to_json() const { return {{"cwd", cwd}, {"root", root}}; }
+        static PathInfo from_json(const nlohmann::json& j) {
+            return PathInfo{j.value("cwd", std::string{}), j.value("root", std::string{})};
+        }
+    };
+    std::optional<PathInfo> path;
+
     /// Serialize to JSON
     [[nodiscard]] nlohmann::json to_json() const;
 

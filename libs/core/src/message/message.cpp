@@ -58,6 +58,8 @@ nlohmann::json MessageInfo::to_json() const {
     if (finish) j["finish"] = *finish;
     if (summary) j["summary"] = *summary;
     if (structured) j["structured"] = *structured;
+    if (format) j["format"] = *format;    // G71
+    if (path) j["path"] = path->to_json(); // G72
     
     return j;
 }
@@ -85,6 +87,10 @@ MessageInfo MessageInfo::from_json(const nlohmann::json& j) {
     if (j.contains("finish")) info.finish = j["finish"].get<std::string>();
     if (j.contains("summary")) info.summary = j["summary"].get<bool>();
     if (j.contains("structured")) info.structured = j["structured"];
+    if (j.contains("format")) info.format = j["format"];  // G71
+    if (j.contains("path") && j["path"].is_object()) {    // G72
+        info.path = MessageInfo::PathInfo::from_json(j["path"]);
+    }
     
     return info;
 }
