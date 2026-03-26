@@ -367,19 +367,28 @@ message(std::vector<nlohmann::json> messages,
     const std::string id_lower = to_lower(model.id);
     // Apply caching for Anthropic/Claude models (but NOT through gateway).
     // Mirrors opencode transform.ts message() L256-263:
-    //   if (providerID === "anthropic" || id.includes("anthropic/claude") || ...)
+    //   if (providerID === "anthropic" || api.id.includes("anthropic") || api.id.includes("claude")
+    //       || model.id.includes("anthropic") || model.id.includes("claude")
+    //       || api.npm === "@ai-sdk/anthropic")
     //   && model.api.npm !== "@ai-sdk/gateway"
-    const bool is_gateway = model.provider_id == "gateway";
+    // Sub-G99: add npm == "@ai-sdk/anthropic" condition
+    // Sub-G103: add api_id (model.api.id) check for anthropic/claude
+    const std::string msg_api_id = to_lower(model.api.id);
+    const bool is_gateway = model.provider_id == "gateway" || model.api.npm == "@ai-sdk/gateway";
     if (!is_gateway &&
         (model.provider_id == "anthropic" ||
-         contains(id_lower, "anthropic") || contains(id_lower, "claude"))) {
+         contains(msg_api_id, "anthropic") || contains(msg_api_id, "claude") ||
+         contains(id_lower,   "anthropic") || contains(id_lower,   "claude") ||
+         model.api.npm == "@ai-sdk/anthropic")) {
         messages = apply_caching(std::move(messages), model);
     }
 
-    // Remap providerOptions keys (provider_id → SDK key)
-    // Sub-G73: skip remap for azure (mirrors opencode: model.api.npm !== "@ai-sdk/azure")
-    const bool is_azure = model.provider_id == "azure";
-    const auto key = sdk_key(model.provider_id);
+    // Remap providerOptions keys (npm → SDK key)
+    // Sub-G100: mirrors opencode L268 — sdkKey(model.api.npm) not model.provider_id
+    // Skip remap for azure: opencode L269 model.api.npm !== "@ai-sdk/azure"
+    const bool is_azure = model.api.npm == "@ai-sdk/azure" || model.provider_id == "azure";
+    const auto key_npm = sdk_key(model.api.npm);
+    const auto key = key_npm ? key_npm : sdk_key(model.provider_id);
     if (key && *key != model.provider_id && !is_azure) {
         for (auto& msg : messages) {
             const auto remap = [&](nlohmann::json& opts) {
@@ -638,7 +647,10 @@ nlohmann::json provider_options(const ModelInfo& model, const nlohmann::json& op
         return result;
     }
 
-    const std::string key = sdk_key(model.provider_id).value_or(model.provider_id);
+    // Sub-G101: mirrors opencode L906 — sdkKey(model.api.npm) ?? model.providerID
+    // Use npm first, fall back to provider_id
+    const std::string key = sdk_key(model.api.npm)
+        .value_or(sdk_key(model.provider_id).value_or(model.provider_id));
     return {{key, opts}};
 }
 
@@ -702,8 +714,9 @@ nlohmann::json variants(const ModelInfo& model) {
     if (contains(id, "grok")) return nlohmann::json::object();
 
     // --- Dispatch on provider_id (turbot uses provider_id, not npm package) ---
+    // Sub-G97/G98: mirrors opencode switch(model.api.npm) — add npm fallback to all major branches
 
-    if (pid == "openrouter") {
+    if (pid == "openrouter" || npm == "@openrouter/ai-sdk-provider") {
         if (!contains(model.id, "gpt") && !contains(model.id, "gemini-3") &&
             !contains(model.id, "claude")) {
             return nlohmann::json::object();
@@ -715,7 +728,7 @@ nlohmann::json variants(const ModelInfo& model) {
         return r;
     }
 
-    if (pid == "github-copilot" || pid == "copilot") {
+    if (pid == "github-copilot" || pid == "copilot" || npm == "@ai-sdk/github-copilot") {
         if (contains(model.id, "gemini")) return nlohmann::json::object();
         if (contains(model.id, "claude")) {
             return {{"thinking", {{"thinking_budget",4000}}}};
@@ -737,7 +750,7 @@ nlohmann::json variants(const ModelInfo& model) {
         return r;
     }
 
-    if (pid == "azure") {
+    if (pid == "azure" || npm == "@ai-sdk/azure") {
         if (id == "o1-mini") return nlohmann::json::object();
         std::vector<std::string> efforts = {"low","medium","high"};
         if (contains(id, "gpt-5-") || id == "gpt-5") efforts.insert(efforts.begin(), "minimal");
@@ -749,7 +762,7 @@ nlohmann::json variants(const ModelInfo& model) {
         return r;
     }
 
-    if (pid == "openai") {
+    if (pid == "openai" || npm == "@ai-sdk/openai") {
         if (id == "gpt-5-pro") return nlohmann::json::object();
         std::vector<std::string> efforts = WIDELY;
         if (contains(id, "codex")) {
@@ -772,7 +785,7 @@ nlohmann::json variants(const ModelInfo& model) {
         return r;
     }
 
-    if (pid == "anthropic") {
+    if (pid == "anthropic" || npm == "@ai-sdk/anthropic" || npm == "@ai-sdk/google-vertex/anthropic") {
         if (is_anthropic_adaptive) return make_adaptive("thinking");
         // Sub-G82: use model.limit.output (mirrors opencode: model.limit.output / 2 - 1)
         int out_limit = 32768;
@@ -789,7 +802,7 @@ nlohmann::json variants(const ModelInfo& model) {
         };
     }
 
-    if (pid == "amazon-bedrock" || contains(pid, "bedrock")) {
+    if (pid == "amazon-bedrock" || contains(pid, "bedrock") || npm == "@ai-sdk/amazon-bedrock") {
         if (is_anthropic_adaptive) {
             nlohmann::json r = nlohmann::json::object();
             for (const auto& e : ADAPTIVE) {
@@ -814,7 +827,8 @@ nlohmann::json variants(const ModelInfo& model) {
         return r;
     }
 
-    if (pid == "google" || contains(pid, "google-vertex") || contains(pid, "vertex")) {
+    if (pid == "google" || contains(pid, "google-vertex") || contains(pid, "vertex") ||
+        npm == "@ai-sdk/google" || npm == "@ai-sdk/google-vertex") {
         if (contains(id, "2.5")) {
             return {
                 {"high", {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",16000}}}}},
@@ -830,17 +844,18 @@ nlohmann::json variants(const ModelInfo& model) {
         return r;
     }
 
-    if (pid == "mistral" || pid == "cohere" || pid == "perplexity") {
+    if (pid == "mistral" || pid == "cohere" || pid == "perplexity" ||
+        npm == "@ai-sdk/mistral" || npm == "@ai-sdk/cohere" || npm == "@ai-sdk/perplexity") {
         return nlohmann::json::object();
     }
 
-    if (pid == "groq") {
+    if (pid == "groq" || npm == "@ai-sdk/groq") {
         return make_efforts({"none","low","medium","high"}, "reasoningEffort");
     }
 
     // Gateway — has sub-routing based on upstream model type
     // Mirrors opencode @ai-sdk/gateway case in transform.ts
-    if (pid == "gateway") {
+    if (pid == "gateway" || npm == "@ai-sdk/gateway") {
         if (contains(model.id, "anthropic")) {
             if (is_anthropic_adaptive) return make_adaptive("thinking");
             return {
@@ -869,7 +884,7 @@ nlohmann::json variants(const ModelInfo& model) {
 
     // SAP AI provider — @jerome-benoit/sap-ai-provider-v2
     // Mirrors opencode @jerome-benoit/sap-ai-provider-v2 case in transform.ts
-    if (pid == "sap") {
+    if (pid == "sap" || npm == "@jerome-benoit/sap-ai-provider-v2") {
         if (contains(model.id, "anthropic")) {
             if (is_anthropic_adaptive) return make_adaptive("thinking");
             return {
@@ -958,12 +973,29 @@ nlohmann::json schema(const ModelInfo& model, nlohmann::json sch) {
         }
 
         // Ensure array items has a type
+        // Sub-G102: mirrors opencode hasSchemaIntent check — test all schema-intent keys
+        // hasSchemaIntent = hasCombiner(anyOf/oneOf/allOf) OR has schema keys
         if (result.value("type","") == "array") {
             if (!result.contains("items") || result["items"].is_null()) {
                 result["items"] = nlohmann::json::object();
             }
-            if (result["items"].is_object() && !result["items"].contains("type") &&
-                !result["items"].contains("anyOf") && !result["items"].contains("oneOf")) {
+            // Only set items.type if items has no schema intent (mirrors opencode L990-998)
+            auto has_schema_intent = [](const nlohmann::json& node) -> bool {
+                if (!node.is_object()) return false;
+                // hasCombiner: anyOf / oneOf / allOf
+                if (node.contains("anyOf") || node.contains("oneOf") || node.contains("allOf"))
+                    return true;
+                // hasSchemaIntent keys
+                static const std::vector<std::string> schema_keys = {
+                    "type","properties","items","prefixItems","enum","const","$ref",
+                    "additionalProperties","patternProperties","required",
+                    "not","if","then","else"
+                };
+                for (const auto& k : schema_keys)
+                    if (node.contains(k)) return true;
+                return false;
+            };
+            if (result["items"].is_object() && !has_schema_intent(result["items"])) {
                 result["items"]["type"] = "string";
             }
         }
