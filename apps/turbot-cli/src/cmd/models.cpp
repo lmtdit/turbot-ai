@@ -37,7 +37,7 @@ int list_models() {
     for (const auto& model : models) {
         std::string features;
         if (model.capabilities.tool_call) features += "tool ";
-        if (model.capabilities.vision) features += "vision ";
+        if (model.capabilities.input.image) features += "vision ";
         if (model.capabilities.streaming) features += "stream ";
         if (model.capabilities.reasoning) features += "reason ";
         
@@ -82,9 +82,9 @@ int show_model(const std::string& model_id) {
     fmt::print("  Temperature:  {}\n", model.capabilities.temperature ? "yes" : "no");
     fmt::print("  Tool Call:    {}\n", model.capabilities.tool_call ? "yes" : "no");
     fmt::print("  Streaming:    {}\n", model.capabilities.streaming ? "yes" : "no");
-    fmt::print("  Vision:       {}\n", model.capabilities.vision ? "yes" : "no");
+    fmt::print("  Vision:       {}\n", model.capabilities.input.image ? "yes" : "no");
     fmt::print("  Reasoning:    {}\n", model.capabilities.reasoning ? "yes" : "no");
-    fmt::print("  Audio:        {}\n", model.capabilities.audio ? "yes" : "no");
+    fmt::print("  Audio:        {}\n", model.capabilities.input.audio ? "yes" : "no");
     
     if (!model.pricing.empty()) {
         fmt::print("\nPricing (per 1M tokens):\n");

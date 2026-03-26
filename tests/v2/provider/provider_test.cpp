@@ -13,25 +13,25 @@ TEST_CASE("Provider.ModelCapabilities.Defaults", "[Provider]") {
     REQUIRE(caps.reasoning == false);
     REQUIRE(caps.tool_call == true);
     REQUIRE(caps.streaming == true);
-    REQUIRE(caps.vision == false);
-    REQUIRE(caps.audio == false);
+    REQUIRE(caps.input.image == false);
+    REQUIRE(caps.input.audio == false);
 }
 
 TEST_CASE("Provider.ModelCapabilities.JsonSerialization", "[Provider]") {
     ModelCapabilities caps;
     caps.temperature = false;
     caps.reasoning = true;
-    caps.vision = true;
+    caps.input.image = true;
     
     nlohmann::json j = caps.to_json();
     REQUIRE(j["temperature"] == false);
     REQUIRE(j["reasoning"] == true);
-    REQUIRE(j["vision"] == true);
+    REQUIRE(j["input"]["image"] == true);
     
     auto restored = ModelCapabilities::from_json(j);
     REQUIRE(restored.temperature == false);
     REQUIRE(restored.reasoning == true);
-    REQUIRE(restored.vision == true);
+    REQUIRE(restored.input.image == true);
 }
 
 // ==================== ModelInfo 测试 ====================
@@ -50,7 +50,7 @@ TEST_CASE("Provider.ModelInfo.JsonSerialization", "[Provider]") {
     info.name = "GPT-4";
     info.description = "Most capable GPT-4 model";
     info.context_window = 8192;
-    info.capabilities.vision = true;
+    info.capabilities.input.image = true;
     
     nlohmann::json j = info.to_json();
     REQUIRE(j["id"] == "gpt-4");
@@ -60,7 +60,7 @@ TEST_CASE("Provider.ModelInfo.JsonSerialization", "[Provider]") {
     auto restored = ModelInfo::from_json(j);
     REQUIRE(restored.id == "gpt-4");
     REQUIRE(restored.context_window == 8192);
-    REQUIRE(restored.capabilities.vision == true);
+    REQUIRE(restored.capabilities.input.image == true);
 }
 
 // ==================== ChatRole 测试 ====================
@@ -400,7 +400,7 @@ TEST_CASE("Provider.OpenAI.ModelCapabilities", "[Provider][OpenAI]") {
     // GPT-4o should have vision capability
     auto gpt4o = provider.get_model("gpt-4o");
     REQUIRE(gpt4o.has_value());
-    REQUIRE(gpt4o->capabilities.vision == true);
+    REQUIRE(gpt4o->capabilities.input.image == true);
     REQUIRE(gpt4o->capabilities.tool_call == true);
     REQUIRE(gpt4o->capabilities.streaming == true);
     

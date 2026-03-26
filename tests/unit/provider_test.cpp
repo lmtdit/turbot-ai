@@ -26,8 +26,8 @@ TEST_CASE("ModelCapabilities::to_json", "[provider][capabilities]") {
     caps.reasoning = true;
     caps.tool_call = false;
     caps.streaming = true;
-    caps.vision = true;
-    caps.audio = false;
+    caps.input.image = true;
+    caps.input.audio = false;
 
     auto j = caps.to_json();
 
@@ -35,8 +35,8 @@ TEST_CASE("ModelCapabilities::to_json", "[provider][capabilities]") {
     REQUIRE(j["reasoning"] == true);
     REQUIRE(j["tool_call"] == false);
     REQUIRE(j["streaming"] == true);
-    REQUIRE(j["vision"] == true);
-    REQUIRE(j["audio"] == false);
+    REQUIRE(j["input"]["image"] == true);
+    REQUIRE(j["input"]["audio"] == false);
 }
 
 TEST_CASE("ModelCapabilities::from_json", "[provider][capabilities]") {
@@ -45,8 +45,8 @@ TEST_CASE("ModelCapabilities::from_json", "[provider][capabilities]") {
         {"reasoning", true},
         {"tool_call", true},
         {"streaming", false},
-        {"vision", true},
-        {"audio", true}
+        {"vision", true},   // legacy field for backwards compat
+        {"audio", true}     // legacy field for backwards compat
     };
 
     auto caps = ModelCapabilities::from_json(j);
@@ -55,8 +55,8 @@ TEST_CASE("ModelCapabilities::from_json", "[provider][capabilities]") {
     REQUIRE(caps.reasoning == true);
     REQUIRE(caps.tool_call == true);
     REQUIRE(caps.streaming == false);
-    REQUIRE(caps.vision == true);
-    REQUIRE(caps.audio == true);
+    REQUIRE(caps.input.image == true);  // vision → input.image
+    REQUIRE(caps.input.audio == true);  // audio → input.audio
 }
 
 TEST_CASE("ModelCapabilities::from_json_partial", "[provider][capabilities]") {

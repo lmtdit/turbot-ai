@@ -266,7 +266,7 @@ std::string handle_api_request(const HttpRequest& req) {
                     {"capabilities", {
                         {"tool_call", model.capabilities.tool_call},
                         {"streaming", model.capabilities.streaming},
-                        {"vision", model.capabilities.vision},
+                        {"vision", model.capabilities.input.image},
                         {"reasoning", model.capabilities.reasoning}
                     }}
                 });
