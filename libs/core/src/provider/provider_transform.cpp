@@ -448,40 +448,51 @@ nlohmann::json options(const ModelInfo&     model,
     nlohmann::json result = nlohmann::json::object();
     const std::string pid    = model.provider_id;
     const std::string id     = to_lower(model.id);
+    // Sub-G85/G86/G87/G88/G89/G91: use model.api.npm and model.api.id for finer-grained matching
+    // Mirrors opencode options() which dispatches on model.api.npm as well as model.providerID.
+    const std::string& npm    = model.api.npm;
+    const std::string  api_id = to_lower(model.api.id);
 
     // OpenAI / Copilot: store=false by default
-    if (pid == "openai" || pid == "copilot") {
+    // Sub-G87: also match via model.api.npm (mirrors opencode L722-727)
+    if (pid == "openai" || pid == "copilot" ||
+        npm == "@ai-sdk/openai" || npm == "@ai-sdk/github-copilot") {
         result["store"] = false;
     }
 
     // OpenRouter: include usage; gemini-3 reasoning
-    if (pid == "openrouter") {
+    // Sub: use api_id for gemini-3 check (mirrors opencode L734: model.api.id.includes("gemini-3"))
+    if (pid == "openrouter" || npm == "@openrouter/ai-sdk-provider") {
         result["usage"] = {{"include", true}};
-        if (contains(id, "gemini-3")) {
+        if (contains(api_id, "gemini-3") || contains(id, "gemini-3")) {
             result["reasoning"] = {{"effort", "high"}};
         }
     }
 
     // Baseten / ZhipuAI thinking
+    // Sub-G91: use model.api.id for opencode provider kimi/glm check (mirrors opencode L741)
     if (pid == "baseten" ||
-        (pid == "opencode" && (contains(id, "kimi-k2-thinking") || contains(id, "glm-4.6")))) {
+        (pid == "opencode" && (api_id == "kimi-k2-thinking" || api_id == "glm-4.6" ||
+                               contains(id, "kimi-k2-thinking") || contains(id, "glm-4.6")))) {
         result["chat_template_args"] = {{"enable_thinking", true}};
     }
-    if ((pid == "zai" || pid == "zhipuai")) {
+    // Sub-G90: add npm check for zai/zhipuai (mirrors opencode L746: npm === "@ai-sdk/openai-compatible")
+    if ((pid == "zai" || pid == "zhipuai") && npm == "@ai-sdk/openai-compatible") {
         result["thinking"] = {{"type","enabled"}, {"clear_thinking", false}};
     }
 
     // Prompt cache key
-    if (pid == "openai" || extra_options.value("setCacheKey", false)) {
+    if (pid == "openai" || npm == "@ai-sdk/openai" || extra_options.value("setCacheKey", false)) {
         result["promptCacheKey"] = session_id;
     }
 
     // Google / Google-Vertex: thinkingConfig for reasoning models
     // Mirrors: model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex"
-    if (pid == "google" || pid == "google-vertex" || contains(pid, "vertex")) {
+    if (pid == "google" || pid == "google-vertex" || contains(pid, "vertex") ||
+        npm == "@ai-sdk/google" || npm == "@ai-sdk/google-vertex") {
         if (model.capabilities.reasoning) {
             result["thinkingConfig"] = {{"includeThoughts", true}};
-            if (contains(id, "gemini-3")) {
+            if (contains(api_id, "gemini-3") || contains(id, "gemini-3")) {
                 result["thinkingConfig"]["thinkingLevel"] = "high";
             }
         }
@@ -489,8 +500,13 @@ nlohmann::json options(const ModelInfo&     model,
 
     // Anthropic: Kimi-k2.5 thinking
     // Mirrors: (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic")
-    if (pid == "anthropic" || pid == "google-vertex-anthropic" || pid == "vertex-anthropic") {
-        if (contains(id, "k2p5") || contains(id, "kimi-k2.5") || contains(id, "kimi-k2p5")) {
+    // Sub-G81: use model.api.id (modelId) for kimi check (mirrors opencode L769-777)
+    if (pid == "anthropic" || pid == "google-vertex-anthropic" || pid == "vertex-anthropic" ||
+        npm == "@ai-sdk/anthropic" || npm == "@ai-sdk/google-vertex/anthropic") {
+        const bool kimi_k2p5 =
+            contains(api_id, "k2p5") || contains(api_id, "kimi-k2.5") || contains(api_id, "kimi-k2p5") ||
+            contains(id,     "k2p5") || contains(id,     "kimi-k2.5") || contains(id,     "kimi-k2p5");
+        if (kimi_k2p5) {
             // Sub-G81: use model.limit.output (mirrors opencode: model.limit.output / 2 - 1)
             const int output_limit = model.limit.output > 0 ? model.limit.output : 8192;
             result["thinking"] = {{"type","enabled"},
@@ -499,18 +515,27 @@ nlohmann::json options(const ModelInfo&     model,
     }
 
     // Alibaba-CN: enable_thinking for reasoning models (except kimi-k2-thinking)
-    if (pid == "alibaba-cn" && model.capabilities.reasoning && !contains(id, "kimi-k2-thinking")) {
+    // Sub-G86: add npm check (mirrors opencode L788: npm === "@ai-sdk/openai-compatible")
+    if (pid == "alibaba-cn" && model.capabilities.reasoning &&
+        npm == "@ai-sdk/openai-compatible" &&
+        !contains(api_id, "kimi-k2-thinking") && !contains(id, "kimi-k2-thinking")) {
         result["enable_thinking"] = true;
     }
 
     // gpt-5 series
-    if (contains(id, "gpt-5") && !contains(id, "gpt-5-chat")) {
-        if (!contains(id, "gpt-5-pro")) {
+    // Sub-G85: use api_id (model.api.id) to mirror opencode L794: input.model.api.id.includes("gpt-5")
+    const bool is_gpt5 = !api_id.empty()
+        ? (contains(api_id, "gpt-5") && !contains(api_id, "gpt-5-chat"))
+        : (contains(id,     "gpt-5") && !contains(id,     "gpt-5-chat"));
+    if (is_gpt5) {
+        const bool no_pro = !api_id.empty() ? !contains(api_id, "gpt-5-pro") : !contains(id, "gpt-5-pro");
+        if (no_pro) {
             result["reasoningEffort"] = "medium";
             result["reasoningSummary"] = "auto";
         }
-        if (contains(id, "gpt-5.") && !contains(id, "codex") &&
-            !contains(id, "-chat") && pid != "azure") {
+        const std::string& gpt5_ref = !api_id.empty() ? api_id : id;
+        if (contains(gpt5_ref, "gpt-5.") && !contains(gpt5_ref, "codex") &&
+            !contains(gpt5_ref, "-chat") && pid != "azure") {
             result["textVerbosity"] = "low";
         }
         // opencode provider specific
@@ -540,24 +565,35 @@ nlohmann::json options(const ModelInfo&     model,
 }
 
 nlohmann::json small_options(const ModelInfo& model) {
-    const std::string pid = model.provider_id;
-    const std::string id  = to_lower(model.id);
+    const std::string pid    = model.provider_id;
+    const std::string id     = to_lower(model.id);
+    // Sub-G88/G89: use model.api.npm and model.api.id (mirrors opencode L836-866)
+    const std::string& npm    = model.api.npm;
+    const std::string  api_id = to_lower(model.api.id);
 
-    if (pid == "openai" || pid == "copilot") {
-        if (contains(id, "gpt-5")) {
-            if (contains(id, "5."))
+    // Sub-G88: add npm paths; gpt-5 check uses api_id (mirrors opencode L836-847)
+    if (pid == "openai" || pid == "copilot" ||
+        npm == "@ai-sdk/openai" || npm == "@ai-sdk/github-copilot") {
+        // Use api_id when available (mirrors opencode: model.api.id.includes("gpt-5"))
+        const std::string& ref = !api_id.empty() ? api_id : id;
+        if (contains(ref, "gpt-5")) {
+            if (contains(ref, "5."))
                 return {{"store", false}, {"reasoningEffort", "low"}};
             return {{"store", false}, {"reasoningEffort", "minimal"}};
         }
         return {{"store", false}};
     }
+    // Sub-G89: google gemini-3/thinkingBudget use api_id (mirrors opencode L848-854)
     if (pid == "google") {
-        if (contains(id, "gemini-3"))
+        const std::string& ref = !api_id.empty() ? api_id : id;
+        if (contains(ref, "gemini-3"))
             return {{"thinkingConfig", {{"thinkingLevel", "minimal"}}}};
         return {{"thinkingConfig", {{"thinkingBudget", 0}}}};
     }
+    // Sub-G89: openrouter google check uses api_id (mirrors opencode L856-859)
     if (pid == "openrouter") {
-        if (contains(id, "google"))
+        const std::string& ref = !api_id.empty() ? api_id : id;
+        if (contains(ref, "google"))
             return {{"reasoning", {{"enabled", false}}}};
         return {{"reasoningEffort", "minimal"}};
     }
