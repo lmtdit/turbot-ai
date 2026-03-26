@@ -34,10 +34,10 @@ bool contains(const std::string& haystack, const std::string& needle) {
 
 /// Replace unsupported file/image message parts with error text.
 /// Mirrors ProviderTransform.unsupportedParts()
+/// Sub-G69: checks all modalities (image/audio/video/pdf) via capabilities.input.{image,audio,video,pdf}
 std::vector<nlohmann::json> unsupported_parts(
         std::vector<nlohmann::json> msgs, const ModelInfo& model) {
-    const bool supports_vision = model.capabilities.vision;
-    const bool supports_audio  = model.capabilities.audio;
+    const auto& inp = model.capabilities.input;
 
     for (auto& msg : msgs) {
         if (!msg.contains("role")) continue;
@@ -86,9 +86,12 @@ std::vector<nlohmann::json> unsupported_parts(
 
             if (modality.empty()) continue;
 
+            // Sub-G69: check all 4 modalities via capabilities.input struct
             bool supported = false;
-            if (modality == "image" && supports_vision) supported = true;
-            if (modality == "audio" && supports_audio)  supported = true;
+            if (modality == "image") supported = inp.image;
+            else if (modality == "audio") supported = inp.audio;
+            else if (modality == "video") supported = inp.video;
+            else if (modality == "pdf")   supported = inp.pdf;
 
             if (!supported) {
                 const std::string name_str = filename.empty()
@@ -274,28 +277,46 @@ std::vector<nlohmann::json> apply_caching(
     const nlohmann::json anthropic_cache = {{"type", "ephemeral"}};
     const nlohmann::json bedrock_cache   = {{"type", "default"}};
 
-    const bool is_anthropic  = model.provider_id == "anthropic";
-    const bool is_bedrock    = model.provider_id == "amazon-bedrock" ||
-                               contains(model.provider_id, "bedrock");
+    const std::string& pid = model.provider_id;
+    const bool is_anthropic  = pid == "anthropic";
+    const bool is_bedrock    = pid == "amazon-bedrock" || contains(pid, "bedrock");
+    const bool is_openrouter = pid == "openrouter";
+    const bool is_copilot    = pid == "copilot" || pid == "github-copilot";
+    // All others (openai-compatible, azure, etc.) use openaiCompatible key
+    const bool is_openai_compat = !is_anthropic && !is_bedrock && !is_openrouter && !is_copilot;
 
     for (auto* mp : targets) {
         auto& msg = *mp;
+        // Anthropic and Bedrock use message-level providerOptions.
+        // All other providers use content-part-level providerOptions (last part).
         const bool use_msg_level = is_anthropic || is_bedrock;
 
         if (!use_msg_level && msg.contains("content") && msg["content"].is_array()
                            && !msg["content"].empty()) {
             auto& last = msg["content"].back();
             if (last.is_object()) {
-                if (is_anthropic) last["providerOptions"]["anthropic"]["cacheControl"] = anthropic_cache;
-                else              last["providerOptions"]["openaiCompatible"]["cache_control"] = anthropic_cache;
+                // Route cache hints into the correct SDK providerOptions namespace
+                if (is_openrouter)
+                    last["providerOptions"]["openrouter"]["cacheControl"] = anthropic_cache;
+                else if (is_copilot)
+                    last["providerOptions"]["copilot"]["copilot_cache_control"] = anthropic_cache;
+                else  // openaiCompatible / azure / openai / etc.
+                    last["providerOptions"]["openaiCompatible"]["cache_control"] = anthropic_cache;
                 continue;
             }
         }
 
+        // Message-level providerOptions for Anthropic / Bedrock
         if (is_anthropic)
             msg["providerOptions"]["anthropic"]["cacheControl"] = anthropic_cache;
         else if (is_bedrock)
             msg["providerOptions"]["bedrock"]["cachePoint"] = bedrock_cache;
+        else if (is_openrouter)
+            msg["providerOptions"]["openrouter"]["cacheControl"] = anthropic_cache;
+        else if (is_copilot)
+            msg["providerOptions"]["copilot"]["copilot_cache_control"] = anthropic_cache;
+        else
+            msg["providerOptions"]["openaiCompatible"]["cache_control"] = anthropic_cache;
     }
 
     return msgs;
@@ -327,8 +348,14 @@ message(std::vector<nlohmann::json> messages,
     messages = normalize_messages(std::move(messages), model);
 
     const std::string id_lower = to_lower(model.id);
-    if (model.provider_id == "anthropic" ||
-        contains(id_lower, "anthropic") || contains(id_lower, "claude")) {
+    // Apply caching for Anthropic/Claude models (but NOT through gateway).
+    // Mirrors opencode transform.ts message() L256-263:
+    //   if (providerID === "anthropic" || id.includes("anthropic/claude") || ...)
+    //   && model.api.npm !== "@ai-sdk/gateway"
+    const bool is_gateway = model.provider_id == "gateway";
+    if (!is_gateway &&
+        (model.provider_id == "anthropic" ||
+         contains(id_lower, "anthropic") || contains(id_lower, "claude"))) {
         messages = apply_caching(std::move(messages), model);
     }
 
@@ -432,8 +459,9 @@ nlohmann::json options(const ModelInfo&     model,
         result["promptCacheKey"] = session_id;
     }
 
-    // Google: thinkingConfig for reasoning models
-    if (pid == "google") {
+    // Google / Google-Vertex: thinkingConfig for reasoning models
+    // Mirrors: model.api.npm === "@ai-sdk/google" || model.api.npm === "@ai-sdk/google-vertex"
+    if (pid == "google" || pid == "google-vertex" || contains(pid, "vertex")) {
         if (model.capabilities.reasoning) {
             result["thinkingConfig"] = {{"includeThoughts", true}};
             if (contains(id, "gemini-3")) {
