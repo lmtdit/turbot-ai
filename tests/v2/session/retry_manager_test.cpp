@@ -51,8 +51,9 @@ TEST_CASE("Retry.Config.Default", "[Retry]") {
     RetryConfig config;
 
     REQUIRE(config.max_attempts == 5);
-    REQUIRE(config.base_delay_ms == 1000);
-    REQUIRE(config.max_delay_ms == 60000);
+    // Mirrors opencode: RETRY_INITIAL_DELAY = 2000, RETRY_MAX_DELAY_NO_HEADERS = 30_000
+    REQUIRE(config.base_delay_ms == 2000);
+    REQUIRE(config.max_delay_ms == 30000);
     REQUIRE(config.jitter_factor == 0.1);
     REQUIRE(config.backoff_multiplier == 2.0);
 }
@@ -451,6 +452,93 @@ TEST_CASE("Retry.Manager.CustomBackoffMultiplier", "[Retry]") {
     REQUIRE(delay0 == 100);
     REQUIRE(delay1 == 150);
     REQUIRE(delay2 == 225);
+}
+
+// ============================================================================
+// G106: retry_after_ms 字段（ms 级 Retry-After header）
+// Mirrors opencode retry.ts: headers["retry-after-ms"] priority
+// ============================================================================
+
+TEST_CASE("Retry.Manager.CalculateDelay.RetryAfterMs", "[Retry]") {
+    RetryConfig config;
+    config.base_delay_ms = 1000;
+    config.max_delay_ms = 5000;
+    config.jitter_factor = 0;
+    config.backoff_multiplier = 2.0;
+
+    // retry_after_ms 优先于 retry_after_seconds，且不受 max_delay_ms 限制
+    // Mirrors: const retryAfterMs = headers["retry-after-ms"] → return parsedMs (no cap)
+    APIError error(429, "Rate limit", std::nullopt, std::nullopt, 8000.0);  // 8000ms
+
+    int delay = RetryManager::calculate_delay(0, config, error);
+    // Should be ~8000ms, NOT capped to max_delay_ms (5000ms)
+    REQUIRE(delay >= 8000);
+}
+
+TEST_CASE("Retry.Manager.CalculateDelay.RetryAfterMs.TakesPriority", "[Retry]") {
+    RetryConfig config;
+    config.base_delay_ms = 1000;
+    config.max_delay_ms = 60000;
+    config.jitter_factor = 0;
+    config.backoff_multiplier = 2.0;
+
+    // Both retry_after_ms and retry_after_seconds set: ms level wins
+    APIError error(429, "Rate limit", std::nullopt, 60, 1500.0);  // 60s seconds, 1500ms
+
+    int delay = RetryManager::calculate_delay(0, config, error);
+    // Should use 1500ms (retry_after_ms), not 60000ms (retry_after_seconds)
+    REQUIRE(delay >= 1500);
+    REQUIRE(delay < 60000);
+}
+
+// ============================================================================
+// G110: 有 headers 时绕过 max_delay_ms 上限
+// Mirrors opencode: inside `if (headers)` branch no RETRY_MAX_DELAY_NO_HEADERS cap
+// ============================================================================
+
+TEST_CASE("Retry.Manager.CalculateDelay.RetryAfterSeconds.NoMaxCap", "[Retry]") {
+    RetryConfig config;
+    config.base_delay_ms = 1000;
+    config.max_delay_ms = 5000;  // 5s cap (no-headers case)
+    config.jitter_factor = 0;
+    config.backoff_multiplier = 2.0;
+
+    // retry_after_seconds=30 → 30000ms, which exceeds max_delay_ms=5000ms
+    // With headers present, no cap should be applied
+    APIError error(429, "Rate limit", std::nullopt, 30);
+
+    int delay = RetryManager::calculate_delay(0, config, error);
+    // Should be ≥ 30000ms, NOT capped to 5000ms
+    REQUIRE(delay >= 30000);
+}
+
+TEST_CASE("Retry.Manager.CalculateDelay.NoHeaders.MaxCapApplied", "[Retry]") {
+    RetryConfig config;
+    config.base_delay_ms = 1000;
+    config.max_delay_ms = 5000;
+    config.jitter_factor = 0;
+    config.backoff_multiplier = 2.0;
+
+    // No headers → cap to max_delay_ms
+    // Mirrors opencode: Math.min(exponential, RETRY_MAX_DELAY_NO_HEADERS)
+    int delay = RetryManager::calculate_delay(10, config, std::nullopt);
+    REQUIRE(delay <= 5000);
+}
+
+// ============================================================================
+// G109: FreeUsageLimitError 不应重试
+// Mirrors opencode retry.ts: responseBody?.includes("FreeUsageLimitError")
+// ============================================================================
+
+TEST_CASE("Retry.Manager.IsRetryable.FreeUsageLimitError", "[Retry]") {
+    // FreeUsageLimitError in message body → not retryable, even for 429
+    APIError error(429, "FreeUsageLimitError: free usage exceeded");
+    REQUIRE_FALSE(RetryManager::is_retryable(error));
+}
+
+TEST_CASE("Retry.Manager.IsRetryable.FreeUsageLimitError.InMessage", "[Retry]") {
+    APIError error(200, "stream error: FreeUsageLimitError detected");
+    REQUIRE_FALSE(RetryManager::is_retryable(error));
 }
 
 } // namespace turbot::test

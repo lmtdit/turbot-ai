@@ -14,13 +14,16 @@ namespace turbot::core::session {
 struct TURBOT_CORE_API APIError : public std::runtime_error {
     int status_code = 0;
     std::optional<std::string> code;
-    std::optional<int> retry_after_seconds;
+    std::optional<int>    retry_after_seconds;  ///< Retry-After header value (seconds)
+    std::optional<double> retry_after_ms;       ///< Retry-After-Ms header value (milliseconds, mirrors opencode retry.ts)
 
     APIError(int status, const std::string& message,
              std::optional<std::string> error_code = std::nullopt,
-             std::optional<int> retry_after = std::nullopt)
+             std::optional<int> retry_after = std::nullopt,
+             std::optional<double> retry_after_ms_val = std::nullopt)
         : std::runtime_error(message), status_code(status),
-          code(std::move(error_code)), retry_after_seconds(retry_after) {}
+          code(std::move(error_code)), retry_after_seconds(retry_after),
+          retry_after_ms(retry_after_ms_val) {}
 
     /// Create from HTTP response
     static APIError from_response(int status, const std::string& body);
@@ -35,10 +38,10 @@ struct TURBOT_CORE_API AbortRetryException : public std::exception {
 /// 重试配置
 struct TURBOT_CORE_API RetryConfig {
     int max_attempts = 5;           ///< 最大重试次数
-    int base_delay_ms = 1000;       ///< 基础延迟（毫秒）
-    int max_delay_ms = 60000;       ///< 最大延迟（毫秒）
+    int base_delay_ms = 2000;       ///< 基础延迟（毫秒）mirrors opencode RETRY_INITIAL_DELAY = 2000
+    int max_delay_ms = 30000;       ///< 无 headers 时最大延迟（毫秒）mirrors opencode RETRY_MAX_DELAY_NO_HEADERS = 30_000
     double jitter_factor = 0.1;     ///< 抖动因子（0-1）
-    double backoff_multiplier = 2.0;///< 退避倍数
+    double backoff_multiplier = 2.0;///< 退避倍数 mirrors opencode RETRY_BACKOFF_FACTOR = 2
 
     /// Validate configuration
     [[nodiscard]] bool validate() const noexcept;

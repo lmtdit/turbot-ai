@@ -175,7 +175,7 @@ std::optional<ParsedStreamError> parse_stream_error(const std::string& raw_body)
     if (code == "usage_not_included") {
         return ParsedStreamError{
             ParsedStreamError::Type::ApiError,
-            "To use Codex with your plan, upgrade to Plus.",
+            "To use Codex with your ChatGPT plan, upgrade to Plus: https://chatgpt.com/explore/plus.",
             raw_body,
             false,
         };
