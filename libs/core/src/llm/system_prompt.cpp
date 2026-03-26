@@ -180,6 +180,15 @@ std::string SystemPrompt::prompt_openai() {
 You MUST iterate and keep going until the problem is solved.)";
 }
 
+std::string SystemPrompt::prompt_gpt() {
+    std::string content = load_prompt_file("gpt");
+    if (!content.empty()) return content;
+    // Fallback embedded prompt (mirrors opencode gpt.txt intent)
+    return R"(You are Turbot, You and the user share the same workspace and collaborate to achieve the user's goals.
+
+You are a deeply pragmatic, effective software engineer. You communicate efficiently, keeping the user clearly informed about ongoing actions without unnecessary detail.)";
+}
+
 std::string SystemPrompt::prompt_gemini() {
     std::string content = load_prompt_file("gemini");
     if (!content.empty()) return content;
@@ -221,16 +230,20 @@ std::string SystemPrompt::provider_prompt(
     // Check model ID first for specific model prompts
     std::string model_lower = utils::to_lower(model_id);
     
-    // GPT-5 uses codex prompt
-    if (model_lower.contains("gpt-5")) {
-        return prompt_codex();
-    }
-    
-    // GPT and O1/O3 models use Beast-style prompt
-    if (model_lower.contains("gpt-") ||
+    // gpt-4/o1/o3 models → beast prompt (matches opencode: first branch in system.ts)
+    if (model_lower.contains("gpt-4") ||
         model_lower.contains("o1") ||
         model_lower.contains("o3")) {
         return prompt_beast();
+    }
+    
+    // gpt models: codex-named → codex prompt; all other gpt → gpt prompt
+    // Mirrors opencode system.ts: if includes("gpt") { if includes("codex") codex else gpt }
+    if (model_lower.contains("gpt")) {
+        if (model_lower.contains("codex")) {
+            return prompt_codex();
+        }
+        return prompt_gpt();
     }
     
     // Gemini models

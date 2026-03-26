@@ -115,6 +115,9 @@ public:
     /// Get OpenAI GPT prompt template
     [[nodiscard]] static std::string prompt_openai();
 
+    /// Get GPT (non-codex) prompt template (for gpt models excluding gpt-4/o1/o3 and codex)
+    [[nodiscard]] static std::string prompt_gpt();
+
     /// Get Gemini prompt template
     [[nodiscard]] static std::string prompt_gemini();
 

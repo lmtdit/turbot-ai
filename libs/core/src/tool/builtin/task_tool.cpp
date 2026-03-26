@@ -1,5 +1,6 @@
 #include <turbot/core/tool/builtin/task_tool.hpp>
 #include <fmt/format.h>
+#include <algorithm>
 #include <filesystem>
 
 namespace turbot::core::tool {
@@ -141,7 +142,18 @@ permission::Ruleset TaskTool::build_subagent_permission(
         ruleset.push_back(rule);
     }
     
-    // Add task-specific restrictions
+    // Mirrors opencode task.ts: deny todowrite unless agent explicitly has the permission.
+    // hasTodoWritePermission = agent.permission.some(r => r.permission === "todowrite")
+    const auto& agent_permissions = agent->info().permission;
+    bool has_todowrite_permission = std::any_of(
+        agent_permissions.begin(), agent_permissions.end(),
+        [](const PermissionRule& r) { return r.permission == "todowrite"; }
+    );
+    if (!has_todowrite_permission) {
+        ruleset.push_back(PermissionRule{"todowrite", "*", PermissionAction::Deny});
+    }
+    
+    // Always deny task delegation from sub-agents (prevent recursive task spawning)
     ruleset.push_back(PermissionRule{"task", "*", PermissionAction::Deny});
     
     return ruleset;

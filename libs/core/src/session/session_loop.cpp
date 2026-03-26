@@ -480,17 +480,37 @@ LoopResult SessionLoop::process_llm_response() {
                 if (abort_flag_->load(std::memory_order_acquire)) {
                     throw AbortRetryException{};
                 }
-                return llm::LLM::stream(*provider_, model_id_, params,
-                    [this](const StreamEvent& event) {
-                        if (on_stream_event_) {
-                            on_stream_event_(event);
+                try {
+                    return llm::LLM::stream(*provider_, model_id_, params,
+                        [this](const StreamEvent& event) {
+                            if (on_stream_event_) {
+                                on_stream_event_(event);
+                            }
+                            turbot::core::EventBus::instance().publish(
+                                SessionStreamEvent::kEventName,
+                                SessionStreamEvent{session_.id(), event}
+                            );
                         }
-                        turbot::core::EventBus::instance().publish(
-                            SessionStreamEvent::kEventName,
-                            SessionStreamEvent{session_.id(), event}
-                        );
+                    );
+                } catch (const APIError&) {
+                    // Let APIError propagate directly — it will be handled by
+                    // RetryManager::with_retry (is_retryable check) or the outer catch.
+                    throw;
+                } catch (const std::runtime_error& e) {
+                    // Mirrors opencode message-v2.ts: FetchDecompressionError (ZlibError)
+                    // is classified as a retryable APIError so the session loop retries.
+                    // If already aborted, propagate as AbortRetryException instead.
+                    const std::string_view msg = e.what();
+                    if (msg.find("ZlibError") != std::string_view::npos ||
+                        msg.find("decompression") != std::string_view::npos) {
+                        if (abort_flag_->load(std::memory_order_acquire)) {
+                            throw AbortRetryException{};
+                        }
+                        // status=0 signals a client-side decompression failure (not HTTP error)
+                        throw APIError{0, "Response decompression failed", std::string("ZlibError")};
                     }
-                );
+                    throw;
+                }
             },
             retry_config,
             [this, &retry_config](int attempt, const APIError& err, int delay_ms) {
