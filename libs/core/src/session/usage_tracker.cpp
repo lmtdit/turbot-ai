@@ -152,6 +152,55 @@ CostInfo UsageTracker::calculate_cost(
     return calculate_cost(model.pricing, usage);
 }
 
+// G65: Tiered cost calculation — mirrors OpenCode Session.getUsage() costInfo selection.
+// When model.pricing["experimentalOver200K"] exists AND input+cache.read > 200K,
+// use the over-200K pricing tier instead of the standard tier.
+CostInfo UsageTracker::calculate_cost_tiered(
+    const provider::ModelInfo& model,
+    const TokenUsage& usage
+) {
+    // Check if over-200K pricing tier applies
+    if (model.pricing.contains("experimentalOver200K") &&
+        !model.pricing["experimentalOver200K"].is_null()) {
+        const int64_t total_input = usage.input + usage.cache.read;
+        if (total_input > 200'000) {
+            return calculate_cost(model.pricing["experimentalOver200K"], usage);
+        }
+    }
+    return calculate_cost(model.pricing, usage);
+}
+
+// G64: Provider-aware adjusted input tokens calculation.
+// Mirrors OpenCode Session.getUsage():
+//   excludesCachedTokens = !!(metadata?.anthropic || metadata?.bedrock)
+//   adjustedInput = excludes ? input : input - cacheRead - cacheWrite
+TokenUsage UsageTracker::get_usage(
+    const nlohmann::json& raw_usage,
+    const std::optional<nlohmann::json>& metadata,
+    const std::string& provider_id
+) {
+    // Start with the standard calculate_usage to extract raw token counts.
+    TokenUsage usage = calculate_usage(raw_usage, metadata);
+
+    // Determine whether cacheCreationInputTokens come from provider metadata.
+    // Anthropic/Bedrock reports them separately; the SDK does NOT add them to inputTokens.
+    // For all other providers the SDK bundles cached tokens inside inputTokens.
+    const bool excludes_cached = (provider_id == "anthropic" ||
+                                   provider_id == "amazon-bedrock" ||
+                                   provider_id.find("bedrock") != std::string::npos);
+
+    if (!excludes_cached) {
+        // Other providers: inputTokens already includes cacheRead + cacheWrite.
+        // Subtract them to get the net adjusted input.
+        const int64_t raw_input = usage.input;
+        usage.input = std::max(int64_t{0},
+                               raw_input - usage.cache.read - usage.cache.write);
+    }
+    // For Anthropic/Bedrock: inputTokens is already net — no adjustment needed.
+
+    return usage;
+}
+
 CostInfo UsageTracker::calculate_cost(
     const nlohmann::json& pricing,
     const TokenUsage& usage

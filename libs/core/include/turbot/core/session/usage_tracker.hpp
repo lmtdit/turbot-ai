@@ -66,11 +66,43 @@ public:
         const std::optional<nlohmann::json>& metadata = std::nullopt
     );
 
+    /// G64: Calculate token usage with provider-aware adjustedInput logic.
+    ///
+    /// Mirrors OpenCode Session.getUsage():
+    ///   - Anthropic / Bedrock: inputTokens does NOT include cached tokens
+    ///     → adjustedInput = inputTokens (no subtraction)
+    ///   - Other providers: inputTokens INCLUDES cached tokens
+    ///     → adjustedInput = inputTokens - cacheRead - cacheWrite
+    ///
+    /// @param raw_usage   Raw usage JSON from AI SDK
+    /// @param metadata    Provider metadata (anthropic/bedrock key presence controls logic)
+    /// @param provider_id Provider ID — "anthropic" / "amazon-bedrock" → excludesCachedTokens
+    /// @return Adjusted TokenUsage with corrected input token count
+    [[nodiscard]] static TokenUsage get_usage(
+        const nlohmann::json& raw_usage,
+        const std::optional<nlohmann::json>& metadata,
+        const std::string& provider_id
+    );
+
     /// Calculate cost based on model pricing
     /// @param model Model information with pricing
     /// @param usage Token usage
     /// @return Cost breakdown
     [[nodiscard]] static CostInfo calculate_cost(
+        const provider::ModelInfo& model,
+        const TokenUsage& usage
+    );
+
+    /// G65: Calculate cost with over-200K token pricing support.
+    ///
+    /// Mirrors OpenCode Session.getUsage() costInfo selection:
+    ///   if (cost?.experimentalOver200K && tokens.input + tokens.cache.read > 200_000)
+    ///       use experimentalOver200K pricing
+    ///
+    /// @param model  Model information (pricing.experimentalOver200K checked)
+    /// @param usage  Token usage (input + cache.read determines tier)
+    /// @return Cost breakdown using correct pricing tier
+    [[nodiscard]] static CostInfo calculate_cost_tiered(
         const provider::ModelInfo& model,
         const TokenUsage& usage
     );

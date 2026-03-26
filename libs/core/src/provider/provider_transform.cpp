@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <regex>
 
 namespace turbot::core::provider::ProviderTransform {
 
@@ -442,7 +443,8 @@ nlohmann::json options(const ModelInfo&     model,
     }
 
     // Anthropic: Kimi-k2.5 thinking
-    if (pid == "anthropic") {
+    // Mirrors: (model.api.npm === "@ai-sdk/anthropic" || model.api.npm === "@ai-sdk/google-vertex/anthropic")
+    if (pid == "anthropic" || pid == "google-vertex-anthropic" || pid == "vertex-anthropic") {
         if (contains(id, "k2p5") || contains(id, "kimi-k2.5") || contains(id, "kimi-k2p5")) {
             const int output_limit = static_cast<int>(
                 model.limits.contains("max_tokens") ? model.limits["max_tokens"].get<int>() : 8192);
@@ -737,10 +739,74 @@ nlohmann::json variants(const ModelInfo& model) {
         return make_efforts({"none","low","medium","high"}, "reasoningEffort");
     }
 
-    // Gateway / openai-compatible / cerebras / togetherai / xai / deepinfra / venice
-    if (pid == "gateway" || pid == "openai-compatible" || pid == "cerebras" ||
-        pid == "togetherai" || pid == "xai" || pid == "deepinfra" || pid == "venice" ||
-        pid == "sap") {
+    // Gateway — has sub-routing based on upstream model type
+    // Mirrors opencode @ai-sdk/gateway case in transform.ts
+    if (pid == "gateway") {
+        if (contains(model.id, "anthropic")) {
+            if (is_anthropic_adaptive) return make_adaptive("thinking");
+            return {
+                {"high", {{"thinking",{{"type","enabled"},{"budgetTokens",16000}}}}},
+                {"max",  {{"thinking",{{"type","enabled"},{"budgetTokens",31999}}}}}
+            };
+        }
+        if (contains(model.id, "google")) {
+            if (contains(id, "2.5")) {
+                return {
+                    {"high", {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",16000}}}}},
+                    {"max",  {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",24576}}}}}
+                };
+            }
+            // Gemini-3 / other Google: thinkingLevel low/high
+            nlohmann::json r = nlohmann::json::object();
+            for (const auto& e : std::vector<std::string>{"low","high"}) {
+                r[e] = {{"includeThoughts",true},{"thinkingLevel",e}};
+            }
+            return r;
+        }
+        // All other gateway models: full openai-style effort range
+        const std::vector<std::string> eff = {"none","minimal","low","medium","high","xhigh"};
+        return make_efforts(eff, "reasoningEffort");
+    }
+
+    // SAP AI provider — @jerome-benoit/sap-ai-provider-v2
+    // Mirrors opencode @jerome-benoit/sap-ai-provider-v2 case in transform.ts
+    if (pid == "sap") {
+        if (contains(model.id, "anthropic")) {
+            if (is_anthropic_adaptive) return make_adaptive("thinking");
+            return {
+                {"high", {{"thinking",{{"type","enabled"},{"budgetTokens",16000}}}}},
+                {"max",  {{"thinking",{{"type","enabled"},{"budgetTokens",31999}}}}}
+            };
+        }
+        if (contains(model.id, "gemini") && contains(id, "2.5")) {
+            return {
+                {"high", {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",16000}}}}},
+                {"max",  {{"thinkingConfig",{{"includeThoughts",true},{"thinkingBudget",24576}}}}}
+            };
+        }
+        // GPT / o-series models on SAP
+        // o[1-9] pattern: check for "o1", "o2", ... "o9" prefixed by word boundary
+        const bool is_gpt_or_o = contains(model.id, "gpt") || [&]() -> bool {
+            for (char c = '1'; c <= '9'; ++c) {
+                const std::string pat = std::string("o") + c;
+                const auto pos = model.id.find(pat);
+                if (pos != std::string::npos) {
+                    // Ensure 'o' is at word boundary (start or preceded by non-alnum)
+                    if (pos == 0 || !std::isalnum(static_cast<unsigned char>(model.id[pos-1])))
+                        return true;
+                }
+            }
+            return false;
+        }();
+        if (is_gpt_or_o) {
+            return make_efforts(WIDELY, "reasoningEffort");
+        }
+        return nlohmann::json::object();
+    }
+
+    // openai-compatible / cerebras / togetherai / xai / deepinfra / venice
+    if (pid == "openai-compatible" || pid == "cerebras" ||
+        pid == "togetherai" || pid == "xai" || pid == "deepinfra" || pid == "venice") {
         return make_efforts(WIDELY, "reasoningEffort");
     }
 
