@@ -40,12 +40,22 @@ struct TURBOT_CORE_API ToolConfig {
     [[nodiscard]] static ToolConfig from_json(const nlohmann::json& j);
 };
 
+/// A file/media attachment returned by a tool.
+/// Mirrors OpenCode MessageV2.FilePart (url + mime fields).
+struct TURBOT_CORE_API ToolAttachment {
+    std::string url;   ///< Data URL (data:<mime>;base64,...) or file URL
+    std::string mime;  ///< MIME type, e.g. "image/png", "application/pdf"
+};
+
 /// Result of a tool execution
 struct TURBOT_CORE_API ToolResult {
     std::string title;         ///< Short title of the result
     std::string output;        ///< Text output from the tool
     nlohmann::json metadata;   ///< Optional structured metadata
     bool is_error = false;     ///< Whether this is an error result
+    /// Optional media/file attachments — mirrors OpenCode ToolStateCompleted.attachments: FilePart[].
+    /// Each entry is a file/image that tools may return (e.g. screenshots, generated images).
+    std::vector<ToolAttachment> attachments;
 
     /// Serialize to JSON
     [[nodiscard]] nlohmann::json to_json() const;

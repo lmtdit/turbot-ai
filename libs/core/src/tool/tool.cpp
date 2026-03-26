@@ -64,12 +64,20 @@ ToolConfig ToolConfig::from_json(const nlohmann::json& j) {
 // ============================================================================
 
 nlohmann::json ToolResult::to_json() const {
-    return {
+    nlohmann::json j = {
         {"title",    title},
         {"output",   output},
         {"metadata", metadata},
         {"is_error", is_error}
     };
+    if (!attachments.empty()) {
+        nlohmann::json arr = nlohmann::json::array();
+        for (const auto& a : attachments) {
+            arr.push_back({{"url", a.url}, {"mime", a.mime}});
+        }
+        j["attachments"] = std::move(arr);
+    }
+    return j;
 }
 
 ToolResult ToolResult::from_json(const nlohmann::json& j) {
@@ -79,6 +87,14 @@ ToolResult ToolResult::from_json(const nlohmann::json& j) {
     result.is_error = j.value("is_error", false);
     if (j.contains("metadata")) {
         result.metadata = j["metadata"];
+    }
+    if (j.contains("attachments") && j["attachments"].is_array()) {
+        for (const auto& a : j["attachments"]) {
+            ToolAttachment att;
+            att.url  = a.value("url",  std::string{});
+            att.mime = a.value("mime", std::string{});
+            if (!att.url.empty()) result.attachments.push_back(std::move(att));
+        }
     }
     return result;
 }
