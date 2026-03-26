@@ -13,14 +13,30 @@
 
 namespace turbot::core::provider {
 
-/// Model capabilities
+/// Input/output modality capabilities (mirrors opencode capabilities.input / capabilities.output)
+struct TURBOT_CORE_API ModelModalities {
+    bool text  = true;   ///< Supports text
+    bool image = false;  ///< Supports image (was: vision)
+    bool audio = false;  ///< Supports audio
+    bool video = false;  ///< Supports video (new)
+    bool pdf   = false;  ///< Supports PDF (new)
+
+    [[nodiscard]] nlohmann::json to_json() const;
+    static ModelModalities from_json(const nlohmann::json& j);
+};
+
+/// Model capabilities (mirrors opencode Provider.Model.capabilities)
 struct TURBOT_CORE_API ModelCapabilities {
     bool temperature = true;     ///< Supports temperature parameter
     bool reasoning = false;      ///< Supports reasoning (o1-style)
+    bool attachment = false;     ///< Supports file attachment (new — mirrors opencode capabilities.attachment)
     bool tool_call = true;       ///< Supports function calling
     bool streaming = true;       ///< Supports streaming responses
-    bool vision = false;         ///< Supports image input
-    bool audio = false;          ///< Supports audio input/output
+
+    /// Input modalities (replaces top-level vision/audio fields)
+    ModelModalities input;
+    /// Output modalities
+    ModelModalities output;
 
     /// Interleaved reasoning: when non-empty, the model expects reasoning content
     /// to be extracted from assistant messages and placed in
@@ -30,20 +46,47 @@ struct TURBOT_CORE_API ModelCapabilities {
     ///   if (typeof model.capabilities.interleaved === "object" && interleaved.field) { … }
     std::string interleaved_field;  ///< e.g. "reasoning_content" for DeepSeek-R1
 
+    // Backwards-compatibility accessors (deprecated — use input.image / input.audio)
+    [[nodiscard]] bool vision() const noexcept { return input.image; }
+    [[nodiscard]] bool audio() const noexcept  { return input.audio; }
+
     [[nodiscard]] nlohmann::json to_json() const;
     static ModelCapabilities from_json(const nlohmann::json& j);
 };
 
-/// Model information
+/// API endpoint info for a model (mirrors opencode Provider.Model.api)
+struct TURBOT_CORE_API ModelApiInfo {
+    std::string id;   ///< API model ID (may differ from turbot Model id)
+    std::string url;  ///< API base URL
+    std::string npm;  ///< npm package name (e.g. "@ai-sdk/anthropic")
+
+    [[nodiscard]] nlohmann::json to_json() const;
+    static ModelApiInfo from_json(const nlohmann::json& j);
+};
+
+/// Model token limits (mirrors opencode Provider.Model.limit)
+struct TURBOT_CORE_API ModelLimit {
+    int context = 4096;                 ///< Context window size
+    int output  = 32000;                ///< Max output tokens
+    std::optional<int> input;           ///< Max input tokens (optional)
+
+    [[nodiscard]] nlohmann::json to_json() const;
+    static ModelLimit from_json(const nlohmann::json& j);
+};
+
+/// Model information (mirrors opencode Provider.Model)
 struct TURBOT_CORE_API ModelInfo {
     std::string id;                        ///< Model identifier (e.g., "gpt-4")
     std::string provider_id;               ///< Provider identifier (e.g., "openai")
     std::string name;                      ///< Display name
     std::string description;               ///< Model description
     ModelCapabilities capabilities;        ///< Model capabilities
-    nlohmann::json pricing;                ///< Pricing info {"input": 0.01, "output": 0.03}
-    nlohmann::json limits;                 ///< Rate limits {"max_tokens": 4096, "rpm": 500}
-    int64_t context_window = 4096;         ///< Context window size
+    ModelApiInfo api;                      ///< API endpoint info (new — mirrors model.api)
+    ModelLimit limit;                      ///< Token limits (new — mirrors model.limit)
+    std::string release_date;              ///< Release date string (new — mirrors model.release_date)
+    nlohmann::json pricing;                ///< Pricing info {"input": 0.01, "output": 0.03, "cache": {...}}
+    nlohmann::json limits;                 ///< Legacy: rate limits JSON (kept for compat)
+    int64_t context_window = 4096;         ///< Legacy: context window (kept for compat, use limit.context)
 
     [[nodiscard]] nlohmann::json to_json() const;
     static ModelInfo from_json(const nlohmann::json& j);

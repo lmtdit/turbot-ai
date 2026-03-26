@@ -78,7 +78,7 @@ void GeminiProvider::initialize_models() {
             .name = "Gemini 2.5 Flash",
             .description = "Most capable Gemini model with adaptive thinking",
             .capabilities = {.temperature = true, .reasoning = true,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.000075}, {"output", 0.0003}},
             .limits = {{"max_tokens", 65536}, {"rpm", 1000}},
             .context_window = 1048576
@@ -90,7 +90,7 @@ void GeminiProvider::initialize_models() {
             .name = "Gemini 2.5 Pro",
             .description = "Most intelligent Gemini model for complex reasoning",
             .capabilities = {.temperature = true, .reasoning = true,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.00125}, {"output", 0.01}},
             .limits = {{"max_tokens", 65536}, {"rpm", 150}},
             .context_window = 1048576
@@ -102,7 +102,7 @@ void GeminiProvider::initialize_models() {
             .name = "Gemini 2.0 Flash",
             .description = "Fast and efficient Gemini 2.0 model",
             .capabilities = {.temperature = true, .reasoning = false,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.0001}, {"output", 0.0004}},
             .limits = {{"max_tokens", 8192}, {"rpm", 1000}},
             .context_window = 1048576
@@ -114,7 +114,7 @@ void GeminiProvider::initialize_models() {
             .name = "Gemini 2.0 Flash Thinking",
             .description = "Gemini 2.0 Flash with thinking / reasoning capability",
             .capabilities = {.temperature = true, .reasoning = true,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.0}, {"output", 0.0}},
             .limits = {{"max_tokens", 8192}, {"rpm", 10}},
             .context_window = 1048576
@@ -126,7 +126,7 @@ void GeminiProvider::initialize_models() {
             .name = "Gemini 1.5 Pro",
             .description = "Mid-size multimodal model optimised for complex tasks",
             .capabilities = {.temperature = true, .reasoning = false,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.00125}, {"output", 0.005}},
             .limits = {{"max_tokens", 8192}, {"rpm", 360}},
             .context_window = 2097152
@@ -138,7 +138,7 @@ void GeminiProvider::initialize_models() {
             .name = "Gemini 1.5 Flash",
             .description = "Fast and versatile model for diverse tasks",
             .capabilities = {.temperature = true, .reasoning = false,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.000075}, {"output", 0.0003}},
             .limits = {{"max_tokens", 8192}, {"rpm", 1000}},
             .context_window = 1048576

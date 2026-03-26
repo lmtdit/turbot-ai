@@ -9,16 +9,39 @@
 
 namespace turbot::core::provider {
 
+// ===== ModelModalities =====
+
+nlohmann::json ModelModalities::to_json() const {
+    return nlohmann::json{
+        {"text",  text},
+        {"image", image},
+        {"audio", audio},
+        {"video", video},
+        {"pdf",   pdf}
+    };
+}
+
+ModelModalities ModelModalities::from_json(const nlohmann::json& j) {
+    ModelModalities m;
+    m.text  = j.value("text",  true);
+    m.image = j.value("image", false);
+    m.audio = j.value("audio", false);
+    m.video = j.value("video", false);
+    m.pdf   = j.value("pdf",   false);
+    return m;
+}
+
 // ===== ModelCapabilities =====
 
 nlohmann::json ModelCapabilities::to_json() const {
     nlohmann::json j{
         {"temperature", temperature},
-        {"reasoning", reasoning},
-        {"tool_call", tool_call},
-        {"streaming", streaming},
-        {"vision", vision},
-        {"audio", audio}
+        {"reasoning",   reasoning},
+        {"attachment",  attachment},
+        {"tool_call",   tool_call},
+        {"streaming",   streaming},
+        {"input",       input.to_json()},
+        {"output",      output.to_json()}
     };
     // Only emit "interleavedField" when set (keeps JSON compact for non-interleaved models).
     if (!interleaved_field.empty()) {
@@ -30,11 +53,22 @@ nlohmann::json ModelCapabilities::to_json() const {
 ModelCapabilities ModelCapabilities::from_json(const nlohmann::json& j) {
     ModelCapabilities caps;
     caps.temperature = j.value("temperature", true);
-    caps.reasoning = j.value("reasoning", false);
-    caps.tool_call = j.value("tool_call", true);
-    caps.streaming = j.value("streaming", true);
-    caps.vision = j.value("vision", false);
-    caps.audio = j.value("audio", false);
+    caps.reasoning   = j.value("reasoning",   false);
+    caps.attachment  = j.value("attachment",  false);
+    caps.tool_call   = j.value("tool_call",   true);
+    caps.streaming   = j.value("streaming",   true);
+
+    if (j.contains("input") && j["input"].is_object()) {
+        caps.input = ModelModalities::from_json(j["input"]);
+    } else {
+        // Legacy: accept top-level "vision" / "audio" fields
+        caps.input.image = j.value("vision", false);
+        caps.input.audio = j.value("audio",  false);
+    }
+    if (j.contains("output") && j["output"].is_object()) {
+        caps.output = ModelModalities::from_json(j["output"]);
+    }
+
     // Accept both camelCase "interleavedField" and snake_case "interleaved_field".
     if (j.contains("interleavedField") && j["interleavedField"].is_string()) {
         caps.interleaved_field = j["interleavedField"].get<std::string>();
@@ -44,32 +78,75 @@ ModelCapabilities ModelCapabilities::from_json(const nlohmann::json& j) {
     return caps;
 }
 
+// ===== ModelApiInfo =====
+
+nlohmann::json ModelApiInfo::to_json() const {
+    return nlohmann::json{{"id", id}, {"url", url}, {"npm", npm}};
+}
+
+ModelApiInfo ModelApiInfo::from_json(const nlohmann::json& j) {
+    ModelApiInfo a;
+    a.id  = j.value("id",  std::string{});
+    a.url = j.value("url", std::string{});
+    a.npm = j.value("npm", std::string{});
+    return a;
+}
+
+// ===== ModelLimit =====
+
+nlohmann::json ModelLimit::to_json() const {
+    nlohmann::json j{{"context", context}, {"output", output}};
+    if (input.has_value()) j["input"] = *input;
+    return j;
+}
+
+ModelLimit ModelLimit::from_json(const nlohmann::json& j) {
+    ModelLimit l;
+    l.context = j.value("context", 4096);
+    l.output  = j.value("output",  32000);
+    if (j.contains("input") && j["input"].is_number_integer()) {
+        l.input = j["input"].get<int>();
+    }
+    return l;
+}
+
 // ===== ModelInfo =====
 
 nlohmann::json ModelInfo::to_json() const {
-    return nlohmann::json{
-        {"id", id},
-        {"provider_id", provider_id},
-        {"name", name},
-        {"description", description},
+    nlohmann::json j{
+        {"id",           id},
+        {"provider_id",  provider_id},
+        {"name",         name},
+        {"description",  description},
         {"capabilities", capabilities.to_json()},
-        {"pricing", pricing},
-        {"limits", limits},
+        {"api",          api.to_json()},
+        {"limit",        limit.to_json()},
+        {"release_date", release_date},
+        {"pricing",      pricing},
+        {"limits",       limits},
         {"context_window", context_window}
     };
+    return j;
 }
 
 ModelInfo ModelInfo::from_json(const nlohmann::json& j) {
     ModelInfo info;
-    info.id = j.value("id", std::string{});
-    info.provider_id = j.value("provider_id", std::string{});
-    info.name = j.value("name", std::string{});
-    info.description = j.value("description", std::string{});
+    info.id           = j.value("id",           std::string{});
+    info.provider_id  = j.value("provider_id",  std::string{});
+    info.name         = j.value("name",         std::string{});
+    info.description  = j.value("description",  std::string{});
+    info.release_date = j.value("release_date", std::string{});
     if (j.contains("capabilities")) {
         info.capabilities = ModelCapabilities::from_json(j["capabilities"]);
     }
-    info.pricing = j.value("pricing", nlohmann::json::object());
-    info.limits = j.value("limits", nlohmann::json::object());
+    if (j.contains("api") && j["api"].is_object()) {
+        info.api = ModelApiInfo::from_json(j["api"]);
+    }
+    if (j.contains("limit") && j["limit"].is_object()) {
+        info.limit = ModelLimit::from_json(j["limit"]);
+    }
+    info.pricing        = j.value("pricing",        nlohmann::json::object());
+    info.limits         = j.value("limits",         nlohmann::json::object());
     info.context_window = j.value("context_window", int64_t{4096});
     return info;
 }
@@ -691,7 +768,7 @@ nlohmann::json ModelsDev::build_fallback_snapshot() {
                 {"temperature", m.capabilities.temperature},
                 {"reasoning",   m.capabilities.reasoning},
                 {"tool_call",   m.capabilities.tool_call},
-                {"attachment",  m.capabilities.vision},
+                {"attachment",  m.capabilities.attachment},
                 {"release_date", "2024-01-01"}  // placeholder
             };
         }

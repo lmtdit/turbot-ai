@@ -38,7 +38,7 @@ void AnthropicProvider::initialize_models() {
             .provider_id = "anthropic",
             .name = "Claude 3.5 Sonnet",
             .description = "Most intelligent model in the Claude 3.5 family",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.003}, {"output", 0.015}},
             .limits = {{"max_tokens", 8192}, {"rpm", 50}},
             .context_window = 200000
@@ -48,7 +48,7 @@ void AnthropicProvider::initialize_models() {
             .provider_id = "anthropic",
             .name = "Claude 3.5 Haiku",
             .description = "Fastest model in the Claude 3.5 family",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.0008}, {"output", 0.004}},
             .limits = {{"max_tokens", 8192}, {"rpm", 50}},
             .context_window = 200000
@@ -59,7 +59,7 @@ void AnthropicProvider::initialize_models() {
             .provider_id = "anthropic",
             .name = "Claude 3 Opus",
             .description = "Most powerful model for highly complex tasks",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.015}, {"output", 0.075}},
             .limits = {{"max_tokens", 4096}, {"rpm", 50}},
             .context_window = 200000
@@ -69,7 +69,7 @@ void AnthropicProvider::initialize_models() {
             .provider_id = "anthropic",
             .name = "Claude 3 Sonnet",
             .description = "Balance of speed and intelligence",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.003}, {"output", 0.015}},
             .limits = {{"max_tokens", 4096}, {"rpm", 50}},
             .context_window = 200000
@@ -79,7 +79,7 @@ void AnthropicProvider::initialize_models() {
             .provider_id = "anthropic",
             .name = "Claude 3 Haiku",
             .description = "Fastest and most compact model",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.00025}, {"output", 0.00125}},
             .limits = {{"max_tokens", 4096}, {"rpm", 50}},
             .context_window = 200000

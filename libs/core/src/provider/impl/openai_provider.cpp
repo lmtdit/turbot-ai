@@ -33,7 +33,7 @@ void OpenAIProvider::initialize_models() {
             .provider_id = "openai",
             .name = "GPT-4o",
             .description = "Most capable GPT-4 model, optimized for speed and intelligence",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.005}, {"output", 0.015}},
             .limits = {{"max_tokens", 16384}, {"rpm", 500}},
             .context_window = 128000
@@ -43,7 +43,7 @@ void OpenAIProvider::initialize_models() {
             .provider_id = "openai",
             .name = "GPT-4o Mini",
             .description = "Affordable and intelligent small model",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.00015}, {"output", 0.0006}},
             .limits = {{"max_tokens", 16384}, {"rpm", 500}},
             .context_window = 128000
@@ -53,7 +53,7 @@ void OpenAIProvider::initialize_models() {
             .provider_id = "openai",
             .name = "GPT-4 Turbo",
             .description = "Previous generation GPT-4 model with vision",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.01}, {"output", 0.03}},
             .limits = {{"max_tokens", 4096}, {"rpm", 500}},
             .context_window = 128000

@@ -91,7 +91,7 @@ void AzureProvider::initialize_models() {
             .name = "GPT-4o (Azure)",
             .description = "Azure-hosted GPT-4o, optimised for speed and intelligence",
             .capabilities = {.temperature = true, .reasoning = false,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.005}, {"output", 0.015}},
             .limits = {{"max_tokens", 16384}, {"rpm", 500}},
             .context_window = 128000
@@ -102,7 +102,7 @@ void AzureProvider::initialize_models() {
             .name = "GPT-4o Mini (Azure)",
             .description = "Affordable and intelligent small model on Azure",
             .capabilities = {.temperature = true, .reasoning = false,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.00015}, {"output", 0.0006}},
             .limits = {{"max_tokens", 16384}, {"rpm", 500}},
             .context_window = 128000
@@ -113,7 +113,7 @@ void AzureProvider::initialize_models() {
             .name = "GPT-4 Turbo (Azure)",
             .description = "GPT-4 Turbo on Azure",
             .capabilities = {.temperature = true, .reasoning = false,
-                             .tool_call = true, .streaming = true, .vision = true},
+                             .tool_call = true, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.01}, {"output", 0.03}},
             .limits = {{"max_tokens", 4096}, {"rpm", 500}},
             .context_window = 128000

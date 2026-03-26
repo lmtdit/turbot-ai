@@ -73,7 +73,7 @@ void BailianProvider::initialize_models() {
             .provider_id = "bailian",
             .name = "通义千问-VL-Max",
             .description = "视觉语言模型，支持图像理解",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = false, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = false, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.02}, {"output", 0.02}},
             .limits = {{"max_tokens", 6000}, {"rpm", 60}},
             .context_window = 32768

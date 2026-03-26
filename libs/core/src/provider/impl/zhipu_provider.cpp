@@ -82,7 +82,7 @@ void ZhipuProvider::initialize_models() {
             .provider_id = "zhipu",
             .name = "GLM-4V-Plus",
             .description = "视觉语言模型，支持图像理解",
-            .capabilities = {.temperature = true, .reasoning = false, .tool_call = false, .streaming = true, .vision = true},
+            .capabilities = {.temperature = true, .reasoning = false, .tool_call = false, .streaming = true, .input = {.image = true}},
             .pricing = {{"input", 0.01}, {"output", 0.01}},
             .limits = {{"max_tokens", 4096}, {"rpm", 60}},
             .context_window = 8192
