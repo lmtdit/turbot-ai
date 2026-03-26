@@ -13,10 +13,12 @@
 #include <fmt/format.h>
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <filesystem>
 #include <limits>
 #include <sstream>
+#include <system_error>
 
 namespace turbot::core::session {
 
@@ -495,6 +497,21 @@ LoopResult SessionLoop::process_llm_response() {
                 } catch (const APIError&) {
                     // Let APIError propagate directly — it will be handled by
                     // RetryManager::with_retry (is_retryable check) or the outer catch.
+                    throw;
+                } catch (const std::system_error& e) {
+                    // Mirrors opencode message-v2.ts: ECONNRESET is classified as
+                    // retryable (isRetryable: true). Map to APIError so RetryManager
+                    // recognises the "ECONNRESET" code via is_retryable().
+                    // NOTE: std::system_error inherits from std::runtime_error, so
+                    // this catch must appear BEFORE the runtime_error handler.
+                    const std::string_view msg = e.what();
+                    if (e.code().value() == ECONNRESET ||
+                        msg.find("ECONNRESET") != std::string_view::npos) {
+                        if (abort_flag_->load(std::memory_order_acquire)) {
+                            throw AbortRetryException{};
+                        }
+                        throw APIError{0, "Connection reset by server", std::string("ECONNRESET")};
+                    }
                     throw;
                 } catch (const std::runtime_error& e) {
                     // Mirrors opencode message-v2.ts: FetchDecompressionError (ZlibError)

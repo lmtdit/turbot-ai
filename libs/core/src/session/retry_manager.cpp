@@ -79,7 +79,9 @@ bool RetryManager::is_retryable(const APIError& error) {
         if (code == "rate_limit_exceeded" ||
             code == "server_overloaded" ||
             code == "timeout" ||
-            code == "temporary_error") {
+            code == "temporary_error" ||
+            code == "ZlibError" ||      // mirrors opencode: ZlibError is retryable (message-v2.ts)
+            code == "ECONNRESET") {     // mirrors opencode: ECONNRESET is retryable (message-v2.ts)
             return true;
         }
     }
