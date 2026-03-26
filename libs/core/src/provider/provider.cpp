@@ -124,8 +124,16 @@ nlohmann::json ModelInfo::to_json() const {
         {"release_date", release_date},
         {"pricing",      pricing},
         {"limits",       limits},
-        {"context_window", context_window}
+        {"context_window", context_window},
+        {"status",       status},
+        {"options",      options}
     };
+    if (family.has_value()) j["family"] = *family;
+    if (!headers.empty()) {
+        nlohmann::json h = nlohmann::json::object();
+        for (const auto& [k, v] : headers) h[k] = v;
+        j["headers"] = h;
+    }
     return j;
 }
 
@@ -136,6 +144,7 @@ ModelInfo ModelInfo::from_json(const nlohmann::json& j) {
     info.name         = j.value("name",         std::string{});
     info.description  = j.value("description",  std::string{});
     info.release_date = j.value("release_date", std::string{});
+    info.status       = j.value("status",       std::string{"active"});
     if (j.contains("capabilities")) {
         info.capabilities = ModelCapabilities::from_json(j["capabilities"]);
     }
@@ -148,6 +157,15 @@ ModelInfo ModelInfo::from_json(const nlohmann::json& j) {
     info.pricing        = j.value("pricing",        nlohmann::json::object());
     info.limits         = j.value("limits",         nlohmann::json::object());
     info.context_window = j.value("context_window", int64_t{4096});
+    info.options        = j.value("options",        nlohmann::json::object());
+    if (j.contains("family") && j["family"].is_string()) {
+        info.family = j["family"].get<std::string>();
+    }
+    if (j.contains("headers") && j["headers"].is_object()) {
+        for (auto& [k, v] : j["headers"].items()) {
+            if (v.is_string()) info.headers[k] = v.get<std::string>();
+        }
+    }
     return info;
 }
 

@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace turbot::core::provider {
@@ -87,6 +88,12 @@ struct TURBOT_CORE_API ModelInfo {
     nlohmann::json pricing;                ///< Pricing info {"input": 0.01, "output": 0.03, "cache": {...}}
     nlohmann::json limits;                 ///< Legacy: rate limits JSON (kept for compat)
     int64_t context_window = 4096;         ///< Legacy: context window (kept for compat, use limit.context)
+
+    // G77: additional fields mirroring opencode Provider.Model
+    std::optional<std::string> family;                         ///< Model family (e.g. "gpt-4", "claude-3")
+    std::string status = "active";                             ///< Release status: alpha/beta/deprecated/active
+    nlohmann::json options = nlohmann::json::object();         ///< Provider-level model options
+    std::unordered_map<std::string, std::string> headers;      ///< Default HTTP headers for this model
 
     [[nodiscard]] nlohmann::json to_json() const;
     static ModelInfo from_json(const nlohmann::json& j);
